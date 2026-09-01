@@ -7,7 +7,8 @@ interactive viewer: distributions, distances, contacts, and the objects themselv
 An **object** is one segmented thing measured as a whole, given as a folder: a source
 image, one mask that bounds the object, and the label/mask volumes inside it. In this
 project an object is a cell and its bounding mask is the plasma membrane, so `--object-mask pm`.
-Nothing about the tool assumes that: the mask is always named explicitly, never guessed.
+Nothing about the tool assumes that: the mask is named explicitly, never guessed, and
+may be left out entirely - then the entities are measured where they lie.
 
 Objects can be volumes or planes. A 2D object is measured as a plane, so area, perimeter,
 circularity and one polarity angle; a 3D one as a volume, so volume, surface area,
@@ -105,9 +106,10 @@ again for the overlay) is the most expensive part of a run.
 Useful flags, see `pixel-patrol-anatomy process --help` for the rest:
 
 - `--voxel-size-um z,y,x`: manual voxel size, otherwise inferred from the source TIFF
-- `--object-mask NAME`: **required**, the mask that bounds each object, e.g. `pm`.
-  Everything is measured relative to it, so it is never inferred; `dry-run` lists the
-  masks each folder has
+- `--object-mask NAME`: the mask that bounds each object, e.g. `pm`. Everything is measured
+  relative to it, so it is never inferred; `dry-run` lists the masks each folder has. Leave
+  it out and nothing bounds the object: no clipping, no cropping, and the columns that need
+  a boundary (polarity, the object's own extent) are simply not written
 - `--no-clip`: measure outside the object mask too. Entities are clipped to it by
   default, because that is what naming a bounding mask means: a field of view often
   holds neighbouring cells, and on one real alpha cell 3678 of 8800 granules lay

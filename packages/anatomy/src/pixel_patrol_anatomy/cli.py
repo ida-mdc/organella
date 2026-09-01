@@ -232,11 +232,12 @@ def colours(report: Path, palette: Path) -> None:
 @click.option("--paths", "-p", multiple=True,
               help="Subdirectory to import as its own group (repeatable). Becomes the "
                    "default grouping in the viewer.")
-@click.option("--object-mask", required=True, metavar="NAME",
-              help="Mask that bounds each object, e.g. pm. Required, and never guessed: "
-                   "every measurement is relative to it. The region is cropped to it and "
-                   "polarity is measured from its centroid. Run 'dry-run' to see the masks "
-                   "each folder has.")
+@click.option("--object-mask", default=None, metavar="NAME",
+              help="Mask that bounds each object, e.g. pm. Never guessed: everything is "
+                   "measured relative to it, the entities are clipped and cropped to it, "
+                   "and polarity is measured from its centroid. Leave it out and the "
+                   "entities are measured where they lie, without those columns. Run "
+                   "'dry-run' to see the masks each folder has.")
 @click.option("--voxel-size-um", default=None, metavar="Z,Y,X",
               help="Voxel size in µm. Inferred from the source TIFF metadata when omitted.")
 @click.option("--no-clip", "no_clip", is_flag=True,
@@ -422,8 +423,8 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
 @click.option("--out-dir", "-o", required=True,
               type=click.Path(file_okay=False, path_type=Path),
               help="Where to write <object>/geometry.parquet.")
-@click.option("--object-mask", required=True, metavar="NAME",
-              help="Mask that bounds each object, e.g. pm. Required, as for 'process'.")
+@click.option("--object-mask", default=None, metavar="NAME",
+              help="Mask that bounds each object, e.g. pm. Optional, as for 'process'.")
 @click.option("--voxel-size-um", default=None, metavar="Z,Y,X",
               help="Voxel size in µm. Inferred from the source TIFF metadata when omitted.")
 @click.option("--no-clip", "no_clip", is_flag=True,

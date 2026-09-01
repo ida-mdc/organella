@@ -149,9 +149,11 @@ def _channel_order(dataset: Dataset) -> List[str]:
     Ordered by *name*, never by kind, so the C axis of an object does not shift when
     auto-label promotion turns a mask into a label.
     """
-    object_mask_key = f"mask:{dataset.object_mask_name}"
+    object_mask_key = (f"mask:{dataset.object_mask_name}"
+                       if dataset.object_mask_name else None)
     others = sorted(k for k in dataset.entities if k != object_mask_key)
-    return ([object_mask_key] if object_mask_key in dataset.entities else []) + others
+    first = [object_mask_key] if object_mask_key in dataset.entities else []
+    return first + others
 
 
 class ObjectLoader:
@@ -259,7 +261,10 @@ class ObjectLoader:
             voxel_size = infer_voxel_size_um_from_source(dataset.source, ndim)
             voxel_size_source = "tiff-metadata"
 
-        object_mask_key = f"mask:{dataset.object_mask_name}"
+        # None when no mask was named: nothing bounds the object, so it is measured as it
+        # lies and the columns that need a boundary go unfilled.
+        object_mask_key = (f"mask:{dataset.object_mask_name}"
+                           if dataset.object_mask_name else None)
         volumes = {key: load_volume(entity.path) for key, entity in dataset.entities.items()}
 
         for key, vol in volumes.items():
@@ -269,13 +274,13 @@ class ObjectLoader:
                     f"source image has {source_shape}"
                 )
 
-        if cfg.clip:
-            inside = volumes[object_mask_key] > 0
-            for key in volumes:
-                if key != object_mask_key:
-                    volumes[key] = clip_to_object_mask(volumes[key], inside)
-
-        volumes = crop_to_object_bbox(volumes, object_mask_key)
+        if object_mask_key is not None:
+            if cfg.clip:
+                inside = volumes[object_mask_key] > 0
+                for key in volumes:
+                    if key != object_mask_key:
+                        volumes[key] = clip_to_object_mask(volumes[key], inside)
+            volumes = crop_to_object_bbox(volumes, object_mask_key)
         if cfg.auto_label_masks:
             promote_multicomponent_masks(volumes, dataset.entities, object_mask_key)
 
@@ -303,7 +308,8 @@ class ObjectLoader:
         # The origin for every polarity metric, computed once here so a leaf processor that
         # sees one entity can still measure against it. From the stack: _stack_narrowest has
         # released the source volumes.
-        center = object_center_um(stack[keys.index(object_mask_key)], voxel_size)
+        center = (object_center_um(stack[keys.index(object_mask_key)], voxel_size)
+                  if object_mask_key is not None else None)
         if center is not None:
             meta.update({f"object_center_{ax.lower()}_um": value
                          for ax, value in zip(axes, center)})

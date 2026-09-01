@@ -10,10 +10,15 @@ and any number of label/mask volumes inside it. Everything is measured relative 
 bounding mask: the region is cropped to it, and every polarity metric is measured from its
 centroid.
 
-Which mask that is, you say: `--object-mask NAME` is required and never inferred. It decides
+Which mask that is, you say: `--object-mask NAME` is never inferred. It decides
 the origin of every distance and polarity in the report, so guessing it from file names
 would mean a regex quietly choosing what the numbers are relative to. `dry-run` lists the
 masks in each folder, which is where the name comes from.
+
+Leaving it out is allowed and means what it says: nothing bounds the object. The entities
+are measured where they lie, with no clipping and no cropping, and the columns that need a
+boundary - the polarity of each instance, the object's own extent - are not written at all
+rather than filled with something invented.
 
 Reports are stamped with the `object anatomy` flavour, which the viewer shows as a chip in
 the report-info strip at the foot of the page, beside the project name, version and date.
@@ -416,7 +421,7 @@ same name:
 
 | Variable | Default | CLI flag |
 | --- | --- | --- |
-| `PP_ANATOMY_OBJECT_MASK` | *required* | `--object-mask NAME` |
+| `PP_ANATOMY_OBJECT_MASK` | unset (nothing bounds the object) | `--object-mask NAME` |
 | `PP_ANATOMY_VOXEL_SIZE_UM` | inferred from TIFF metadata | `--voxel-size-um z,y,x` (3D) or `y,x` (2D) |
 | `PP_ANATOMY_NO_CLIP` | `0` (entities are clipped to the object mask) | `--no-clip` |
 | `PP_ANATOMY_AUTO_LABEL_MASKS` | `0` | `--auto-label-masks` |

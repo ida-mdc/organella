@@ -126,13 +126,47 @@ def test_a_label_entity_cannot_be_the_object_mask(object_dir, monkeypatch):
         ObjectLoader().load(object_dir)
 
 
-def test_naming_nothing_asks_to_be_told_and_lists_the_choices(object_dir, monkeypatch):
+def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir, monkeypatch):
+    """No object mask is a choice, not an omission.
+
+    Nothing is guessed either way - a mask called "pm" is no more self-explanatory than one
+    called "cortex" - so without a name nothing bounds the object, and the columns that need
+    a boundary are simply not filled.
+    """
     monkeypatch.delenv("PP_ANATOMY_OBJECT_MASK", raising=False)
 
-    # Nothing is guessed in either direction: a mask called "pm" is no more self-explanatory
-    # than one called "cortex", so both ask.
-    with pytest.raises(FileNotFoundError, match="No object mask named.*nucleus, pm"):
-        ObjectLoader().load(object_dir)
+    record = ObjectLoader().load(object_dir)
+
+    assert record.meta["object_mask_name"] is None
+    assert not any(k.startswith("object_center_") for k in record.meta), \
+        "polarity has no origin without an object mask, so it must not claim one"
+
+
+def test_without_a_mask_nothing_is_cropped_or_clipped_away(tmp_path, monkeypatch):
+    """The same folder, with and without a mask named: the full field versus the object."""
+    import numpy as np
+    from pixel_patrol_anatomy.plugins.loaders.object_loader import ObjectLoader
+
+    folder = _object_with_something_outside(tmp_path)
+    monkeypatch.setenv("PP_ANATOMY_VOXEL_SIZE_UM", "0.1,0.02,0.02")
+
+    monkeypatch.setenv("PP_ANATOMY_OBJECT_MASK", "pm")
+    bounded = ObjectLoader().load(folder)
+    monkeypatch.delenv("PP_ANATOMY_OBJECT_MASK", raising=False)
+    whole = ObjectLoader().load(folder)
+
+    # Cropped to the mask's bounding box when there is one, the full field when there is not.
+    assert bounded.data.shape[1:] != whole.data.shape[1:]
+    assert whole.data.shape[1:] == (12, 40, 40)
+
+    def labels(record):
+        names = list(record.meta["channel_names"])
+        c = record.dim_order.index("C")
+        vol = np.take(record.data, names.index("mito"), axis=c)
+        return set(int(v) for v in np.unique(vol) if v)
+
+    assert labels(bounded) == {1}      # clipped to the object
+    assert labels(whole) == {1, 2}     # nothing to clip to
 
 
 # ── clipping to the object mask ──────────────────────────────────────────────

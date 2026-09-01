@@ -29,7 +29,7 @@ class Entity:
 @dataclass
 class Dataset:
     source: Path
-    object_mask_name: str
+    object_mask_name: str | None
     entities: Dict[str, Entity]
 
 
@@ -79,15 +79,15 @@ def choose_object_mask(entities: Dict[str, Entity], requested: str | None) -> Tu
     """The mask that bounds each object: the one that was asked for, and only that.
 
     Returns (name, error). Nothing is guessed from file names: the region is cropped to this
-    mask and every distance and polarity is measured from its centroid, so it decides the
-    origin of every number in the report. A mask the folder does not have is an error.
+    mask, clipped to it, and every distance and polarity is measured from its centroid, so it
+    decides the origin of every number in the report. A mask the folder does not have is an
+    error; naming none at all is not. Without one, the entities are measured where they lie
+    and the columns that need an object simply go unfilled.
     """
     masks = object_masks(entities)
     available = ", ".join(masks) or "none"
     if requested is None:
-        return None, (f"No object mask named. Pass --object-mask NAME (masks in this folder: "
-                      f"{available}) to say which mask bounds the object. The region is "
-                      "cropped to it and every distance and polarity is measured from it.")
+        return None, None
     wanted = normalize_name(requested)
     if wanted in masks:
         return wanted, None
@@ -180,7 +180,7 @@ def discover_dataset(object_dir: Path, object_mask: str | None = None) -> Datase
     d = inspect_object_dir(object_dir, object_mask)
     if d.errors:
         raise FileNotFoundError(d.errors[0])
-    assert d.source is not None and d.object_mask_name is not None
+    assert d.source is not None
     return Dataset(source=d.source, object_mask_name=d.object_mask_name, entities=d.entities)
 
 
