@@ -246,14 +246,45 @@ def clip_to_object_mask(arr: np.ndarray, inside: np.ndarray) -> np.ndarray:
     return out
 
 
+def foreground_bounds(binary: np.ndarray) -> Optional[List[Tuple[int, int]]]:
+    """Where the foreground starts and stops along each axis, or None if there is none.
+
+    One reduction per axis, not ``np.argwhere``: an object mask holds tens of millions of
+    samples and their coordinates are gigabytes of int64, when all that is wanted from them
+    is two numbers per axis. Measured on a 53-Mvoxel mask, listing them peaked at 2.5 GB and
+    took 1.6 s, against nothing and 34 ms this way.
+    """
+    bounds: List[Tuple[int, int]] = []
+    for axis in range(binary.ndim):
+        others = tuple(i for i in range(binary.ndim) if i != axis)
+        present = np.flatnonzero(binary.any(axis=others))
+        if not len(present):
+            return None
+        bounds.append((int(present[0]), int(present[-1]) + 1))
+    return bounds
+
+
+def foreground_centroid(binary: np.ndarray) -> Optional[np.ndarray]:
+    """Mean position of the foreground, in samples, in array order. None if there is none.
+
+    One weighted reduction per axis, for the reason ``foreground_bounds`` gives: listing the
+    coordinates of a whole-object mask to take one mean of them costs gigabytes.
+    """
+    total = int(binary.sum())
+    if not total:
+        return None
+    return np.array([
+        float((binary.sum(axis=tuple(j for j in range(binary.ndim) if j != axis))
+               * np.arange(binary.shape[axis])).sum()) / total
+        for axis in range(binary.ndim)
+    ])
+
+
 def crop_to_object_bbox(volumes: Dict[str, np.ndarray], object_mask_key: str) -> Dict[str, np.ndarray]:
-    inside = volumes[object_mask_key] > 0
-    coords = np.argwhere(inside)
-    if coords.size == 0:
+    bounds = foreground_bounds(volumes[object_mask_key] > 0)
+    if bounds is None:
         return volumes
-    mins = coords.min(axis=0)
-    maxs = coords.max(axis=0) + 1
-    sl = tuple(slice(int(mins[i]), int(maxs[i])) for i in range(coords.shape[1]))
+    sl = tuple(slice(lo, hi) for lo, hi in bounds)
     return {k: v[sl] for k, v in volumes.items()}
 
 

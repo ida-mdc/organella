@@ -89,32 +89,57 @@ def test_a_row_with_no_geometry_imports_nothing(blender_script):
 # hazard is reusing a file the killed run left half-written, which would lose an object's
 # geometry with no error raised anywhere.
 
-from pixel_patrol_anatomy.plugins.processors.mesh import _usable_geometry
+from pixel_patrol_anatomy.plugins.processors.mesh import (
+    _record_settings,
+    _usable_geometry,
+)
+
+FP = "settings-abc123"
+
+
+def _geometry(tmp_path, rows=2, fingerprint=FP):
+    import polars as pl
+    path = tmp_path / "geometry.parquet"
+    pl.DataFrame({"object_id": ["a", "b"][:rows], "mesh": [b"x", b"y"][:rows]}).write_parquet(path)
+    if fingerprint is not None:
+        _record_settings(tmp_path, fingerprint)
+    return path
 
 
 def test_missing_geometry_is_written_again(tmp_path):
-    assert _usable_geometry(tmp_path / "nothing-here.parquet") is None
+    assert _usable_geometry(tmp_path / "nothing-here.parquet", FP) is None
 
 
 def test_complete_geometry_is_reused(tmp_path):
-    import polars as pl
-    path = tmp_path / "geometry.parquet"
-    pl.DataFrame({"object_id": ["a", "b"], "mesh": [b"x", b"y"]}).write_parquet(path)
-    assert _usable_geometry(path) == 2
+    assert _usable_geometry(_geometry(tmp_path), FP) == 2
 
 
 def test_geometry_with_no_rows_is_written_again(tmp_path):
     import polars as pl
     path = tmp_path / "geometry.parquet"
     pl.DataFrame({"object_id": [], "mesh": []}).write_parquet(path)
-    assert _usable_geometry(path) is None
+    _record_settings(tmp_path, FP)
+    assert _usable_geometry(path, FP) is None
 
 
 def test_a_truncated_file_is_written_again_rather_than_reused(tmp_path):
     # What a killed run actually leaves behind.
-    import polars as pl
-    path = tmp_path / "geometry.parquet"
-    pl.DataFrame({"object_id": ["a"], "mesh": [b"x"]}).write_parquet(path)
+    path = _geometry(tmp_path)
     whole = path.read_bytes()
     path.write_bytes(whole[: len(whole) // 2])
-    assert _usable_geometry(path) is None
+    assert _usable_geometry(path, FP) is None
+
+
+def test_geometry_from_other_settings_is_not_reused(tmp_path):
+    """Meshes written with --no-clip, or another voxel size, are of something else.
+
+    Reusing them is worse than having none: the report would describe one thing and the 3D
+    widgets draw another, with nothing anywhere saying so.
+    """
+    path = _geometry(tmp_path, fingerprint="measured-under-something-else")
+    assert _usable_geometry(path, FP) is None
+
+
+def test_geometry_from_before_settings_were_recorded_is_not_trusted(tmp_path):
+    path = _geometry(tmp_path, fingerprint=None)
+    assert _usable_geometry(path, FP) is None

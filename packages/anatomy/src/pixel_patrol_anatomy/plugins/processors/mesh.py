@@ -42,14 +42,24 @@ from pixel_patrol_anatomy.skeletons import CACHE
 logger = logging.getLogger(__name__)
 
 
-def _usable_geometry(path: Path) -> Optional[int]:
+SETTINGS_FILENAME = "settings.json"
+
+
+def _usable_geometry(path: Path, fingerprint: str) -> Optional[int]:
     """How many rows an existing geometry file has, or None if it should be written again.
 
-    Checked rather than assumed. A run killed mid-write - which is exactly the situation
-    --reuse-geometry exists for - can leave a file that opens and holds nothing, and reusing
-    that would lose an object's geometry with no error raised anywhere.
+    Checked rather than assumed, in two ways. A run killed mid-write - exactly the situation
+    --reuse-geometry exists for - can leave a file that opens and holds nothing. And geometry
+    written under other settings is worse than none: change the voxel size or --no-clip and
+    the old meshes are of something else, with nothing in the output to say so. Geometry from
+    before this check has no settings recorded, so it is written again rather than trusted.
     """
     if not path.is_file():
+        return None
+    recorded = _recorded_settings(path.parent)
+    if recorded != fingerprint:
+        logger.info("anatomy: geometry at %s was written under other settings; meshing again",
+                    path.parent)
         return None
     try:
         import pyarrow.parquet as pq
@@ -63,6 +73,26 @@ def _usable_geometry(path: Path) -> Optional[int]:
         logger.warning("anatomy: %s holds no rows; writing it again", path)
         return None
     return rows
+
+
+def _recorded_settings(folder: Path) -> Optional[str]:
+    """The fingerprint the geometry in this folder was written under, if it recorded one."""
+    import json
+
+    try:
+        return str(json.loads((folder / SETTINGS_FILENAME).read_text())["fingerprint"])
+    except Exception:  # noqa: BLE001 - absent or unreadable both mean "do not trust it"
+        return None
+
+
+def _record_settings(folder: Path, fingerprint: str) -> None:
+    import json
+
+    try:
+        (folder / SETTINGS_FILENAME).write_text(
+            json.dumps({"fingerprint": fingerprint}, indent=2) + "\n")
+    except OSError as exc:
+        logger.warning("anatomy: could not record the settings beside %s (%s)", folder, exc)
 
 
 class MeshProcessor:
@@ -113,8 +143,9 @@ class MeshProcessor:
 
         object_id = str(meta.get("object_id") or "object")
         destination = Path(cfg.mesh_dir) / object_id / GEOMETRY_FILENAME
+        fingerprint = cfg.fingerprint()
         if cfg.reuse_geometry:
-            rows_already = _usable_geometry(destination)
+            rows_already = _usable_geometry(destination, fingerprint)
             if rows_already is not None:
                 logger.info("anatomy: %s: reusing %d geometry rows already at %s",
                             object_id, rows_already, destination)
@@ -142,6 +173,7 @@ class MeshProcessor:
             metrics=metrics,
         )
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)
+        _record_settings(path.parent, fingerprint)
         # A plane is outlined, not meshed, so count and name whichever it produced.
         drawable = "outline" if len(record.dim_order) - 1 == 2 else "mesh"
         with_geometry = sum(1 for row in rows if row.get(drawable))

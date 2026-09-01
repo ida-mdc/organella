@@ -67,10 +67,11 @@ def object_center_um(
 
     Dimension-agnostic: three coordinates for a volume, two for a plane, in array order.
     """
-    coords = np.argwhere(object_mask > 0)
-    if coords.size == 0:
+    from pixel_patrol_anatomy.discovery import foreground_centroid
+
+    centroid = foreground_centroid(object_mask > 0)
+    if centroid is None:
         return None
-    centroid = coords.mean(axis=0)
     return tuple(float(centroid[i] * float(voxel_size[i])) for i in range(len(voxel_size)))
 
 

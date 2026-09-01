@@ -277,3 +277,62 @@ def test_an_unreadable_part_is_measured_again_rather_than_trusted(tmp_path):
     resumed = _analysed(root, parts, resume=True)
     assert not resumed.failures, resumed.failures
     assert resumed.rows.shape == fresh.rows.shape, "a truncated part cost an object its rows"
+
+
+def test_resume_will_not_reuse_rows_measured_under_other_settings(tmp_path, monkeypatch):
+    """The trap this closes: adding --auto-clip and keeping --resume.
+
+    Both caches used to key on the object's name alone, so changing what a run measures and
+    resuming would hand back the old answer with nothing to say it no longer matched.
+    """
+    import os
+    from synthetic import make_dataset
+    root = make_dataset(tmp_path / "objects")
+    parts = tmp_path / "parts"
+
+    fresh = _analysed(root, parts, resume=False)
+    assert not fresh.failures, fresh.failures
+    assert list(parts.glob("*.parquet"))
+
+    # Same objects, different question: measure outside the object mask too.
+    os.environ["PP_ANATOMY_NO_CLIP"] = "1"
+    try:
+        resumed = _analysed(root, parts, resume=True)
+    finally:
+        os.environ.pop("PP_ANATOMY_NO_CLIP", None)
+
+    assert not resumed.failures, resumed.failures
+    assert resumed.rows.shape[0] == fresh.rows.shape[0]
+
+
+def test_a_part_from_other_settings_is_refused_outright(tmp_path):
+    """The check itself, without relying on the measurements happening to differ."""
+    result = pipeline.ObjectResult("cell_a", object_row={"obs_level": 0, "object_id": "cell_a"})
+    pipeline._write_part(tmp_path, result, "settings-as-measured")
+    path = pipeline._part_path(tmp_path, "cell_a")
+
+    assert pipeline._read_part(path, "settings-as-measured") is not None
+    assert pipeline._read_part(path, "settings-changed-since") is None
+
+
+def test_a_part_carries_no_bookkeeping_into_the_report(tmp_path):
+    result = pipeline.ObjectResult("cell_a", object_row={"obs_level": 0, "object_id": "cell_a"})
+    pipeline._write_part(tmp_path, result, "fp")
+    rows = pipeline._read_part(pipeline._part_path(tmp_path, "cell_a"), "fp")
+    assert rows and all(pipeline._FINGERPRINT_COLUMN not in row for row in rows), \
+        "the fingerprint column must not reach the report"
+
+
+def test_the_fingerprint_ignores_settings_that_change_nothing(tmp_path):
+    import os
+    from pixel_patrol_anatomy import pipeline as pl_mod
+    os.environ["PP_ANATOMY_OBJECT_MASK"] = "pm"
+    os.environ.pop("PP_ANATOMY_MESH_WORKERS", None)
+    before = pl_mod.settings_fingerprint(())
+    os.environ["PP_ANATOMY_MESH_WORKERS"] = "3"     # how fast, not what
+    try:
+        assert pl_mod.settings_fingerprint(()) == before
+    finally:
+        os.environ.pop("PP_ANATOMY_MESH_WORKERS", None)
+    # ...but excluding a processor changes which columns exist, so it must count.
+    assert pl_mod.settings_fingerprint(("anatomy-contacts",)) != before

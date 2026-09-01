@@ -27,6 +27,7 @@ from pixel_patrol_anatomy.geometry import (
     METRICS_2D,
     METRICS_3D,
 )
+from pixel_patrol_anatomy.discovery import foreground_bounds
 from pixel_patrol_anatomy.distances import object_center_um, polarity_from_offset
 from pixel_patrol_anatomy.parallel import WorkPool, batched, worker_share
 from pixel_patrol_anatomy.geometry import skeleton_graph_metrics
@@ -296,21 +297,15 @@ def _quantised_payload(verts_xyz: np.ndarray, indices: np.ndarray) -> bytes:
 
 
 def _bbox_extent(binary: np.ndarray) -> float:
-    """Number of samples in the tightest box around the foreground.
-
-    One reduction per axis, not ``np.argwhere``: a whole-structure mask can hold fifty
-    million samples, whose coordinates are 2.5 GB of int64, and the only thing wanted from
-    them is where the foreground starts and stops along each axis. Measured on a 53-Mvoxel
-    mask: 34 ms and nothing allocated, against 1.6 s and a 2.5 GB peak.
-    """
+    """Number of samples in the tightest box around the foreground."""
+    bounds = foreground_bounds(binary)
+    if bounds is None:
+        return 0.0
     extent = 1
-    for axis in range(binary.ndim):
-        others = tuple(i for i in range(binary.ndim) if i != axis)
-        present = np.flatnonzero(binary.any(axis=others))
-        if not len(present):
-            return 0.0
-        extent *= int(present[-1] - present[0] + 1)
+    for low, high in bounds:
+        extent *= high - low
     return float(extent)
+
 
 
 # Instances whose geometry is in flight at once. A pool consumes the whole iterable it is

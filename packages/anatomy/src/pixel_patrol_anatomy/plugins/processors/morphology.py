@@ -22,6 +22,7 @@ from pixel_patrol_base.core.contracts import ChunkKind
 from pixel_patrol_base.core.record import Record
 from pixel_patrol_base.core.specs import RecordSpec
 
+from pixel_patrol_anatomy.discovery import foreground_centroid
 from pixel_patrol_anatomy.distances import polarity_from_offset
 from pixel_patrol_anatomy.geometry import size_key, total_size_key
 from pixel_patrol_anatomy.skeletons import region_metrics_for
@@ -116,23 +117,6 @@ def _make_sum(col: str) -> Callable[[List[Dict], Dict[str, Any]], Any]:
     return agg
 
 
-def _foreground_centroid(binary: np.ndarray) -> Optional[np.ndarray]:
-    """Mean position of the foreground, in samples, in array order. None if there is none.
-
-    One weighted reduction per axis, not ``np.argwhere``: a whole-object mask holds tens of
-    millions of samples, and listing their coordinates to take one mean costs gigabytes.
-    Measured on a 53-Mvoxel mask, the coordinate array alone peaked at 2.5 GB.
-    """
-    total = int(binary.sum())
-    if not total:
-        return None
-    return np.array([
-        float((binary.sum(axis=tuple(j for j in range(binary.ndim) if j != axis))
-               * np.arange(binary.shape[axis])).sum()) / total
-        for axis in range(binary.ndim)
-    ])
-
-
 class MorphologyProcessor:
     """Whole-structure morphology for a mask entity; counts and totals for a label entity."""
 
@@ -201,7 +185,7 @@ class MorphologyProcessor:
             binary = volume > 0
             metrics = region_metrics_for(
                 str(meta.get("object_id") or "object"), entity_name, volume, sample_size)
-            centroid = _foreground_centroid(binary)
+            centroid = foreground_centroid(binary)
             # instance_count stays null: a mask is one structure, not one instance, which
             # keeps the object-row sum a count of label instances.
             row.update(metrics)

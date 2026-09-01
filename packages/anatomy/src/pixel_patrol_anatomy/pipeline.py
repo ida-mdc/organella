@@ -290,7 +290,14 @@ def _part_path(parts_dir: Path, object_id: str) -> Path:
     return parts_dir / f"{object_id}.parquet"
 
 
-def _write_part(parts_dir: Path, result: ObjectResult) -> None:
+def settings_fingerprint(excluded: Sequence[str] = ()) -> str:
+    """What the current settings would produce, as a digest a cached result can be checked against."""
+    from pixel_patrol_anatomy.config import AnatomyConfig
+
+    return AnatomyConfig.from_env().fingerprint(tuple(sorted(excluded)))
+
+
+def _write_part(parts_dir: Path, result: ObjectResult, fingerprint: str) -> None:
     """Keep one object's rows on disk the moment it is measured.
 
     Nothing else is written until the whole batch finishes, so a run that dies late loses
@@ -304,6 +311,8 @@ def _write_part(parts_dir: Path, result: ObjectResult) -> None:
     try:
         parts_dir.mkdir(parents=True, exist_ok=True)
         frame = pl.DataFrame(rows, infer_schema_length=None, strict=False)
+        # The settings ride along, so --resume cannot hand back rows measured under others.
+        frame = frame.with_columns(pl.lit(fingerprint).alias(_FINGERPRINT_COLUMN))
         temporary = _part_path(parts_dir, result.object_id).with_suffix(".parquet.writing")
         frame.write_parquet(temporary)
         # Rename last: a reader never sees a partly written part, so resume cannot pick one up.
@@ -313,7 +322,10 @@ def _write_part(parts_dir: Path, result: ObjectResult) -> None:
                        result.object_id, type(exc).__name__, exc)
 
 
-def _read_part(path: Path) -> Optional[List[Dict[str, Any]]]:
+_FINGERPRINT_COLUMN = "_anatomy_settings"
+
+
+def _read_part(path: Path, fingerprint: str) -> Optional[List[Dict[str, Any]]]:
     """One object's rows back from disk, or None if the file cannot be trusted."""
     try:
         frame = pl.read_parquet(path)
@@ -324,7 +336,10 @@ def _read_part(path: Path) -> Optional[List[Dict[str, Any]]]:
     if frame.height == 0 or "obs_level" not in frame.columns:
         logger.warning("anatomy: %s holds nothing usable; measuring that object again", path)
         return None
-    return frame.to_dicts()
+    if _FINGERPRINT_COLUMN not in frame.columns or frame[_FINGERPRINT_COLUMN][0] != fingerprint:
+        logger.info("anatomy: %s was measured under other settings; measuring it again", path)
+        return None
+    return frame.drop(_FINGERPRINT_COLUMN).to_dicts()
 
 
 def discard_parts(parts_dir: Path) -> None:
@@ -362,10 +377,11 @@ def analyse(
     logger.info("anatomy: %d object(s), %d worker(s), %s mesh process(es) each",
                 len(folders), n_workers, os.environ["PP_ANATOMY_MESH_WORKERS"])
 
+    fingerprint = settings_fingerprint(excluded)
     rows: List[Dict[str, Any]] = []
     work: List[Tuple[Path, str]] = []
     for folder, group in zip(folders, groups):
-        cached = (_read_part(_part_path(parts_dir, folder.name))
+        cached = (_read_part(_part_path(parts_dir, folder.name), fingerprint)
                   if resume and parts_dir and _part_path(parts_dir, folder.name).is_file()
                   else None)
         if cached is None:
@@ -375,7 +391,7 @@ def analyse(
                     folder.name, len(cached))
         rows.extend(cached)
 
-    keep = (lambda result: _write_part(parts_dir, result)) if parts_dir else None
+    keep = (lambda result: _write_part(parts_dir, result, fingerprint)) if parts_dir else None
     results = _measure_all(work, excluded, n_workers, on_result=keep) if work else []
 
     failures: Dict[str, str] = {}

@@ -34,7 +34,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, FrozenSet, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from pixel_patrol_anatomy.skeletons import parse_entity_filter
 
@@ -125,9 +125,9 @@ def _env_voxel_size(name: str) -> Optional[Tuple[float, ...]]:
 
 @dataclass(frozen=True)
 class AnatomyConfig:
-    # Required, never guessed: the region is cropped to this mask and polarity is measured
-    # from its centroid. None is an omission, not a default - the loader refuses it and
-    # names the masks the folder has.
+    # Never guessed: the region is cropped and clipped to this mask and polarity is measured
+    # from its centroid. None means nothing bounds the object, and the columns that would
+    # need one are not written.
     object_mask: Optional[str] = None
     # 'z,y,x' for a volume, 'y,x' for a plane; the loader refuses one that does not match
     # the dimensionality of the images it just read.
@@ -167,6 +167,39 @@ class AnatomyConfig:
     # Keep an object's geometry.parquet if it already has one, rather than meshing it again.
     # Meshing dominates a run, so a batch that died partway is worth minutes rather than hours.
     reuse_geometry: bool = False
+
+    # Settings that change what a run produces. Deliberately a list rather than "everything
+    # except": a new option is then only reused across runs once someone has thought about
+    # whether it belongs here, which is the safe direction to be wrong in.
+    _RESULT_AFFECTING = (
+        "object_mask", "voxel_size_um", "clip", "auto_label_masks", "max_skeleton_voxels",
+        "skeleton_entities", "contact_max_um", "polarity_spread", "distance_histograms",
+        "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
+    )
+
+    def fingerprint(self, *extra: Any) -> str:
+        """A short digest of the settings a cached result was produced under.
+
+        --reuse-geometry and --resume both hand back work from an earlier run, and both used
+        to key on the object's name alone. Change --no-clip or the voxel size and they would
+        return the old answer with no sign that it no longer matches what was asked for.
+        Anything that is not byte-identical here means measuring again.
+        """
+        import hashlib
+        import json
+
+        def plain(value: Any) -> Any:
+            if isinstance(value, (frozenset, set)):
+                return sorted(value)
+            if isinstance(value, tuple):
+                return list(value)
+            return value
+
+        payload = {name: plain(getattr(self, name)) for name in self._RESULT_AFFECTING}
+        if extra:
+            payload["extra"] = [plain(e) for e in extra]
+        blob = json.dumps(payload, sort_keys=True, default=str).encode()
+        return hashlib.sha256(blob).hexdigest()[:16]
 
     @classmethod
     def from_env(cls) -> "AnatomyConfig":
