@@ -108,7 +108,11 @@ Useful flags, see `pixel-patrol-anatomy process --help` for the rest:
 - `--object-mask NAME`: **required**, the mask that bounds each object, e.g. `pm`.
   Everything is measured relative to it, so it is never inferred; `dry-run` lists the
   masks each folder has
-- `--auto-clip`: clip the entities to the object mask first
+- `--no-clip`: measure outside the object mask too. Entities are clipped to it by
+  default, because that is what naming a bounding mask means: a field of view often
+  holds neighbouring cells, and on one real alpha cell 3678 of 8800 granules lay
+  entirely outside the plasma membrane. Pass this for data already confined to the
+  object, or when truncating what straddles the boundary is worse than including it
 - `--colours palette.json`: a colour per structure, e.g. `{"mito": "#d62728"}`. It lands in
   the report, so every widget draws that structure the same and a shared report arrives
   coloured; unnamed structures keep the built-in palette. `pixel-patrol-anatomy colours

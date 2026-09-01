@@ -61,7 +61,7 @@ def test_analysis_flags_travel_as_environment_variables(monkeypatch):
 
     assert env["PP_ANATOMY_OBJECT_MASK"] == "pm"
     assert env["PP_ANATOMY_VOXEL_SIZE_UM"] == "0.5,0.1,0.1"
-    assert env["PP_ANATOMY_AUTO_CLIP"] == "1"
+    assert env["PP_ANATOMY_NO_CLIP"] == "1"
     assert env["PP_ANATOMY_CONTACT_MAX_UM"] == "0.25"
     # Flags left alone must not be forced to a default here - config.py owns those.
     assert "PP_ANATOMY_AUTO_LABEL_MASKS" not in env

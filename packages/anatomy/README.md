@@ -418,7 +418,7 @@ same name:
 | --- | --- | --- |
 | `PP_ANATOMY_OBJECT_MASK` | *required* | `--object-mask NAME` |
 | `PP_ANATOMY_VOXEL_SIZE_UM` | inferred from TIFF metadata | `--voxel-size-um z,y,x` (3D) or `y,x` (2D) |
-| `PP_ANATOMY_AUTO_CLIP` | `0` | `--auto-clip` |
+| `PP_ANATOMY_NO_CLIP` | `0` (entities are clipped to the object mask) | `--no-clip` |
 | `PP_ANATOMY_AUTO_LABEL_MASKS` | `0` | `--auto-label-masks` |
 | `PP_ANATOMY_ENTITY_COLOURS` | built-in palette | `--colours FILE` |
 | `PP_ANATOMY_MAX_SKELETON_VOXELS` | `500000` | `--max-skeleton-voxels` |

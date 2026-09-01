@@ -269,7 +269,7 @@ class ObjectLoader:
                     f"source image has {source_shape}"
                 )
 
-        if cfg.auto_clip:
+        if cfg.clip:
             inside = volumes[object_mask_key] > 0
             for key in volumes:
                 if key != object_mask_key:

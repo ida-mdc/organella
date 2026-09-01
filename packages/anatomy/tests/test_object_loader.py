@@ -133,3 +133,52 @@ def test_naming_nothing_asks_to_be_told_and_lists_the_choices(object_dir, monkey
     # than one called "cortex", so both ask.
     with pytest.raises(FileNotFoundError, match="No object mask named.*nucleus, pm"):
         ObjectLoader().load(object_dir)
+
+
+# ── clipping to the object mask ──────────────────────────────────────────────
+#
+# Naming a mask that bounds the object and then measuring what lies outside it is not what
+# --object-mask says. A field of view often holds neighbouring cells: on one real alpha cell,
+# 3678 of 8800 granules were entirely outside the plasma membrane and were all being counted.
+
+def _object_with_something_outside(root):
+    """An object whose mask holds instance 1, with instance 2 outside it but inside its bbox."""
+    import numpy as np, tifffile
+    d = root / "cell"; d.mkdir(parents=True)
+    shape = (12, 40, 40)
+    mask = np.zeros(shape, dtype=np.uint8)
+    mask[2:10, 4:20, 4:20] = 1     # the object itself
+    mask[3, 34, 18] = 1            # one voxel that stretches its bbox past instance 2
+    labels = np.zeros(shape, dtype=np.uint16)
+    labels[4:8, 8:14, 8:14] = 1    # inside the mask
+    labels[4:8, 26:32, 8:14] = 2   # outside the mask, inside its bounding box
+    tifffile.imwrite(d / "cell.tif", np.zeros(shape, np.uint8))
+    tifffile.imwrite(d / "cell_pm_mask.tif", mask)
+    tifffile.imwrite(d / "cell_mito_label.tif", labels)
+    return d
+
+
+def _labels_seen(folder, no_clip):
+    import os, numpy as np
+    from pixel_patrol_anatomy.plugins.loaders.object_loader import ObjectLoader
+    os.environ["PP_ANATOMY_OBJECT_MASK"] = "pm"
+    os.environ["PP_ANATOMY_VOXEL_SIZE_UM"] = "0.1,0.02,0.02"
+    os.environ.pop("PP_ANATOMY_NO_CLIP", None)
+    if no_clip:
+        os.environ["PP_ANATOMY_NO_CLIP"] = "1"
+    record = ObjectLoader().load(folder)
+    c = record.dim_order.index("C")
+    names = list(record.meta["channel_names"])
+    mito = np.take(record.data, names.index("mito"), axis=c)
+    return set(int(v) for v in np.unique(mito) if v)
+
+
+def test_clipping_is_on_by_default_so_what_is_outside_is_not_measured(tmp_path):
+    folder = _object_with_something_outside(tmp_path)
+    assert _labels_seen(folder, no_clip=False) == {1}, \
+        "an instance outside the object mask was still measured"
+
+
+def test_no_clip_keeps_what_lies_outside_the_mask(tmp_path):
+    folder = _object_with_something_outside(tmp_path)
+    assert _labels_seen(folder, no_clip=True) == {1, 2}

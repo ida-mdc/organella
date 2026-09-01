@@ -164,7 +164,7 @@ def _mesh_flags(fn):
 def _apply_analysis_env(
     object_mask: str | None,
     voxel_size_um: str | None,
-    auto_clip: bool,
+    no_clip: bool,
     auto_label_masks: bool,
     contact_max_um: float | None,
     max_skeleton_voxels: int | None,
@@ -178,7 +178,7 @@ def _apply_analysis_env(
     settings = {
         "PP_ANATOMY_OBJECT_MASK": object_mask,
         "PP_ANATOMY_VOXEL_SIZE_UM": voxel_size_um,
-        "PP_ANATOMY_AUTO_CLIP": "1" if auto_clip else None,
+        "PP_ANATOMY_NO_CLIP": "1" if no_clip else None,
         "PP_ANATOMY_AUTO_LABEL_MASKS": "1" if auto_label_masks else None,
         "PP_ANATOMY_CONTACT_MAX_UM": contact_max_um,
         "PP_ANATOMY_MAX_SKELETON_VOXELS": max_skeleton_voxels,
@@ -239,8 +239,11 @@ def colours(report: Path, palette: Path) -> None:
                    "each folder has.")
 @click.option("--voxel-size-um", default=None, metavar="Z,Y,X",
               help="Voxel size in µm. Inferred from the source TIFF metadata when omitted.")
-@click.option("--auto-clip", "auto_clip", is_flag=True,
-              help="Clip the entities to the object mask before analysis.")
+@click.option("--no-clip", "no_clip", is_flag=True,
+              help="Measure outside the object mask too. Entities are clipped to it by "
+                   "default, since that is what naming a bounding mask means; pass this "
+                   "for data already confined to the object, or when truncating what "
+                   "straddles the boundary is worse than including it.")
 @click.option("--auto-label-masks", is_flag=True,
               help="Promote masks with several connected components to label entities.")
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
@@ -283,7 +286,7 @@ def colours(report: Path, palette: Path) -> None:
 def process(
     object_dir: Path, output: Path, paths: Tuple[str, ...], object_mask: str | None,
     voxel_size_um: str | None,
-    auto_clip: bool, auto_label_masks: bool, contact_max_um: float | None,
+    no_clip: bool, auto_label_masks: bool, contact_max_um: float | None,
     max_skeleton_voxels: int | None, num_threads: int | None,
     skeleton_entities: str | None, skip_skeletons: bool, polarity_spread: bool,
     distance_histograms: bool, colours: Path | None, no_contacts: bool, no_instances: bool,
@@ -300,7 +303,7 @@ def process(
             "plus <prefix>_<name>_label.tif / _mask.tif volumes; run 'dry-run' to see "
             "what was rejected and why."
         )
-    _apply_analysis_env(object_mask, voxel_size_um, auto_clip, auto_label_masks,
+    _apply_analysis_env(object_mask, voxel_size_um, no_clip, auto_label_masks,
                         contact_max_um, max_skeleton_voxels, num_threads,
                         polarity_spread, distance_histograms,
                         skeleton_entities, skip_skeletons)
@@ -423,8 +426,9 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
               help="Mask that bounds each object, e.g. pm. Required, as for 'process'.")
 @click.option("--voxel-size-um", default=None, metavar="Z,Y,X",
               help="Voxel size in µm. Inferred from the source TIFF metadata when omitted.")
-@click.option("--auto-clip", "auto_clip", is_flag=True,
-              help="Clip the entities to the object mask first.")
+@click.option("--no-clip", "no_clip", is_flag=True,
+              help="Measure outside the object mask too; entities are clipped to it by "
+                   "default.")
 @click.option("--no-skeletons", is_flag=True, help="Meshes only, no skeleton overlay.")
 @click.option("--skeleton-entities", default=None, metavar="NAMES",
               help="Only overlay skeletons for these entities, e.g. mito,er.")
@@ -434,7 +438,7 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
 @_mesh_flags
 def mesh(
     object_dir: Path, out_dir: Path, object_mask: str | None,
-    voxel_size_um: str | None, auto_clip: bool,
+    voxel_size_um: str | None, no_clip: bool,
     no_skeletons: bool, skeleton_entities: str | None, contact_max_um: float | None,
     no_contacts: bool,
     mesh_smooth_sigma: float | None, mesh_step_size: int | None,
@@ -456,7 +460,7 @@ def mesh(
     objects = find_object_dirs(object_dir)
     if not objects:
         raise click.ClickException(f"No object folders found under {object_dir}.")
-    _apply_analysis_env(object_mask, voxel_size_um, auto_clip, False, contact_max_um,
+    _apply_analysis_env(object_mask, voxel_size_um, no_clip, False, contact_max_um,
                         None, None, skeleton_entities=skeleton_entities)
     _apply_mesh_env(None, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,

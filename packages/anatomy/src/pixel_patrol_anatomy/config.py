@@ -8,7 +8,7 @@ environment, read once per process, and the CLI sets them from its own flags.
                                   nothing loads without it, and nothing is guessed
     PP_ANATOMY_VOXEL_SIZE_UM      "z,y,x" (3D) or "y,x" (2D). Skips inference from
                                   the TIFF metadata
-    PP_ANATOMY_AUTO_CLIP          1 → clip the entities to the object mask
+    PP_ANATOMY_NO_CLIP            1 → measure outside the object mask too
     PP_ANATOMY_AUTO_LABEL_MASKS   1 → promote multi-component masks to labels
     PP_ANATOMY_ENTITY_COLOURS     path to a JSON file of structure: hex colour pairs, which
                                   the report carries so every widget colours the same way
@@ -132,7 +132,11 @@ class AnatomyConfig:
     # 'z,y,x' for a volume, 'y,x' for a plane; the loader refuses one that does not match
     # the dimensionality of the images it just read.
     voxel_size_um: Optional[Tuple[float, ...]] = None
-    auto_clip: bool = False
+    # On, because naming a mask that bounds the object and then measuring what lies
+    # outside it is not what --object-mask says. Off with --no-clip, for data already
+    # confined to the object, or when truncating what straddles the boundary is worse than
+    # including it.
+    clip: bool = True
     auto_label_masks: bool = False
     # Structure name -> "#rrggbb", from a settings file. Empty means the built-in palette.
     entity_colours: Dict[str, str] = field(default_factory=dict)
@@ -169,7 +173,7 @@ class AnatomyConfig:
         return cls(
             object_mask=os.environ.get("PP_ANATOMY_OBJECT_MASK") or None,
             voxel_size_um=_env_voxel_size("PP_ANATOMY_VOXEL_SIZE_UM"),
-            auto_clip=_env_flag("PP_ANATOMY_AUTO_CLIP"),
+            clip=not _env_flag("PP_ANATOMY_NO_CLIP"),
             auto_label_masks=_env_flag("PP_ANATOMY_AUTO_LABEL_MASKS"),
             entity_colours=_env_colours("PP_ANATOMY_ENTITY_COLOURS"),
             max_skeleton_voxels=_env_int("PP_ANATOMY_MAX_SKELETON_VOXELS", 500_000),
