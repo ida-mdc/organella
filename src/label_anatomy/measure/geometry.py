@@ -154,13 +154,22 @@ class GeometryWriter:
         )
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)
         _record_settings(path.parent, fingerprint)
-        # A plane is outlined, not meshed, so count and name whichever it produced.
-        drawable = "outline" if stack.spatial_dims == 2 else "mesh"
-        with_geometry = sum(1 for row in rows if row.get(drawable))
+        # A plane is outlined; a volume gets a surface, which may be a mesh or one of the
+        # cheaper kinds. Counted by kind rather than lumped together, because "how many
+        # came out drawable at all" is the question a coarse scale answers badly: at 42 nm
+        # most instances of a whole HeLa cell are a voxel or two, too small to mesh and too
+        # collapsed to fit an ellipsoid, and a single total hides that.
+        drawable = "outline" if stack.spatial_dims == 2 else "surface"
+        drawn = [row for row in rows if row.get(drawable)]
+        by_kind: Dict[str, int] = {}
+        for row in drawn:
+            kind = str(row.get("surface_kind") or drawable)
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+        breakdown = ", ".join(f"{n} {kind}" for kind, n in sorted(by_kind.items()))
         logger.info(
-            "anatomy: %s: %d/%d rows %s → %s (%.1f MB)",
-            object_id, with_geometry, len(rows),
-            "outlined" if drawable == "outline" else "meshed",
+            "anatomy: %s: %d/%d rows drawable%s → %s (%.1f MB)",
+            object_id, len(drawn), len(rows),
+            f" ({breakdown})" if breakdown else "",
             path, path.stat().st_size / 1024**2,
         )
         return ObjectMeasurement(columns={"mesh_geometry_file": str(path.resolve())})

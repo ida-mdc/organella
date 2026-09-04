@@ -86,6 +86,12 @@ def open_store(store: str):
             from zarr.n5 import N5FSStore
 
             return zarr.open(N5FSStore(store, anon=True), mode="r")
+    if store.startswith("s3://"):
+        # Read without credentials, as the N5 branch above already does. s3fs otherwise
+        # asks botocore for an identity the reader of a published dataset has no reason to
+        # have, and the failure surfaces as "nothing found at path ''" - which points at
+        # the path rather than at the missing credentials.
+        return zarr.open(store, mode="r", storage_options={"anon": True})
     return zarr.open(store, mode="r")
 
 

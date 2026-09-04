@@ -97,7 +97,14 @@ def ellipsoid_payload(
         + [float(d) / 2.0 for d in diameters]
         + [float(v) for v in axes]
     )
-    if not all(math.isfinite(v) for v in values):
+    # A radius of zero is not a thin ellipsoid, it is a collapsed one, and the moments it
+    # came from say nothing about a shape. An instance of one or two voxels arrives that
+    # way: two diameters come back as zero and the whole volume goes into the third, which
+    # for a two-voxel ER instance in a 2 µm crop was 6.9 *metres*. That is finite, so the
+    # check above passed it, and one such instance is enough to set the scene's bounding
+    # box - the camera then fits a million µm and every real structure is a sub-pixel
+    # speck. Returning nothing hands it back to the mesher, which draws the voxels.
+    if not all(math.isfinite(v) for v in values) or min(values[3:6]) <= 0.0:
         return b""
     return struct.pack("<15f", *values)
 

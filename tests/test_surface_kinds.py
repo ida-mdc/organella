@@ -191,6 +191,19 @@ def test_an_ellipsoid_payload_is_refused_rather_than_drawn_wrong(tmp_path):
     assert ellipsoid_payload((0, 0, 0), (1, 1), (1, 0, 0, 0, 1, 0, 0, 0, 1)) == b""
 
 
+def test_a_collapsed_ellipsoid_is_refused_before_it_can_size_the_scene():
+    """Two voxels have no moments: ITK zeroes two diameters and puts the volume in the third.
+
+    The result is finite, so the finiteness check passes it, and it draws as a needle
+    millions of µm long - one is enough to fit the camera to nothing anybody can see.
+    """
+    assert ellipsoid_payload((0.79, 1.3, 0.16), (0.0, 0.0, 6.9e6),
+                             (0, -1, 0, 0, 0, 1, -1, 0, 0)) == b""
+    assert ellipsoid_payload((0, 0, 0), (1, 0, 1), (1, 0, 0, 0, 1, 0, 0, 0, 1)) == b""
+    # A thin one is still a shape, and is kept.
+    assert ellipsoid_payload((0, 0, 0), (1e-4, 1, 1), (1, 0, 0, 0, 1, 0, 0, 0, 1)) != b""
+
+
 def test_the_payload_is_exactly_the_numbers_it_says_it_is():
     payload = ellipsoid_payload((1, 2, 3), (4, 6, 8), tuple(range(9)))
 
