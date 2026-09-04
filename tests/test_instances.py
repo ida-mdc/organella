@@ -127,10 +127,25 @@ def test_polarity_is_measured_from_the_object_centre():
     assert outer["instance_polar_az_deg"] == pytest.approx(0.0, abs=1.0)   # +X is azimuth 0
 
 
-def test_polarity_is_null_without_an_object_mask():
-    row = _measure(_object(mito=(_blocks((1, (2, 2, 2), (3, 3, 3))), "label")))
+def test_polarity_without_a_mask_is_measured_from_the_centre_of_what_was_segmented():
+    """No bounding mask still leaves a middle: the centroid of everything segmented.
 
-    assert row["instance_polar_dist_um"] == [None]
+    A run of bare labels used to lose every polarity column, and with it the direction the
+    3D explode pushes each instance along.
+    """
+    left = _blocks((1, (4, 9, 4), (2, 2, 2)))
+    right = _blocks((2, (4, 9, 14), (2, 2, 2)))
+    row = _measure(_object(mito=((left + right), "label")))
+
+    one = _by_instance(row, "mito", 1)
+    two = _by_instance(row, "mito", 2)
+    # Two of a size, symmetric about the union's centroid: each the same way out, and
+    # pointing opposite ways along X.
+    assert one["instance_polar_dist_um"] == pytest.approx(two["instance_polar_dist_um"])
+    assert one["instance_polar_dist_um"] > 0
+    assert abs(one["instance_polar_az_deg"] - two["instance_polar_az_deg"]) \
+        == pytest.approx(180.0, abs=1.0)
+    # Still no extent of its own: a centre is not a boundary.
     assert "object_volume_um3" not in row
 
 

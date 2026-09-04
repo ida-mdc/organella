@@ -17,16 +17,17 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, FrozenSet, List, Tuple
 
 import numpy as np
-import tifffile
 
-from label_anatomy.config import AnatomyConfig
-from label_anatomy.analysis.distances import object_center_um
+from label_anatomy.config import AnatomyConfig, normalize_name
+from label_anatomy.analysis.distances import object_center_um, segmented_center_um
 from label_anatomy.model import ObjectStack
 from label_anatomy.measure.discovery import (
     Dataset,
+    Entity,
+    key_for_name,
     clip_to_object_mask,
     crop_to_object_bbox,
     discover_dataset,
@@ -35,6 +36,7 @@ from label_anatomy.measure.discovery import (
     load_volume,
     promote_multicomponent_masks,
 )
+from label_anatomy.measure.readers import read_header, voxel_size_source as _voxel_size_source
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +52,7 @@ def _cached_inspect(object_dir: str, object_mask: str | None = None):
 
 def _source_header(source_path: Path) -> Tuple[Tuple[int, ...], str]:
     """Spatial shape and dtype of the source image: (Z, Y, X) or (Y, X)."""
-    with tifffile.TiffFile(source_path) as tf:
-        series = tf.series[0]
-        shape = tuple(int(s) for s in series.shape)
-        dtype = str(np.dtype(series.dtype))
-    if len(shape) not in (2, 3):
-        raise ValueError(
-            f"Expected a 2D or 3D source image in {source_path.name}, got shape {shape}"
-        )
-    return shape, dtype
+    return read_header(source_path)
 
 
 def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
@@ -124,6 +118,118 @@ def _config_voxel_size(configured: Tuple[float, ...], ndim: int, object_dir: Pat
     )
 
 
+def resolve_auto_kinds(
+    volumes: Dict[str, np.ndarray],
+    entities: Dict[str, Entity],
+    object_mask_key: str | None,
+) -> None:
+    """Decide what each ``auto`` entity is from its content, in place.
+
+    An entity discovered by file name alone - ``segmentations/liver.nii.gz`` - says
+    nothing about whether it holds one structure or many. That is not a guess about
+    intent but a fact about the array: more than one distinct non-zero value is a label
+    volume, one is a mask. The entity named as the object boundary is a mask by
+    definition, whatever it holds, because that is what naming it means.
+    """
+    for key, entity in list(entities.items()):
+        if entity.kind != "auto":
+            continue
+        if key == object_mask_key:
+            kind = "mask"
+        else:
+            values = np.unique(volumes[key])
+            kind = "label" if values[values != 0].size > 1 else "mask"
+        entities[key] = Entity(name=entity.name, kind=kind, path=entity.path,
+                               ref=entity.ref)
+        logger.info("anatomy: '%s' read as a %s entity", entity.name, kind)
+
+
+def select_entities(
+    entities: Dict[str, Entity],
+    wanted: FrozenSet[str] | None,
+    object_mask_name: str | None,
+) -> Dict[str, Entity]:
+    """The entities to keep: those named, plus the object mask, or everything.
+
+    A published segmentation can carry more structures than a question needs -
+    TotalSegmentator has 117 per subject, and stacking all of them is 118 channels of the
+    whole field of view. Selecting is how such an object is measured at all, so an
+    unknown name is an error listing what the folder has rather than a silent empty set.
+    """
+    if not wanted:
+        return entities
+    keep, unknown = {}, set(wanted)
+    for key, entity in entities.items():
+        if entity.name in wanted or entity.name == object_mask_name:
+            keep[key] = entity
+            unknown.discard(entity.name)
+    if unknown:
+        available = ", ".join(sorted(e.name for e in entities.values())) or "none"
+        raise FileNotFoundError(
+            f"No entity named {', '.join(sorted(unknown))} in this folder "
+            f"(entities found: {available})"
+        )
+    return keep
+
+
+def split_label_map(
+    volumes: Dict[str, np.ndarray],
+    entities: Dict[str, Entity],
+    label_map: Dict[int, str],
+    entity_name: str | None,
+    wanted: FrozenSet[str] | None,
+) -> None:
+    """Split one multi-structure label volume into an entity per named id, in place.
+
+    A single volume whose ids each mean a different structure is how most challenge
+    datasets ship, and it is one entity to discovery and many to the report. Only the ids
+    the map names become entities, and only those the entity filter keeps are ever
+    materialised - splitting 117 structures into 117 full-size channels is how an object
+    that fits in memory stops fitting.
+    """
+    target = key_for_name(entities, entity_name) if entity_name else None
+    if target is None:
+        labels = [k for k, e in entities.items() if e.kind == "label"]
+        if len(labels) != 1:
+            names = ", ".join(sorted(e.name for e in entities.values())) or "none"
+            raise ValueError(
+                f"--label-map needs to know which entity to split: this folder has "
+                f"{len(labels)} label entities ({names}). Name one with --label-map-entity."
+            )
+        target = labels[0]
+
+    source_path = entities[target].path
+    source_volume = volumes.pop(target)
+    del entities[target]
+
+    present = set(np.unique(source_volume).tolist())
+    for value, name in sorted(label_map.items()):
+        clean = normalize_name(name)
+        if not clean or value not in present:
+            continue
+        if wanted and clean not in wanted:
+            continue
+        key = f"mask:{clean}"
+        if key in entities:
+            continue
+        # Every split entity came out of the one file, and the object row records that.
+        volumes[key] = (source_volume == value).astype(np.uint8)
+        entities[key] = Entity(name=clean, kind="mask", path=source_path)
+
+    if not entities:
+        raise ValueError(
+            f"--label-map named no id present in {source_path.name} "
+            f"(ids in the volume: {sorted(v for v in present if v)[:10]})"
+        )
+
+
+def _entity_origin(entity: Entity) -> str:
+    """What the object row records as an entity's origin: a file name, or store and array."""
+    if entity.ref is not None:
+        return f"{entity.ref.store}/{entity.ref.path}"
+    return entity.path.name
+
+
 def _file_size(path: Path) -> int:
     try:
         return int(path.stat().st_size)
@@ -137,8 +243,7 @@ def _channel_order(dataset: Dataset) -> List[str]:
     Ordered by *name*, never by kind, so the C axis of an object does not shift when
     auto-label promotion turns a mask into a label.
     """
-    object_mask_key = (f"mask:{dataset.object_mask_name}"
-                       if dataset.object_mask_name else None)
+    object_mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
     others = sorted(k for k in dataset.entities if k != object_mask_key)
     first = [object_mask_key] if object_mask_key in dataset.entities else []
     return first + others
@@ -166,18 +271,18 @@ LOADED_COLUMNS: Dict[str, Any] = {
 }
 
 LOADED_DESCRIPTIONS: Dict[str, str] = {
-    "object_id": "Name of the object folder the entity volumes were read from.",
-    "object_mask_name": "Entity name of the mask that bounds the object; every measurement is relative to it.",
-    "entity_kinds": "Kind ('label' or 'mask') of each entity, in channel_names order.",
-    "entity_files": "File each entity was read from, in channel_names order.",
-    "entity_file_bytes": "Size on disk of each entity's file, in channel_names order.",
-    "n_entities": "Number of entity volumes stacked along C for this object.",
+    "object_id": "Name of the object folder the structure volumes were read from.",
+    "object_mask_name": "Name of the structure whose mask bounds the object; every measurement is relative to it.",
+    "entity_kinds": "Kind ('label' or 'mask') of each structure, in channel_names order.",
+    "entity_files": "File each structure was read from, in channel_names order.",
+    "entity_file_bytes": "Size on disk of each structure's file, in channel_names order.",
+    "n_entities": "How many structures were read for this object and stacked along C.",
     "object_shape": "Extent of the analysed region after cropping to the object mask's bounding box, in the spatial axes of dim_order: (Z, Y, X) for a volume, (Y, X) for a plane.",
     "spatial_dims": "3 for a volume, 2 for a plane. Which size and shape metrics the object's rows carry follows from it.",
     "voxel_size_source": "Where the voxel size came from: 'tiff-metadata' or 'config'.",
-    "object_center_z_um": "Z coordinate in µm of the object mask's centroid, the origin every polarity metric is measured from. Null for a 2D object.",
-    "object_center_y_um": "Y coordinate in µm of the object mask's centroid.",
-    "object_center_x_um": "X coordinate in µm of the object mask's centroid.",
+    "object_center_z_um": "Z coordinate in µm of the object centre, the origin every polarity metric is measured from: the centroid of the object mask where one was named, and of everything segmented where none was. Null for a 2D object.",
+    "object_center_y_um": "Y coordinate in µm of the object centre.",
+    "object_center_x_um": "X coordinate in µm of the object centre.",
 }
 
 
@@ -212,6 +317,15 @@ def load_object(object_dir: Path, config: AnatomyConfig | None = None) -> Object
     """
     cfg = config or AnatomyConfig.from_env()
     dataset = discover_dataset(object_dir, cfg.object_mask)
+    # With a label map, the names --entities selects are the ones the *split* produces, so
+    # there is nothing to match against yet and the filter is applied once it is done.
+    dataset = Dataset(
+        source=dataset.source,
+        object_mask_name=dataset.object_mask_name,
+        entities=(dataset.entities if cfg.label_map else
+                  select_entities(dataset.entities, cfg.entities, dataset.object_mask_name)),
+        voxel_size_um=dataset.voxel_size_um,
+    )
 
     source_shape, source_dtype = _source_header(dataset.source)
     ndim = len(source_shape)
@@ -219,15 +333,19 @@ def load_object(object_dir: Path, config: AnatomyConfig | None = None) -> Object
     if cfg.voxel_size_um is not None:
         voxel_size = _config_voxel_size(cfg.voxel_size_um, ndim, object_dir)
         voxel_size_source = "config"
+    elif dataset.voxel_size_um is not None:
+        # A manifest may state the size outright, which is the only record for a store that
+        # does not carry one - and it travels with the crop it describes.
+        voxel_size = _config_voxel_size(dataset.voxel_size_um, ndim, object_dir)
+        voxel_size_source = "manifest"
     else:
         voxel_size = infer_voxel_size_um_from_source(dataset.source, ndim)
-        voxel_size_source = "tiff-metadata"
+        voxel_size_source = _voxel_size_source(dataset.source)
 
     # None when no mask was named: nothing bounds the object, so it is measured as it
     # lies and the columns that need a boundary go unfilled.
-    object_mask_key = (f"mask:{dataset.object_mask_name}"
-                       if dataset.object_mask_name else None)
-    volumes = {key: load_volume(entity.path) for key, entity in dataset.entities.items()}
+    object_mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
+    volumes = {key: load_volume(entity.source) for key, entity in dataset.entities.items()}
 
     for key, vol in volumes.items():
         if vol.shape != source_shape:
@@ -235,6 +353,16 @@ def load_object(object_dir: Path, config: AnatomyConfig | None = None) -> Object
                 f"{object_dir.name}: entity '{dataset.entities[key].name}' has shape {vol.shape}, "
                 f"source image has {source_shape}"
             )
+
+    resolve_auto_kinds(volumes, dataset.entities, object_mask_key)
+    if cfg.label_map:
+        split_label_map(volumes, dataset.entities, cfg.label_map,
+                        cfg.label_map_entity, cfg.entities)
+        kept = select_entities(dataset.entities, cfg.entities, dataset.object_mask_name)
+        for key in [k for k in dataset.entities if k not in kept]:
+            del dataset.entities[key]
+            volumes.pop(key, None)
+        object_mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
 
     if object_mask_key is not None:
         if cfg.clip:
@@ -255,7 +383,7 @@ def load_object(object_dir: Path, config: AnatomyConfig | None = None) -> Object
     meta: Dict[str, Any] = {
         "channel_names": [dataset.entities[k].name for k in keys],
         "entity_kinds": [dataset.entities[k].kind for k in keys],
-        "entity_files": [dataset.entities[k].path.name for k in keys],
+        "entity_files": [_entity_origin(dataset.entities[k]) for k in keys],
         "entity_file_bytes": [_file_size(dataset.entities[k].path) for k in keys],
         "n_entities": len(keys),
         "object_id": object_dir.name,
@@ -269,8 +397,14 @@ def load_object(object_dir: Path, config: AnatomyConfig | None = None) -> Object
     # The origin for every polarity metric, computed once here so a per-entity measurement
     # that sees one entity can still measure against it. From the stack: _stack_narrowest
     # has released the source volumes.
+    #
+    # With a bounding mask that mask's centroid is the origin. Without one it is the centre
+    # of everything that was segmented - a run of bare labels has a middle too, and denying
+    # it one dropped every polarity column and left the 3D explode with nothing to push
+    # along.
     center = (object_center_um(stack[keys.index(object_mask_key)], voxel_size)
-              if object_mask_key is not None else None)
+              if object_mask_key is not None
+              else segmented_center_um(stack, voxel_size))
     if center is not None:
         meta.update({f"object_center_{ax.lower()}_um": value
                      for ax, value in zip(axes, center)})

@@ -1,4 +1,4 @@
-"""End-to-end: run the real PixelPatrol pipeline over a synthetic grouped batch.
+"""End-to-end: run the real pipeline over a synthetic grouped batch.
 
 This is the phase-1 validation — it asserts the row layout the whole design rests on:
 one row per object at obs_level 0, one row per entity at obs_level 1 named by structure, and
@@ -362,3 +362,59 @@ def test_the_fingerprint_ignores_settings_that_change_nothing(tmp_path):
         os.environ.pop("LABEL_ANATOMY_MESH_WORKERS", None)
     # ...but excluding a processor changes which columns exist, so it must count.
     assert pl_mod.settings_fingerprint(("anatomy-contacts",)) != before
+
+
+# ── saying what it is doing while it does it ─────────────────────────────────
+#
+# A real batch takes hours. Collected first and logged at the end, that is hours of silence
+# from a run that is working perfectly - which looks exactly like one that has hung.
+
+def test_every_object_is_counted_off_against_the_size_of_the_batch(tmp_path, caplog):
+    import logging
+    import re
+
+    from label_anatomy.measure import find_object_dirs
+    from synthetic import make_dataset
+
+    root = make_dataset(tmp_path / "objects")
+    folders = list(find_object_dirs(root))
+
+    with caplog.at_level(logging.INFO, logger="label_anatomy"):
+        pipeline.analyse(folders, root, paths=("control", "treated"))
+
+    counted = [re.search(r"\[(\d+)/(\d+)\] (\S+) done", m) for m in caplog.messages]
+    counted = [m for m in counted if m]
+
+    # One line per object, counting up to the size of the batch and naming which one landed.
+    assert [int(m.group(1)) for m in counted] == [1, 2, 3, 4]
+    assert {m.group(2) for m in counted} == {"4"}
+    assert {m.group(3) for m in counted} == {f.name for f in folders}
+
+
+def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
+    """A spawned worker never runs the CLI, so its own lines had nowhere to go.
+
+    Which object is being read, how big it is and how many instances came out are all
+    logged in the worker: without this they were formatted and dropped, and the run said
+    nothing at all until the first object finished.
+    """
+    import logging
+
+    from label_anatomy.pipeline import pool
+
+    package = logging.getLogger("label_anatomy")
+    before = (package.handlers[:], package.level, package.propagate)
+    try:
+        package.handlers[:] = []
+        monkeypatch.delenv(pool.LOG_LEVEL_ENV, raising=False)
+        pool.log_in_this_worker()
+        assert package.handlers == [], "nothing to inherit means nothing is installed"
+
+        monkeypatch.setenv(pool.LOG_LEVEL_ENV, str(logging.INFO))
+        pool.log_in_this_worker()
+
+        assert len(package.handlers) == 1
+        assert package.level == logging.INFO
+        assert package.propagate is False
+    finally:
+        package.handlers[:], package.level, package.propagate = before

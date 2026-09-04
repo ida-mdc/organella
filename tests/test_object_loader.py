@@ -131,8 +131,37 @@ def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir, monkeyp
     record = load_object(object_dir)
 
     assert record.meta["object_mask_name"] is None
-    assert not any(k.startswith("object_center_") for k in record.meta), \
-        "polarity has no origin without an object mask, so it must not claim one"
+    # The extent of the object is one of those columns: nothing encloses it, so there is
+    # no volume of its own to report.
+    assert "object_volume_um3" not in record.meta
+
+
+def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_dir,
+                                                                      monkeypatch):
+    """A polarity origin does not need a boundary, only a middle.
+
+    The mask's centroid is the origin when a mask is named. When none is, the origin is the
+    centroid of every structure that was segmented - which is inside the data either way.
+    Refusing an origin instead dropped every polarity column and left the 3D explode with
+    no direction to push along.
+    """
+    import numpy as np
+
+    monkeypatch.delenv("LABEL_ANATOMY_OBJECT_MASK", raising=False)
+
+    record = load_object(object_dir)
+
+    axes = "ZYX"
+    centre = [record.meta.get(f"object_center_{ax.lower()}_um") for ax in axes]
+    assert all(value is not None for value in centre)
+    # Inside the field it was measured over, on every axis.
+    union = np.zeros(record.data.shape[1:], dtype=bool)
+    for channel in record.data:
+        union |= channel > 0
+    for i, ax in enumerate(axes):
+        size = float(record.meta[f"pixel_size_{ax}"])
+        found = np.nonzero(union.any(axis=tuple(j for j in range(union.ndim) if j != i)))[0]
+        assert found[0] * size <= centre[i] <= (found[-1] + 1) * size
 
 
 def test_without_a_mask_nothing_is_cropped_or_clipped_away(tmp_path, monkeypatch):

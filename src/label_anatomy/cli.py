@@ -16,14 +16,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
 import click
-import tifffile
 
 if TYPE_CHECKING:                      # analysis.meshes pulls in scikit-image
     from label_anatomy.analysis.meshes import MeshOptions
 
 from label_anatomy.config import AnatomyConfig
 from label_anatomy import pipeline, report_io
+from label_anatomy.pipeline.pool import LOG_LEVEL_ENV
 from label_anatomy.measure.discovery import inspect_object_dir
+from label_anatomy.measure.readers import read_header
 from label_anatomy.measure import find_object_dirs, load_object
 from label_anatomy import report_page
 
@@ -48,11 +49,17 @@ def _object_extent(object_dir: Path) -> Tuple[int, int]:
     if d.source is None:
         return 0, 0
     try:
-        with tifffile.TiffFile(d.source) as tf:
-            shape = tf.series[0].shape
+        shape, _ = read_header(d.source)
     except Exception:
         return 0, 0
-    return math.prod(int(s) for s in shape), max(1, len(d.entities))
+    # Only the entities the run will actually stack: --entities is what makes an object
+    # carrying a hundred structures fit at all, so budgeting for all of them would send a
+    # seven-entity run to one worker.
+    wanted = AnatomyConfig.from_env().entities
+    names = [e.name for e in d.entities.values()]
+    if wanted:
+        names = [n for n in names if n in wanted or n == d.object_mask_name]
+    return math.prod(int(s) for s in shape), max(1, len(names))
 
 
 def _stacked_mb(object_dir: Path) -> float:
@@ -154,6 +161,9 @@ def _apply_analysis_env(
     polarity_spread: bool = False,
     distance_histograms: bool = False,
     skeleton_entities: str | None = None,
+    entities: str | None = None,
+    label_map: Path | None = None,
+    label_map_entity: str | None = None,
 ) -> None:
     """Plugin options travel as environment variables; see config.AnatomyConfig."""
     settings = {
@@ -168,6 +178,9 @@ def _apply_analysis_env(
         "LABEL_ANATOMY_POLARITY_SPREAD": "1" if polarity_spread else None,
         "LABEL_ANATOMY_DISTANCE_HISTOGRAMS": "1" if distance_histograms else None,
         "LABEL_ANATOMY_SKELETON_ENTITIES": skeleton_entities,
+        "LABEL_ANATOMY_ENTITIES": entities,
+        "LABEL_ANATOMY_LABEL_MAP": label_map,
+        "LABEL_ANATOMY_LABEL_MAP_ENTITY": label_map_entity,
     }
     for key, value in settings.items():
         if value is not None:
@@ -184,8 +197,28 @@ def _colours_from_file(path: Path) -> dict[str, str]:
 
 
 @click.group()
-def cli() -> None:
-    """The spatial anatomy of segmented objects: measure them, then read the report."""
+@click.option("-q", "--quiet", is_flag=True, help="Only warnings and errors.")
+@click.option("-v", "--verbose", is_flag=True, help="Everything, including per-entity detail.")
+def cli(quiet: bool, verbose: bool) -> None:
+    """The spatial anatomy of segmented objects: measure them, then read the report.
+
+    A long run says what it is reading and counts off each object as it lands - objects are
+    measured in a process pool, so nothing arrives in order and a batch that is working
+    looks exactly like one that has hung. This is configured here because nothing else does
+    it - the progress lines were PixelPatrol's to show when this was a flavour of it, and
+    standalone they went nowhere.
+    """
+    level = logging.WARNING if quiet else (logging.DEBUG if verbose else logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    package_logger = logging.getLogger("label_anatomy")
+    package_logger.handlers[:] = [handler]
+    package_logger.setLevel(level)
+    # Ours only: a dependency's INFO stream would bury the one line per object that matters.
+    package_logger.propagate = False
+    # The workers are spawned, so they never reach this function. They read the level back
+    # out of the environment instead; without it their side of the run is silent.
+    os.environ[LOG_LEVEL_ENV] = str(level)
 
 
 @cli.command()
@@ -217,8 +250,10 @@ def colours(report: Path, palette: Path) -> None:
               help="Mask that bounds each object, e.g. pm. Never guessed: everything is "
                    "measured relative to it, the entities are clipped and cropped to it, "
                    "and polarity is measured from its centroid. Leave it out and the "
-                   "entities are measured where they lie, without those columns. Run "
-                   "'dry-run' to see the masks each folder has.")
+                   "entities are measured where they lie, with no clipping, no cropping "
+                   "and no extent of their own - polarity is then measured from the centre "
+                   "of everything segmented. Run 'dry-run' to see the masks each folder "
+                   "has.")
 @click.option("--object-noun", default=None, metavar="WORD",
               help="What one measured thing is called in the report, e.g. 'cell'. Give an "
                    "irregular plural as 'nucleus/nuclei'. Presentation only - it changes no "
@@ -234,6 +269,21 @@ def colours(report: Path, palette: Path) -> None:
                    "straddles the boundary is worse than including it.")
 @click.option("--auto-label-masks", is_flag=True,
               help="Promote masks with several connected components to label entities.")
+@click.option("--entities", default=None, metavar="NAMES",
+              help="Measure only these entities, e.g. liver,spleen,aorta, plus the object "
+                   "mask. Everything a folder has is measured when this is left out, which "
+                   "for a published segmentation can be far more than a question needs: "
+                   "each entity is another full-size channel of the stack, so a subject "
+                   "carrying 117 structures is selected down before it fits in memory.")
+@click.option("--label-map", metavar="FILE",
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="JSON file of label id: structure name pairs, e.g. {\"1\": \"liver\"}, "
+                   "splitting one volume whose ids each mean a different structure into an "
+                   "entity per id. Only the ids it names become entities.")
+@click.option("--label-map-entity", default=None, metavar="NAME",
+              help="Which entity --label-map splits. Needed only when a folder has more "
+                   "than one label entity, in which case it is an error to leave it out "
+                   "rather than a guess at which one was meant.")
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
               help="Largest gap between two instances of one structure that still counts "
                    "as a contact (default: 0.5).")
@@ -276,7 +326,9 @@ def colours(report: Path, palette: Path) -> None:
 def process(
     object_dir: Path, output: Path, paths: Tuple[str, ...], object_mask: str | None,
     object_noun: str | None, voxel_size_um: str | None,
-    no_clip: bool, auto_label_masks: bool, contact_max_um: float | None,
+    no_clip: bool, auto_label_masks: bool, entities: str | None,
+    label_map: Path | None, label_map_entity: str | None,
+    contact_max_um: float | None,
     max_skeleton_voxels: int | None, num_threads: int | None,
     skeleton_entities: str | None, polarity_spread: bool,
     distance_histograms: bool, colours: Path | None, no_contacts: bool, no_instances: bool,
@@ -296,7 +348,7 @@ def process(
     _apply_analysis_env(object_mask, object_noun, voxel_size_um, no_clip, auto_label_masks,
                         contact_max_um, max_skeleton_voxels, num_threads,
                         polarity_spread, distance_histograms,
-                        skeleton_entities)
+                        skeleton_entities, entities, label_map, label_map_entity)
 
     meshes_to = (mesh_dir or output.with_name(output.stem + "_meshes")) if with_mesh else None
     _apply_mesh_env(meshes_to, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
@@ -318,8 +370,19 @@ def process(
     report = pipeline.analyse(objects, object_dir, list(paths),
                               excluded=sorted(excluded), workers=workers, peak_gb=peak,
                               parts_dir=parts, resume=resume)
-    report_io.write(report, output, root=object_dir, paths=list(paths), flavor=FLAVOR,
-                    object_noun=object_noun)
+    try:
+        report_io.write(report, output, root=object_dir, paths=list(paths), flavor=FLAVOR,
+                        object_noun=object_noun)
+    except report_io.EmptyReport as empty:
+        # The parts are deliberately kept: this is exactly the run worth resuming once
+        # whatever went wrong is fixed.
+        raise click.ClickException(
+            f"{empty}. "
+            + (f"All {len(objects)} object(s) failed:\n  "
+               + "\n  ".join(f"{name}: {why}" for name, why in report.failures.items())
+               if report.failures
+               else "No object produced any rows; run 'dry-run' to see what each folder holds.")
+        ) from None
     # The report is the durable copy now, so the per-object ones have done their job. Kept
     # when something failed, since that is the run worth resuming.
     if not report.failures:
@@ -339,6 +402,20 @@ def process(
         from label_anatomy.analysis.meshes import GEOMETRY_FILENAME
 
         click.echo(f"Meshes written to {meshes_to}/<object>/{GEOMETRY_FILENAME}")
+
+
+def _entity_list(names: list[str], limit: int = 10) -> str:
+    """Entity names for one line of dry-run, kept to a line.
+
+    A published segmentation can carry over a hundred structures per object, and printing
+    all of them per folder buries the warnings and errors this command exists to show.
+    The cross-object summary below still names every one.
+    """
+    if not names:
+        return "(none)"
+    if len(names) <= limit:
+        return ", ".join(names)
+    return f"{', '.join(names[:limit])}  … +{len(names) - limit} more"
 
 
 @cli.command(name="dry-run")
@@ -372,12 +449,19 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
         click.echo(f"\n{rel}")
         click.echo(f"  source  {d.source.name if d.source else '(none)'}"
                    f"   [{_stacked_mb(folder):,.1f} MB stacked]")
-        for kind in ("label", "mask"):
+        for kind in ("label", "mask", "auto"):
             names = sorted(
                 e.name + ("*" if e.name == d.object_mask_name else "")
                 for e in d.entities.values() if e.kind == kind
             )
-            click.echo(f"  {kind + 's':7s} {', '.join(names) if names else '(none)'}")
+            if kind == "auto":
+                # Named by the file alone, so what each one is gets read off its content
+                # when the pixels are loaded. Nothing to show unless there are some.
+                if names:
+                    click.echo(f"  auto    {_entity_list(names)}"
+                               f"   [label or mask, decided from content]")
+                continue
+            click.echo(f"  {kind + 's':7s} {_entity_list(names)}")
         for entity in d.entities.values():
             entity_presence[f"{entity.kind}:{entity.name}"] = (
                 entity_presence.get(f"{entity.kind}:{entity.name}", 0) + 1
@@ -396,7 +480,10 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
         missing = "" if count == len(objects) else "   ← missing in some objects"
         click.echo(f"  {key:24s} {count}/{len(objects)}{missing}")
     if not object_mask:
-        masks = sorted(key.split(":", 1)[1] for key in entity_presence if key.startswith("mask:"))
+        # An auto entity is a candidate too: naming one as the boundary is what settles
+        # that it is a mask, so it belongs in the list you pick from.
+        masks = sorted(key.split(":", 1)[1] for key in entity_presence
+                       if key.startswith(("mask:", "auto:")))
         click.echo("\nPick the mask that bounds each object and pass it as --object-mask: "
                    f"{', '.join(masks) if masks else '(this batch has no mask entities)'}")
     peak = max((estimate_peak_gb(d) for d in objects), default=0.0)

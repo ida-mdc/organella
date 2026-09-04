@@ -336,3 +336,38 @@ def test_groups_from_a_real_report_reach_where_their_members_do(report_path):
             if group.get(target) is None:
                 continue
             assert group[target] >= 0
+
+
+# ── when there is no group to describe ───────────────────────────────────────
+
+def section_shown(rows):
+    """Whether the groups section draws at all, for this report."""
+    drawn = run_report_page({"rows": rows, "structure": "mito", "render": True})["render"]
+    return "s-groups" in drawn["shown"]
+
+
+def test_a_batch_of_whole_structure_masks_has_no_groups_section():
+    """Nothing was segmented into instances, so nothing can touch anything of its own kind.
+
+    The section would be an elaborate way of saying "one".
+    """
+    rows = [object_row("object_a"),
+            entity_row("object_a", MASK, kind="mask"),
+            entity_row("object_a", "liver", kind="mask")]
+
+    assert not section_shown(rows)
+
+
+def test_a_structure_with_one_instance_each_has_no_groups_section():
+    """A group needs two of something. One instance per object cannot form one."""
+    rows = batch([("object_a", "mito", 1), ("object_b", "mito", 1)], [],
+                 objects=("object_a", "object_b"))
+
+    assert not section_shown(rows)
+
+
+def test_a_structure_with_instances_that_touch_does_have_one():
+    rows = batch([("object_a", "mito", 1), ("object_a", "mito", 2)],
+                 [("object_a", "mito", 1, 2)])
+
+    assert section_shown(rows)

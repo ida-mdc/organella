@@ -22,9 +22,12 @@ would mean a regex quietly choosing what the numbers are relative to. `dry-run` 
 masks in each folder, which is where the name comes from.
 
 Leaving it out is allowed and means what it says: nothing bounds the object. The entities
-are measured where they lie, with no clipping and no cropping, and the columns that need a
-boundary - the polarity of each instance, the object's own extent - are not written at all
-rather than filled with something invented.
+are measured where they lie, with no clipping and no cropping, and the object's own extent
+is not written at all rather than filled with something invented.
+
+Polarity survives that, because an origin needs a middle and not a boundary: with no mask
+named it is the centroid of everything segmented. A run of bare labels therefore still gets
+`polar_dist_um` and its directions, and the 3D view still has a direction to explode along.
 
 Reports are stamped with the `object anatomy` flavour, which the report page shows in the
 strip at the foot of it.
@@ -94,6 +97,93 @@ The object row keeps the counts - `instance_count` per structure and `contact_co
 Distances and gaps are measured voxel centre to voxel centre, so structures sharing a
 face read *one voxel step* rather than zero, and with anisotropic voxels the smallest
 non-overlapping reading depends on direction. Zero means genuine overlap.
+
+### Reading data that was laid out for something else
+
+An object folder is a source image plus its entity volumes, and the naming rule is
+`<prefix>_<name>_label|labels|mask`, where the prefix is the source image's basename. The
+prefix is taken off the *front*, and the entity name is everything that remains, so a name
+may have underscores in it: `s0011_rib_left_11_mask` is the entity `rib_left_11`. Splitting
+at the last underscore instead - which is what this used to do - read that file as the
+entity `11`, which collided with `rib_right_11` and dropped one of the two with nothing
+said.
+
+Published segmentations are not going to be renamed to suit a reader, so three things about
+them are read as they come.
+
+**Formats.** `readers.py` is the only place a file becomes an array. TIFF goes through
+tifffile; NIfTI, NRRD, MetaImage and the rest of what ITK reads go through SimpleITK, which
+is already a dependency. Both return `(Z, Y, X)`, the order everything downstream measures
+in - SimpleITK's *spacing* is `(x, y, z)` and is reversed once, at the boundary, so nothing
+below has to remember which convention it holds. Headers are read without the pixels, which
+is what keeps `dry-run` a header read: 6 ms against 500 ms on a 42-megavoxel NIfTI.
+
+A NIfTI header carries a voxel size where a TIFF usually does not. Its spacing is taken as
+millimetres, because that is the NIfTI convention and its unit field is very often 0
+(*unknown*) - it is 0 throughout TotalSegmentator. `voxel_size_source` records
+`image-header-mm` rather than `tiff-metadata` so the report says which it was, and
+`--voxel-size-um` overrides either.
+
+**Entities in a subfolder.** A `segmentations/`, `masks/` or `labels/` folder beside the
+source image holds entities named by nothing but the structure. There is no prefix to
+strip, so the file name is the name.
+
+**What such a file is** cannot come from its name, and is not guessed from it: it is read
+off the array. More than one distinct non-zero value is a label volume, one is a mask. That
+is a fact about the data rather than a claim about intent, which is why it does not
+contradict the object mask never being inferred - and the entity *named* as the object mask
+is a mask by definition, whatever it holds, because that is what naming it means. Discovery
+records such an entity as `auto` and `dry-run` prints it as `auto`; the kind is settled when
+the pixels are read. An entity key is `<kind>:<name>`, but the kind in a key is an identity
+and not a claim - a mask promoted to a label keeps its key - so nothing rebuilds a key from
+a kind it assumes. `key_for_name` is how the object mask's channel is found.
+
+**An object may be described rather than stored.** A folder holding one `source.json` and no
+images is an object too: the manifest names a chunked store, the arrays inside it, and the
+window to read.
+
+```json
+{
+  "store": "s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.n5",
+  "scale": "s0",
+  "crop": "3712:4224,256:768,5760:6272",
+  "source": "em/fibsem-uint16",
+  "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" },
+  "voxel_size_um": [0.00524, 0.004, 0.004]
+}
+```
+
+`scale` is appended to every array path, so the same manifest reads a different resolution by
+changing one word. `crop` is in voxels *at that scale*, and is the point of the whole thing: a
+chunked array is read block by block, so a window costs the blocks it overlaps and nothing
+else. A 512³ crop of OpenOrganelle's 122-gigavoxel `jrc_hela-2` is **8 of its 1248 chunks -
+0.64%, read in under five seconds**, which is how a part of a cell is measured at full 4 nm
+resolution without the cell ever being downloaded. Reading the whole volume to get there would
+mean 122 gigavoxels for a measurement that needs 134 million.
+
+Everything else is unchanged: the entities arrive as `auto` and learn their kind from their
+content, `--entities` selects, groups and `--resume` work, and `dry-run` reads array metadata
+rather than pixels - so a remote dataset can be surveyed before a byte of it is fetched. The
+manifest is also better provenance than a folder of TIFFs, because it records exactly which
+store, scale and window a report came from, in about a kilobyte.
+
+`voxel_size_um` is optional; without it the size comes from the store's own metadata, which
+records nanometres - either the `multiscales` transform on the parent group (per scale level,
+so the one that matters for a downsampled array) or `pixelResolution` on the array.
+`voxel_size_source` says which was used: `manifest` or `store-metadata-nm`.
+
+Reading a store needs `zarr` and `s3fs`, which are the `remote` extra rather than
+dependencies - measuring files on disk needs neither. zarr is pinned below 3 because zarr 3
+dropped N5 support.
+
+**Selecting, and one volume that is many structures.** TotalSegmentator ships 117 masks per
+subject; stacking all of them is 118 channels of the whole field of view, which projects
+46 GB for one subject where seven entities project 2.4. `--entities` is therefore not a
+convenience but what makes such an object measurable, and an unknown name is an error
+listing what the folder has. `--label-map` splits one volume whose ids each mean a different
+structure into an entity per id; only the ids it names become entities, and when
+`--entities` is given too, only those are ever materialised. Which entity to split is asked
+for rather than guessed when a folder has more than one label volume.
 
 ### 2D and 3D
 
@@ -591,9 +681,12 @@ name:
 | Variable | Default | CLI flag |
 | --- | --- | --- |
 | `LABEL_ANATOMY_OBJECT_MASK` | unset (nothing bounds the object) | `--object-mask NAME` |
-| `LABEL_ANATOMY_VOXEL_SIZE_UM` | inferred from TIFF metadata | `--voxel-size-um z,y,x` (3D) or `y,x` (2D) |
+| `LABEL_ANATOMY_VOXEL_SIZE_UM` | inferred from the image header | `--voxel-size-um z,y,x` (3D) or `y,x` (2D) |
 | `LABEL_ANATOMY_NO_CLIP` | `0` (entities are clipped to the object mask) | `--no-clip` |
 | `LABEL_ANATOMY_AUTO_LABEL_MASKS` | `0` | `--auto-label-masks` |
+| `LABEL_ANATOMY_ENTITIES` | unset: every entity the folder has | `--entities liver,spleen` |
+| `LABEL_ANATOMY_LABEL_MAP` | unset: a label volume is one entity | `--label-map FILE` |
+| `LABEL_ANATOMY_LABEL_MAP_ENTITY` | unset: the folder's one label entity | `--label-map-entity NAME` |
 | `LABEL_ANATOMY_ENTITY_COLOURS` | built-in palette | `--colours FILE` |
 | `LABEL_ANATOMY_MAX_SKELETON_VOXELS` | `500000` | `--max-skeleton-voxels` |
 | `LABEL_ANATOMY_SKELETON_ENTITIES` | unset: nothing is skeletonised | `--skeleton-entities mito,er` |

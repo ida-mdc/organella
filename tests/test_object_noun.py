@@ -90,7 +90,7 @@ def test_naming_it_changes_no_column(report_path, tmp_path):
 def test_the_descriptions_say_the_word_the_run_chose():
     """Substituted where the file is written, so the page, pyarrow and a notebook agree."""
     assert with_noun(describe("object_volume_um3"), "cell") == (
-        "Volume in µm³ enclosed by the cell mask (3D cells).")
+        "Volume in µm³ enclosed by the cell mask.")
     # Whole words only: a column name inside a sentence is left alone.
     assert "object_id" in with_noun("Name of the object_id column", "cell")
 

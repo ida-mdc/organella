@@ -46,8 +46,8 @@ FILE_DESCRIPTIONS: Dict[str, str] = {
     "size_bytes": "Size on disk of everything read for this object, in bytes.",
     "modification_date": "When the source image was last modified.",
     "channel_names": (
-        "The structures stacked along C for this object, in order - one channel per entity "
-        "volume, which is how an object is read as a single stack."
+        "The structures stacked along C for this object, in order - one channel each, "
+        "which is how an object is read as a single stack."
     ),
     "num_pixels": "Number of samples in the analysed region of this object.",
 }

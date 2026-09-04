@@ -45,9 +45,20 @@ def analyse(
     n_workers = _plan_the_two_pools(workers, len(folders), peak_gb)
 
     parts = PartsCache(parts_dir, settings_fingerprint(excluded), resume=resume)
-    reused, remaining = _split_off_what_is_already_measured(work, parts)
+    reused, remaining = _split_off_what_is_already_measured(work, parts, len(work))
+    progress = _progress(len(work), already_done=len(reused))
+
+    def landed(result: ObjectResult) -> None:
+        """Kept on disk first, then said out loud.
+
+        If the run dies on the next object, the line the reader saw and the part that
+        survives on disk say the same thing.
+        """
+        parts.keep(result)
+        progress(result)
+
     results = measure_every_object(remaining, excluded, n_workers,
-                                   on_result=parts.keep) if remaining else []
+                                   on_result=landed) if remaining else []
     measured, failures = _rows_and_failures(results)
 
     return Report(
@@ -89,8 +100,34 @@ def _plan_the_two_pools(requested: Optional[int], n_objects: int, peak_gb: float
     return n_workers
 
 
+def _progress(total: int, already_done: int = 0):
+    """Say each object as it lands, and how much of the batch that leaves.
+
+    Called from inside the pool rather than after it. Collected first and logged afterwards,
+    a batch that takes an hour said nothing for an hour and then said everything at once,
+    which is indistinguishable from a batch that has hung. Objects are measured in parallel
+    and come back out of order, so the number is how many of the batch are done and not a
+    position in it.
+    """
+    done = already_done
+
+    def note(result: ObjectResult) -> None:
+        nonlocal done
+        done += 1
+        if result.error:
+            # The reason is already on its own line, logged by whichever layer caught it and
+            # naming the same object. Repeating it here would print the traceback text twice
+            # for every failure; this line is here to keep the count honest.
+            logger.warning("anatomy: [%d/%d] %s failed", done, total, result.object_id)
+        else:
+            logger.info("anatomy: [%d/%d] %s done in %.1f s",
+                        done, total, result.object_id, result.seconds)
+
+    return note
+
+
 def _split_off_what_is_already_measured(
-    work: Sequence[Work], parts: PartsCache,
+    work: Sequence[Work], parts: PartsCache, total: int,
 ) -> Tuple[List[pl.DataFrame], List[Work]]:
     """The rows an earlier run already produced, and the objects still to measure."""
     reused: List[pl.DataFrame] = []
@@ -100,8 +137,10 @@ def _split_off_what_is_already_measured(
         if rows is None:
             remaining.append((folder, group))
             continue
-        logger.info("anatomy: %s already measured; reusing its %d row(s)",
-                    folder.name, rows.height)
+        # Counted into the same running total as the objects that are about to be measured:
+        # --resume otherwise reads as a batch that skipped most of its work.
+        logger.info("anatomy: [%d/%d] %s already measured; reusing its %d row(s)",
+                    len(reused) + 1, total, folder.name, rows.height)
         reused.append(rows)
     return reused, remaining
 
@@ -117,5 +156,4 @@ def _rows_and_failures(
             failures[result.object_id] = result.error
             continue
         measured.append(result.frame())
-        logger.info("anatomy: %s done in %.1f s", result.object_id, result.seconds)
     return measured, failures

@@ -476,3 +476,77 @@ def test_the_measurement_is_explained_where_it_is_present(drawn):
     prose = " ".join(drawn["prose"])
     assert "Not measured in this run" not in prose
     assert "lies near a structure" in prose
+
+
+# ── a report this page cannot read ───────────────────────────────────────────
+
+
+def test_a_report_from_before_the_typed_rows_is_named_as_that(report_path):
+    """Its instances and contacts were list columns on the object row.
+
+    Told "this is not an Anatomy report", a reader goes looking for the wrong problem -
+    they have a report, from a version this page predates.
+    """
+    older = [{"object_id": "object_a", "n_entities": 3}]
+
+    failure = run_page({"loadFailure": older})["loadFailure"]
+
+    assert "older version" in failure
+    assert "list columns" in failure
+
+
+def test_a_parquet_that_is_not_a_report_at_all_says_how_to_make_one(report_path):
+    failure = run_page({"loadFailure": [{"something": 1, "else": 2}]})["loadFailure"]
+
+    assert "not an Anatomy report" in failure
+    assert "label-anatomy process" in failure
+
+
+def test_a_report_with_no_rows_says_so(report_path):
+    """A run where every object failed used to write one. It no longer can, but the files
+    it already wrote are still out there."""
+    failure = run_page({"loadFailure": []})["loadFailure"]
+
+    assert "no rows" in failure
+
+
+# ── how much of the region is which structure ────────────────────────────────
+
+
+def test_the_overview_draws_one_stacked_composition_bar(drawn):
+    """Absolute totals on a scale each cannot be compared; shares of one region can.
+
+    Eight panels with eight axes answered "how much of each structure is there" for a
+    single object with eight single bars, where a nucleus and a lipid droplet drew the same
+    height. One stack on one percentage scale is the same numbers, comparable.
+    """
+    stacks = drawn["stacks"]
+
+    assert len(stacks) == 1, "the overview should draw exactly one composition bar"
+    assert "%" in stacks[0]["xTitle"] or "of" in stacks[0]["xTitle"]
+
+
+def test_every_composition_stack_fills_its_axis_exactly_once(drawn):
+    """The segments and the unsegmented remainder are a partition, so they sum to 100%."""
+    series = drawn["stacks"][0]["series"]
+    n_objects = len(series[0]["x"])
+
+    for i in range(n_objects):
+        total = sum(s["x"][i] for s in series if s["x"] is not None)
+        assert total == pytest.approx(100.0, abs=0.5), f"object {i} sums to {total}%"
+
+
+def test_the_remainder_is_named_rather_than_left_as_a_gap(drawn):
+    """A stack that stops short of the axis has to say what the rest of the region is."""
+    names = [s["name"] for s in drawn["stacks"][0]["series"]]
+
+    assert names[-1] == "not in any structure"
+    assert len(names) > 1
+
+
+def test_a_structure_missing_from_an_object_is_a_zero_and_not_a_hole(drawn):
+    """Every series spans every object, so the stacks stay aligned when one lacks a mask."""
+    series = drawn["stacks"][0]["series"]
+    widths = {len(s["x"]) for s in series if s["x"] is not None}
+
+    assert len(widths) == 1

@@ -390,6 +390,34 @@ def test_the_gallery_counts_out_of_every_instance_it_could_have_shown(con, geome
     assert len(shown) == 2
 
 
+def test_the_gallery_shows_a_whole_structure_mask_once_per_object(con, geometry_dir):
+    """A structure segmented as one piece has shapes to look at too, one per object.
+
+    Its numbers are a bar per object and say nothing about what it looks like; six masks
+    side by side is where a leaked segmentation shows itself.
+    """
+    source = source_of(geometry_dir, "object_a", "object_b")
+    rows = con.execute(
+        build("gallerySql", source, "pm", "volume_um3", "highest", 12, "file")).fetchall()
+    total = con.execute(
+        build("galleryCountSql", source, "pm", "volume_um3", "file")).fetchone()[0]
+
+    assert total == 2, "one pm mask in each of two objects"
+    assert {r[0] for r in rows} == {"object_a", "object_b"}
+    # A mask is the whole structure, so it has no label number to caption a card with.
+    assert all(r[1] is None for r in rows)
+    assert all(r[2] > 0 for r in rows)
+
+
+def test_the_gallery_asks_for_instances_unless_told_otherwise(con, geometry_dir):
+    # The mask rows and the instance rows sit in one file, so the row type is what keeps
+    # a pm mask out of the mito strip - and the default has to stay 'instance'.
+    source = source_of(geometry_dir, "object_a", "object_b")
+    default = con.execute(build("galleryCountSql", source, "pm", "volume_um3")).fetchone()[0]
+
+    assert default == 0, "pm has no instances, only a mask"
+
+
 def test_the_gallery_can_be_restricted_to_one_object(con, geometry_dir):
     # The filter narrows which geometry files are read at all, so the same query over one
     # object is what a filtered gallery runs.

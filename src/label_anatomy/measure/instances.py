@@ -42,10 +42,11 @@ from label_anatomy.config import AnatomyConfig, wants_skeletons
 from label_anatomy.analysis.distances import (
     POLARITY_2D,
     POLARITY_3D,
-    object_center_um,
     distance_target,
     distance_transform_um,
+    object_center_um,
     polarity_from_offset,
+    segmented_center_um,
 )
 from label_anatomy.analysis.shapes import (
     METRICS_2D,
@@ -115,37 +116,37 @@ _OBJECT_COLUMNS: Dict[str, Any] = {
 }
 
 _DESCRIPTIONS: Dict[str, str] = {
-    "instance_entity": "Entity the instance on this row belongs to.",
-    "instance_label": "Label id of the instance within its entity.",
-    "instance_volume_um3": "Per-instance volume in µm³ (3D objects).",
-    "instance_surface_area_um2": "Per-instance surface area in µm², by ITK's Crofton estimator: right on a smooth surface, and about 10% short on a flat axis-aligned face (3D objects).",
+    "instance_entity": "Structure the instance on this row belongs to.",
+    "instance_label": "Label id of this instance within its structure.",
+    "instance_volume_um3": "Volume of this instance in µm³.",
+    "instance_surface_area_um2": "Surface area of this instance in µm², by ITK's Crofton estimator: right on a smooth surface, and about 10% short on a flat axis-aligned face.",
     "instance_sphericity": "Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect ball and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across. Flat or faceted shapes read well below: a cube 0.92, a thin slab or a square rod about 0.6.",
-    "instance_area_um2": "Per-instance area in µm² (2D objects).",
-    "instance_perimeter_um": "Per-instance perimeter in µm, by ITK's Crofton estimator: right on a smooth outline, and short on a straight axis-aligned edge (2D objects).",
+    "instance_area_um2": "Area of this instance in µm².",
+    "instance_perimeter_um": "Perimeter of this instance in µm, by ITK's Crofton estimator: right on a smooth outline, and short on a straight axis-aligned edge.",
     "instance_circularity": "Perimeter of the equal-area disc divided by the measured perimeter. 1 is a perfect disc; a few percent above it is the boundary estimator coming in short on a very small instance, and an elongated or ragged outline reads below.",
-    "instance_aspect_ratio_major_minor": "Per-instance ratio of largest to smallest PCA axis length.",
-    "instance_branches": "Per-instance number of skeleton branches.",
-    "instance_length_um": "Per-instance skeleton length in µm.",
-    "instance_tortuosity": "Per-instance length-weighted branch arc/chord ratio (≥1, 1 = straight).",
-    "instance_distance_to_closest_same_type_um": "Centroid distance in µm to the nearest other instance of the same entity.",
+    "instance_aspect_ratio_major_minor": "Longest principal axis ÷ shortest. 1 is a ball; higher is more elongated, flatter, or both.",
+    "instance_branches": "Branches in this instance's curve skeleton. Only measured for the structures a run named with --skeleton-entities.",
+    "instance_length_um": "Total length of this instance's curve skeleton in µm - the length along it, not end to end.",
+    "instance_tortuosity": "How far from straight the skeleton runs: length along it ÷ the straight line between its ends, weighted by branch length. 1 is straight.",
+    "instance_distance_to_closest_same_type_um": "Centre-to-centre distance in µm to the nearest other instance of the same structure - how crowded this one's neighbourhood is.",
     "instance_polar_dist_um": "Distance in µm from the object centre to the instance centroid.",
-    "instance_polar_az_deg": "Azimuth in degrees of the instance centroid as seen from the object centre (3D objects).",
-    "instance_polar_el_deg": "Elevation in degrees of the instance centroid as seen from the object centre (3D objects).",
-    "instance_polar_angle_deg": "Angle in degrees of the instance centroid as seen from the object centre (2D objects).",
-    "instance_polar_nz": "Z component of the unit vector from the object centre to the instance centroid (3D objects).",
+    "instance_polar_az_deg": "Which way this instance lies from the object centre, around the Z axis, in degrees.",
+    "instance_polar_el_deg": "How far above or below the object centre this instance lies, in degrees.",
+    "instance_polar_angle_deg": "Which way this instance lies from the object centre, in degrees.",
+    "instance_polar_nz": "Z component of the unit vector from the object centre to this instance's centroid.",
     "instance_polar_ny": "Y component of the unit vector from the object centre to the instance centroid.",
     "instance_polar_nx": "X component of the unit vector from the object centre to the instance centroid.",
     "instance_polar_spread_deg": "Angular spread in degrees of the instance's voxels as seen from the object centre: how much of a direction range it covers. Null unless polarity spread is enabled.",
-    "distance_entity": "Entity of the instance this distance row is about.",
+    "distance_entity": "Structure of the instance this distance row is about.",
     "distance_label": "Label id of the instance being measured.",
-    "distance_target": "Entity measured to; for the object mask this is the distance to the object boundary.",
-    "distance_um": "Smallest distance in µm from the instance's voxels to the target entity.",
+    "distance_target": "Structure measured to; for the object mask this is the distance to the object boundary.",
+    "distance_um": "Smallest distance in µm from this instance's voxels to the nearest voxel of the target structure. 0 means they overlap.",
     "distance_mean_um": "Mean distance in µm over the instance's voxels. Null unless distance histograms are enabled.",
-    "distance_hist_min_um": "Lower bound of the histogram range, shared by every instance of this entity/target pair.",
-    "distance_hist_max_um": "Upper bound of the histogram range, shared by every instance of this entity/target pair.",
+    "distance_hist_min_um": "Lower bound of the histogram range, shared by every instance of this structure measured to this target.",
+    "distance_hist_max_um": "Upper bound of the histogram range, shared by every instance of this structure measured to this target.",
     "distance_hist_counts": "Per-instance voxel counts over the histogram range, as a JSON array of fixed-width bins.",
-    "object_volume_um3": "Volume in µm³ enclosed by the object mask (3D objects).",
-    "object_area_um2": "Area in µm² enclosed by the object mask (2D objects).",
+    "object_volume_um3": "Volume in µm³ enclosed by the object mask.",
+    "object_area_um2": "Area in µm² enclosed by the object mask.",
 }
 
 
@@ -232,10 +233,14 @@ class InstanceMeasurer:
             enclosed = float((volumes[object_mask_name] > 0).sum() * sample_extent)
             out["object_area_um2" if stack.spatial_dims == 2 else "object_volume_um3"] = enclosed
 
-        # From the loader, so these rows and the entity rows share one origin.
+        # From the loader, so these rows and the entity rows share one origin. Recomputed
+        # here only for a stack that arrived without one - the same two rules the loader
+        # uses: the bounding mask's centroid, or the centre of everything segmented.
         center = stack.center
-        if center is None and object_mask_name in volumes:
-            center = object_center_um(volumes[object_mask_name], sample_size)
+        if center is None:
+            center = (object_center_um(volumes[object_mask_name], sample_size)
+                      if object_mask_name in volumes
+                      else segmented_center_um(volumes.values(), sample_size))
 
         label_names = stack.label_names
         inst: Dict[str, List[Any]] = {col: [] for col in _INSTANCE_COLUMNS}

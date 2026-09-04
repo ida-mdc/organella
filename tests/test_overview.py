@@ -17,6 +17,11 @@ def overview_of(rows) -> dict:
     return run_report_page({"rows": rows, "structure": "mito"})["overview"]
 
 
+def coverage_notes(rows) -> dict:
+    """The sentence each section says about what the run did not measure, or ''."""
+    return run_report_page({"rows": rows, "structure": "mito"})["coverageNotes"]
+
+
 def batch(*, objects=("object_a", "object_b"), entities=("pm", "nucleus", "mito"),
           instances=True, contacts=True, dims=None, drop=()):
     """A batch as rows, with pieces of it left out on purpose."""
@@ -130,6 +135,39 @@ def test_a_run_with_no_instances_at_all_is_counted(report_path):
         "per-instance measurements": 0, "contacts": 0}
 
 
+# ── where the caveat is said ──────────────────────────────────────────────────
+#
+# A gap in coverage qualifies one section, so it is said in that section. Said at the top
+# of the report instead it lands before the reader has seen anything it could be about.
+
+def test_a_gap_is_named_where_the_section_it_qualifies_is():
+    rows = batch(objects=("object_a",))
+    rows += batch(objects=("object_b",), contacts=False)
+
+    notes = coverage_notes(rows)
+
+    assert "1 of 2" in notes["contacts"]
+    assert notes["per-instance measurements"] == ""
+
+
+def test_full_coverage_says_nothing_anywhere():
+    notes = coverage_notes(batch())
+
+    assert notes == {"per-instance measurements": "", "contacts": ""}
+
+
+def test_the_caveat_is_drawn_in_its_section_and_not_at_the_top():
+    rows = batch(objects=("object_a",))
+    rows += batch(objects=("object_b",), contacts=False)
+
+    caveats = run_report_page(
+        {"rows": rows, "structure": "mito", "render": True})["render"]["caveats"]
+
+    assert "1 of 2" in caveats["ct-coverage"]
+    assert "have contacts" not in (caveats["overview-warnings"] or "")
+    assert caveats["entity-coverage"] == ""
+
+
 # ── colour ────────────────────────────────────────────────────────────────────
 
 def test_a_structure_is_drawn_in_the_colour_the_report_gives_it(report_path):
@@ -146,6 +184,23 @@ def test_a_structure_is_drawn_in_the_colour_the_report_gives_it(report_path):
     # A structure the settings file did not name keeps its place in the built-in palette.
     assert summary["colours"]["nucleus"] != MITO_COLOUR
     assert summary["colours"]["nucleus"].startswith("#")
+
+
+def test_the_palette_does_not_run_out():
+    """A batch with more structures than hand-picked colours still gets distinct ones.
+
+    The hand-picked list is eight long. Past it the report used to fall back to grey, so
+    every structure after the eighth was drawn the same colour as every other one after
+    the eighth - which reads as one series and is worse than an ugly colour.
+    """
+    series = run_report_page({"rows": batch()})["series"]
+
+    assert len(series) == len(set(series)), "two series share a colour"
+    assert all(c.startswith("#") and len(c) == 7 for c in series)
+    # Nothing generated is a grey: a grey series is the failure this replaced.
+    for colour in series:
+        r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+        assert max(r, g, b) - min(r, g, b) > 30, f"{colour} has no hue"
 
 
 # ── against a real report ─────────────────────────────────────────────────────

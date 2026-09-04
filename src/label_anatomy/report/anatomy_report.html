@@ -93,6 +93,7 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 /* ── Hero count ──────────────────────────────────────────────────── */
 .card-metric { text-align: left; padding: .1rem 1.5rem .1rem 0; background: none;
   border: 0; border-right: 1px solid var(--rule-2); margin-right: .4rem; }
+.card-metric-last { border-right: none; }
 .card-metric .big { font-family: var(--sans); font-size: 2.5rem; font-weight: 300;
   color: var(--ink); line-height: 1; letter-spacing: -.03em; }
 .card-metric .lbl { font-size: .68rem; text-transform: uppercase;
@@ -242,7 +243,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   <button class="btn btn-sm btn-outline-dark d-none" id="geom-btn">&#128230; Add geometry</button>
   <input type="file" id="geom-input" webkitdirectory directory multiple class="d-none">
   <span class="file-info" id="file-info"></span>
-  <span class="file-info" id="geom-info"></span>
   <span class="file-info"><i class="bi bi-shield-lock me-1"></i>Your data stays local, nothing is uploaded.</span>
   <div id="global-filters" class="d-none d-flex flex-wrap gap-2 ms-auto align-items-center">
     <div id="plot-groupby-wrap" style="display:none;align-items:center;gap:.35rem" class="d-flex">
@@ -320,33 +320,26 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 
   <!-- 01 Overview -->
   <div class="section" id="s-overview">
-    <div class="section-title">What is in this report</div>
-    <p class="section-subtitle" id="overview-lede"></p>
-    <div id="overview-warnings"></div>
+    <div class="section-title">Report summary</div>
+    <p class="section-subtitle"></p>
     <div id="overview-cards" class="d-flex flex-wrap gap-3 align-items-center mb-3"></div>
-    <div class="subsection-label">Was every <span data-noun></span> segmented the same way?</div>
-    <p class="subsection-desc">One row per <span data-noun></span>, one column per structure: how many instances
-      it holds, &#10003; for a whole-structure mask, and <b>missing</b> where one was not
-      segmented like its neighbours. Read this first — <span data-noun-plural></span> are
-      segmented by hand, and a distribution drawn across them hides the one that has no
-      mitochondria at all.</p>
+    <div id="overview-warnings"></div>
+    <div class="subsection-label">Do the same structures exist for each <span data-noun></span>?</div>
+      <p class="section-subtitle">In this table, masks and labels per <span data-noun></span> are listed, missing structures are highlighted.</p>
     <div id="overview-table-wrap" class="mb-4"></div>
     <div class="subsection-label">How much of each structure is there?</div>
-    <p class="subsection-desc" id="overview-extent-desc"></p>
     <div id="overview-volumes"></div>
   </div>
 
   <!-- 02 The thing itself, in 3D -->
   <div class="section" id="s-3d">
-    <div class="section-title">The <span data-noun></span> itself</div>
-    <p class="section-subtitle">Before the distributions: one <span data-noun></span> as it
-      was segmented.
-      <b>Drag</b> to orbit, <b>scroll</b> to zoom, <b>shift-drag</b> to pan. Colour
-      <b>by structure</b> to read the layout, <b>by a metric</b> to see where the extremes sit,
-      or <b>by contact group</b> to see which instances chain together at a given gap.
-      <b>Explode</b> pushes every instance out along its own direction from the
-      <span data-noun></span> centre, which opens a crowded interior without moving anything
-      across it.</p>
+    <div class="section-title">Looking at a single <span data-noun></span>..</div>
+    <p class="section-subtitle">.. before we dive deeper into statistics.
+      Drag to orbit, scroll to zoom, shift-drag to pan. Colour
+      by structure to read the layout, by a metric to see where the extremes sit,
+      or by contact group to see which instances chain together at a given gap.
+      Explode pushes every instance out along its own direction from the
+      <span data-noun></span> centre.</p>
     <div id="scene-controls" class="ctrl-bar"></div>
     <div id="scene-holder"></div>
     <div id="scene-note" class="chart-note"></div>
@@ -355,15 +348,9 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   <!-- 03 Component stats -->
   <div class="section" id="s-entities">
     <div class="section-title">Structure by structure</div>
-    <p class="section-subtitle">Every question the report answers about one structure, in one
-      place: how big its instances are, how far they sit from everything else, and which
-      instances are behind the distributions. With <b>Significance</b> on, the stars are a
-      two-sided <b>Mann-Whitney U</b> between whatever the panels are faceted by - a rank
-      test, so it claims nothing about the shape of the distributions. On boxes they are
-      brackets, and hovering one gives the p-value, the n and the two facets it compared; on
-      histograms, and where there are too many pairs to bracket, they are the line under the
-      panel. Faceted by <span data-noun></span> rather than by group they compare two samples
-      of one condition, which is worth knowing but is not a result.</p>
+    <p class="section-subtitle">Every question the report answers about one structure, in
+      one place: how big its instances are, how far they sit from everything else, as labels, as individual pixels of a label, and as label groups by proximity.</p>
+    <div class="big" id="entity-coverage"></div>
     <div class="d-flex align-items-center gap-2 mb-3">
       <label class="form-label small mb-0 text-muted">Structure</label>
       <select id="stats-entity-select" class="form-select form-select-sm" style="width:auto"></select>
@@ -374,12 +361,8 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   <!-- 04 Groups of one structure -->
   <div class="section d-none" id="s-groups">
     <div class="section-title">Groups of one structure</div>
-    <p class="section-subtitle">Instances of <em>one</em> structure that touch each other,
-      chained into groups: two mitochondria within a gap you choose are a mitochondrial
-      network. A mitochondrion against the nucleus is a <em>distance</em>, and lives in the
-      section above. Everything here is one structure at a time, because that is what a
-      contact is between - and once the groups exist, they get the same questions asked of
-      them as the instances did.</p>
+    <p class="section-subtitle" id="ct-subtitle"></p>
+    <div id="ct-coverage"></div>
     <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
       <div>
         <label class="form-label small mb-1 text-muted">Structure</label><br>
@@ -615,9 +598,21 @@ if (typeof Plotly !== 'undefined') {
 // Colour caches. Identity colours follow the thing (object/group/structure), never
 // its rank, so filtering a series out never repaints the survivors.
 var _objPal = null, _entPal = null, _grpPal = null;
+// Past the hand-picked series the colours are generated rather than repeated or greyed
+// out: the hue walks the wheel by the golden angle, so however many are wanted, successive
+// ones land far apart. Coming round the wheel they eventually land near a hand-picked hue
+// anyway, so the generated ones alternate between a pale and a dark band, either side of
+// the mid lightness the hand-picked eight all sit at - a pale salmon next to the palette's
+// orange reads as a different series where a second orange would not.
+function seriesColour(i) {
+  if (i < CS.series.length) return CS.series[i];
+  var n = i - CS.series.length;
+  var dark = n % 2 === 1;
+  return hslToHex(((n * 137.508 + 95) % 360) / 360, dark ? 0.70 : 0.80, dark ? 0.30 : 0.66);
+}
 function assignSeries(keys) {
   var m = {};
-  keys.forEach(function(k, i){ m[k] = i < CS.series.length ? CS.series[i] : CS.grey; });
+  keys.forEach(function(k, i){ m[k] = seriesColour(i); });
   return m;
 }
 // Series colours are opaque hex; area fills want the same hue, translucent.
@@ -731,12 +726,8 @@ async function loadParquetBuffer(buffer, label) {
     COLUMN_HELP = {};
   }
   var rows = await queryRows("SELECT * FROM read_parquet('" + file + "')");
-  var cols = rows.length ? Object.keys(rows[0]) : [];
   REPORT_NOUN = footer.anatomy_object_noun || null;
-  if (!cols.includes('row_type')) {
-    throw new Error('This parquet has no row_type column, so it is not an Anatomy report. '
-      + 'Produce one with: label-anatomy process <folder> -o report.parquet');
-  }
+  checkReadable(rows, label);
   adapt(rows);
   resetLoadState();
   setText('file-info', label);
@@ -795,6 +786,33 @@ function distColumnsFor(target) {
   };
 }
 
+/**
+ * Refuse a parquet this page cannot read, and say which kind of unreadable it is.
+ *
+ * Three kinds, and each sends the reader somewhere different: a file that is not a report
+ * at all, a report from before the rows were typed - instances and contacts were list
+ * columns on the object row - and a report with nothing in it, which a run where every
+ * object failed used to write: a valid parquet with no columns, whose own error message
+ * ("Need at least one non-root column") says nothing about the run.
+ */
+function checkReadable(rows, label) {
+  var cols = rows.length ? Object.keys(rows[0]) : [];
+  if (!rows.length) {
+    throw new Error(label + ' holds no rows. A run where every object failed used to write '
+      + 'a report like this; re-run it and see what it says about each object.');
+  }
+  if (!cols.includes('row_type')) {
+    var older = cols.includes('object_id') || cols.includes('cell_id')
+      || cols.includes('n_entities');
+    throw new Error(older
+      ? label + ' is an Anatomy report from an older version: its instances and contacts '
+        + 'were list columns on the object row rather than rows of their own, which this '
+        + 'page cannot read. Measure the batch again with label-anatomy process.'
+      : label + ' has no row_type column, so it is not an Anatomy report. Produce one '
+        + 'with: label-anatomy process <folder> -o report.parquet --object-mask NAME');
+  }
+}
+
 function adapt(rows) {
   var objectRows = [], entityRows = [], instanceRows = [], distanceRows = [], contactRows = [];
   DROPPED = 0;
@@ -821,8 +839,9 @@ function adapt(rows) {
   PLANAR = dims.length > 0 && dims.every(function(d){ return d === 2; });
   MIXED_DIMS = dims.length > 1;
   // Whether anything bounds the thing decides what to call it, and what can be said about
-  // it: with no mask there is no centre to measure a direction from and no extent of its
-  // own, and the columns for both are already absent.
+  // it: with no mask it has no extent of its own, and that column is already absent. It
+  // still has a centre - the middle of everything segmented - so the polarity columns are
+  // there either way.
   settleNoun(REPORT_NOUN,
              objectRows.some(function(r){ return r.object_mask_name != null; }));
 
@@ -945,6 +964,31 @@ function extentTerms() {
 function totalExtent(row) {
   var v = row.total_volume_um3;
   return v != null ? v : row.total_area_um2;
+}
+
+/** The region a structure's share is measured against, and where that number came from.
+ *
+ * A bounded object has an extent of its own, and that is the denominator: the share *of the
+ * cell*. Without a mask there is no cell, but there is still the region that was analysed,
+ * so the denominator is that box and the chart says which it used - rather than quietly
+ * normalising to the segmented total and calling the result a share of something.
+ */
+function analysedExtent(object) {
+  if (!object) return null;
+  var own = object.object_volume_um3 != null ? object.object_volume_um3 : object.object_area_um2;
+  if (own != null) return { value: +own, bounded: true };
+  var shape = object.object_shape;
+  if (shape && shape.length == null && shape.toArray) shape = shape.toArray();  // Arrow list
+  if (!shape || !shape.length) return null;
+  var sizes = shape.length === 3
+    ? [object.pixel_size_Z, object.pixel_size_Y, object.pixel_size_X]
+    : [object.pixel_size_Y, object.pixel_size_X];
+  var value = 1;
+  for (var i = 0; i < shape.length; i++) {
+    if (sizes[i] == null) return null;
+    value *= (+shape[i]) * (+sizes[i]);
+  }
+  return { value: value, bounded: false };
 }
 
 // Percentage with graceful precision: never collapse a real fraction to "0%".
@@ -1110,6 +1154,11 @@ function distColLabel(col) {
 }
 function axisColLabel(col) {
   if (col.indexOf('distance_to_') === 0) return distColLabel(col);
+  // The curated name where the metric has one, with its unit taken off because every
+  // caller adds that itself. De-underscoring the column is the fallback, and on its own it
+  // titled a panel "aspect ratio major minor" and another "polar dist".
+  var known = labelFor(col);
+  if (known && known !== col) return known.replace(/\s*\([^)]*\)\s*$/, '').toLowerCase();
   return col.replace(/_um3$|_um2$|_um$|_deg$/, '').replace(/_/g, ' ').trim();
 }
 function axisColUnit(col) {
@@ -1180,7 +1229,8 @@ async function useGeometryFiles(fileList) {
   GEOMETRY = owners.map(function(r) {
     return { id: String(r.id), group: groupOf[String(r.id)], path: String(r.filename) };
   }).sort(function(a, b){ return a.id.localeCompare(b.id); });
-  GEOM_SOURCE = files.length + ' geometry file(s) from the folder you chose';
+  GEOM_SOURCE = files.length + (files.length === 1 ? ' geometry file' : ' geometry files')
+    + ' from the folder you chose';
   return GEOMETRY;
 }
 
@@ -1202,7 +1252,8 @@ async function useGeometryBase(base) {
       _duckdbModule.DuckDBDataProtocol.HTTP, false);
     GEOMETRY.push({ id: object.object_id, group: object.group_id, path: name });
   }
-  GEOM_SOURCE = GEOMETRY.length + ' geometry file(s) from ' + trimmed;
+  GEOM_SOURCE = GEOMETRY.length
+    + (GEOMETRY.length === 1 ? ' geometry file' : ' geometry files') + ' from ' + trimmed;
   return GEOMETRY;
 }
 
@@ -1263,15 +1314,20 @@ function sceneEdgesSql(source, gap) {
     + " WHERE \"row_type\" = 'contact' AND \"gap_um\" <= " + Number(gap);
 }
 
-/** One structure's drawable instances that have the metric the gallery is sorting by. */
-function galleryWhereSql(entity, metric) {
-  return ' WHERE "row_type" = \'instance\' AND ' + HAS_GEOMETRY_SQL
+/**
+ * One structure's drawable shapes that have the metric the gallery is sorting by.
+ *
+ * `rowType` picks which shapes: the label instances of the structure, or - for a structure
+ * segmented as one piece - the whole-structure masks, one per object.
+ */
+function galleryWhereSql(entity, metric, rowType) {
+  return ' WHERE "row_type" = ' + esc(rowType || 'instance') + ' AND ' + HAS_GEOMETRY_SQL
     + ' AND "entity_name" = ' + esc(entity) + ' AND isfinite("' + metric + '")';
 }
 
 /** How many there are in total, which is what the caption is a fraction of. */
-function galleryCountSql(source, entity, metric) {
-  return 'SELECT COUNT(*) AS n FROM ' + source + galleryWhereSql(entity, metric);
+function galleryCountSql(source, entity, metric, rowType) {
+  return 'SELECT COUNT(*) AS n FROM ' + source + galleryWhereSql(entity, metric, rowType);
 }
 
 /**
@@ -1280,13 +1336,13 @@ function galleryCountSql(source, entity, metric) {
  * "random" picks the sample first and sorts it afterwards, so the grid reads in metric
  * order either way — the tails are a different question from a fair sample.
  */
-function gallerySql(source, entity, metric, order, limit) {
+function gallerySql(source, entity, metric, order, limit, rowType) {
   var pick = order === 'random'
     ? 'ORDER BY random() LIMIT ' + limit
     : 'ORDER BY "' + metric + '"' + (order === 'lowest' ? ' ASC' : ' DESC') + ' LIMIT ' + limit;
   return 'SELECT * FROM (SELECT "object_id" AS object_id, "label_id" AS label, "'
     + metric + '" AS value, "mesh" AS mesh, "outline" AS outline, "skeleton" AS skeleton'
-    + ' FROM ' + source + galleryWhereSql(entity, metric) + ' ' + pick
+    + ' FROM ' + source + galleryWhereSql(entity, metric, rowType) + ' ' + pick
     + ') ORDER BY value DESC';
 }
 
@@ -2054,26 +2110,162 @@ function overviewSummary() {
   };
 }
 
+/**
+ * "Only 5 of 6 livers have contacts", for the section that gap is about. Said next to the
+ * charts rather than at the top of the report: at the top it qualifies nothing the reader
+ * has been shown yet; here it qualifies what is on the screen.
+ */
+function coverageNote(label) {
+  var c = overviewSummary().coverage.find(function(e){ return e.label === label; });
+  if (!c || !c.of || c.present >= c.of) return '';
+  return '<p class="callout callout-warn">Only <b>' + c.present + ' of ' + c.of + '</b> '
+    + noun(true) + ' have ' + label + ', so this section is about those ' + c.present
+    + ', not the batch.</p>';
+}
+
+/** How much of the region is which structure: one stacked bar per object, one scale.
+ *
+ * This is the question "how much of each structure is there" actually asked of a whole:
+ * absolute totals on eight separate axes cannot be compared - a nucleus and a lipid
+ * droplet drew the same bar - where shares of one region can be read against each other
+ * and across objects at a glance.
+ *
+ * Structures may overlap (chromatin sits inside the nucleus), so the parts are not always
+ * a partition. When they sum past the region the chart normalises to the segmented total
+ * instead, drops the remainder, and says so: a stack that overflows its own axis, or a
+ * negative remainder, would be worse than a different denominator named out loud.
+ */
+function compositionPanel(container, opt) {
+  var terms = opt.terms;
+  var rows = [];
+  // The bounding mask is not one of the parts: it *is* the whole. Left in, it fills the bar
+  // on its own and the structures inside it read as an overflow of their own container.
+  var maskName = (OBJECTS[0] || {}).object_mask_name;
+  var names = opt.entNames.filter(function(n){ return n !== maskName; });
+  opt.objects.forEach(function(oid) {
+    var object = OBJECTS.find(function(r){ return r.object_id === oid; });
+    var parts = [], sum = 0;
+    names.forEach(function(name) {
+      var row = opt.entRows.find(function(r) {
+        return r.object_id === oid && r.entity_name === name;
+      });
+      var value = row ? totalExtent(row) : null;
+      if (value == null) return;
+      parts.push({ name: name, value: +value });
+      sum += +value;
+    });
+    if (parts.length) rows.push({ oid: oid, parts: parts, sum: sum,
+                                  region: analysedExtent(object) });
+  });
+  if (!rows.length) {
+    container.innerHTML = '<div class="text-muted small">No '
+      + escHtml(terms.word) + ' was measured for any structure.</div>';
+    return;
+  }
+
+  // One denominator for the whole chart, so the bars are comparable: the region when every
+  // object has one and nothing overflows it, the segmented total otherwise.
+  var haveRegion = rows.every(function(r){ return r.region != null; });
+  var overflows = haveRegion && rows.some(function(r){ return r.sum > r.region.value * 1.0005; });
+  var useRegion = haveRegion && !overflows;
+  var bounded = useRegion && rows[0].region.bounded;
+  rows.forEach(function(r) { r.whole = useRegion ? r.region.value : r.sum; });
+
+  var wholeLabel = useRegion ? (bounded ? 'the ' + noun() : 'the analysed region')
+                             : 'the segmented ' + terms.word;
+
+  // The legend is the page's own, in HTML above the plot, rather than Plotly's: a nine-key
+  // legend under a chart this short lands inside the bottom margin and sits on top of the
+  // axis title.
+  var keys = names.concat(useRegion ? [' rest'] : []);
+  container.insertAdjacentHTML('beforeend', '<div class="chart-legend">'
+    + keys.map(function(name) {
+        var rest = name === ' rest';
+        return '<span class="d-inline-flex align-items-center gap-1">'
+          + '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
+          + 'background:' + (rest ? '#e7e3d9' : entColor(name)) + '"></span>'
+          + (rest ? 'not in any structure' : dataName(name)) + '</span>';
+      }).join('') + '</div>');
+
+  var plotEl = document.createElement('div');
+  container.appendChild(plotEl);
+
+  // Top to bottom in reading order, done by reversing the data rather than by reversing the
+  // axis: a reversed autorange on a one-category axis put the only bar outside the range.
+  rows.reverse();
+  var yLabels = rows.map(function(r){ return r.oid || '(unnamed)'; });
+  var traces = names.map(function(name) {
+    return {
+      type: 'bar', orientation: 'h', name: dataName(name),
+      y: yLabels,
+      x: rows.map(function(r) {
+        var part = r.parts.find(function(p){ return p.name === name; });
+        return part && r.whole ? 100 * part.value / r.whole : 0;
+      }),
+      customdata: rows.map(function(r) {
+        var part = r.parts.find(function(p){ return p.name === name; });
+        return part ? part.value : 0;
+      }),
+      marker: { color: entColor(name), line: { color: '#fffefb', width: 1 } },
+      showlegend: false,
+      hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% of '
+        + wholeLabel + '<extra>' + escHtml(dataName(name)) + '</extra>',
+    };
+  });
+  if (useRegion) {
+    traces.push({
+      type: 'bar', orientation: 'h', name: 'not in any structure',
+      y: yLabels,
+      x: rows.map(function(r) {
+        return r.whole ? Math.max(0, 100 * (r.whole - r.sum) / r.whole) : 0;
+      }),
+      customdata: rows.map(function(r){ return Math.max(0, r.whole - r.sum); }),
+      marker: { color: '#e7e3d9', line: { color: '#fffefb', width: 1 } },
+      showlegend: false,
+      hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% unsegmented'
+        + '<extra>not in any structure</extra>',
+    });
+  }
+
+  // One object needs no y tick - the table above already named it, and the axis then
+  // carries a single label wider than the bar it points at.
+  var single = rows.length === 1;
+  Plotly.newPlot(plotEl, traces, {
+    barmode: 'stack',
+    bargap: single ? 0.15 : 0.3,
+    margin: { l: single ? 8 : 120, r: 16, t: 6, b: 40 },
+    height: (single ? 62 : 30 * rows.length + 26) + 46,
+    xaxis: { title: '% of ' + wholeLabel, range: [0, 100.4], dtick: 25, ticksuffix: '%' },
+    yaxis: { type: 'category', automargin: !single, showticklabels: !single,
+             ticks: '', showgrid: false, linecolor: 'rgba(0,0,0,0)' },
+    showlegend: false,
+    hovermode: 'closest',
+  }, { responsive: true, displayModeBar: false });
+
+  var note;
+  if (!useRegion) {
+    note = overflows
+      ? 'The structures overlap - together they cover more than the region holds - so this '
+        + 'is each one\'s share of the total ' + terms.word + ' segmented, not of the '
+        + noun() + '. Nothing here is missing; the parts are simply not a partition.'
+      : 'No ' + noun() + ' extent was recorded, so this is each structure\'s share of the '
+        + 'total ' + terms.word + ' segmented.';
+  } else if (!bounded) {
+    note = 'Nothing bounds ' + (rows.length > 1 ? 'these ' + noun(true) : 'this ' + noun())
+      + ', so the whole is the region analysed - the image itself. Name one with '
+      + '--object-mask to read these as shares of the ' + noun() + '.';
+  }
+  if (note) {
+    container.insertAdjacentHTML('beforeend',
+      '<div class="chart-note">' + note + '</div>');
+  }
+}
+
 function renderOverview() {
   var terms = extentTerms();
   var cols = structureColumns();
   var objects = scopedObjectNames();
   var summary = overviewSummary();
-
-  document.getElementById('overview-lede').innerHTML =
-    summary.objects + ' ' + noun(summary.objects !== 1)
-    + (summary.groups > 1 ? ' in ' + summary.groups + ' groups' : '')
-    + ', ' + cols.length + ' structure' + (cols.length === 1 ? '' : 's')
-    + (summary.instances ? ', ' + summary.instances.toLocaleString() + ' segmented instances' : '')
-    + (summary.contacts ? ' and ' + summary.contacts.toLocaleString() + ' recorded contacts' : '')
-    + '. '
-    // Only where there is one. With no mask this read "measured relative to `no bounding
-    // mask`, the mask that bounds each object", which is three untruths in one sentence.
-    + (summary.objectMask
-        ? 'Everything is measured relative to ' + dataName(summary.objectMask)
-          + ', the mask that bounds each ' + noun() + '.'
-        : 'Nothing bounds ' + aNoun() + ' here: no mask was named, so the structures are '
-          + 'measured where they lie, and there is no centre to measure a direction from.');
 
   var warnings = [];
   if (summary.mixedDims) {
@@ -2094,27 +2286,20 @@ function renderOverview() {
       + ' of this report name no structure and could not be placed. They are left out of '
       + 'everything below; the report was probably written by a different version.');
   }
-  summary.coverage.forEach(function(c) {
-    if (c.of && c.present < c.of) {
-      warnings.push('Only <b>' + c.present + ' of ' + c.of + '</b> ' + noun(true) + ' have '
-        + c.label + '. The sections about them are about those ' + noun(true)
-        + ', not the batch.');
-    }
-  });
   setHtml('overview-warnings', warnings.map(function(w) {
     return '<p class="callout callout-warn">' + w + '</p>';
   }).join(''));
 
   var badges = cols.map(function(c) {
-    return '<span class="cs-chip cs-chip-' + c.kind + '" style="border-color:'
+    return '<span style="border-color:'
       + entColor(c.name) + '">' + escHtml(c.name) + '</span>';
-  }).join('');
+  }).join(', ');
   setHtml('overview-cards',
     '<div class="card-metric"><div class="big">' + (summary.objects || 1) + '</div>'
     + '<div class="lbl">Object' + (summary.objects === 1 ? '' : 's') + '</div></div>'
     + (summary.instances ? '<div class="card-metric"><div class="big">'
         + summary.instances.toLocaleString() + '</div><div class="lbl">Instances</div></div>' : '')
-    + '<div class="d-flex flex-wrap gap-2 align-items-center">' + badges + '</div>');
+    + '<div class="card-metric card-metric-last"><div class="big">' + badges + '</div><div class="lbl">Structure' + (cols.length === 1 ? '' : 's') + '</div></div>');
 
   // ── presence / instance-count table ───────────────────────────────────────
   var groupOf = {};
@@ -2167,14 +2352,21 @@ function renderOverview() {
     '<div class="table-wrap"><table class="table table-sm table-hover mb-0">'
     + '<thead class="table-light">' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>');
 
-  // ── one small plot per structure, so each keeps its own scale ─────────────
-  setText('overview-extent-desc', 'Total segmented ' + terms.word + ' of each structure, in '
-    + terms.unit + '. One panel per structure: a nucleus and a mitochondrion do not fit on '
-    + 'one axis, so they do not share one.');
+  // ── what share of the region each structure occupies ──────────────────────
   var volContainer = document.getElementById('overview-volumes');
   volContainer.innerHTML = '';
   var entNames = cols.map(function(c){ return c.name; });
   if (!entNames.length) return;
+
+  compositionPanel(volContainer, {
+    objects: rowObjects, entNames: entNames, entRows: entRows, terms: terms,
+  });
+
+  // Below it, one small plot per structure, each on its own scale - a nucleus and a
+  // mitochondrion do not fit on one axis. Only worth drawing when there is a distribution
+  // to draw: for a single object each panel is one bar, which is the composition above
+  // told worse, eight times, on eight scales that cannot be compared.
+  if (rowObjects.length < 2) return;
 
   var groups = uniq(filteredObjects().map(function(r){ return r.group_id; }).filter(Boolean));
   var byGroup = plotGroupBy === 'group' && groups.length > 1;
@@ -2213,10 +2405,15 @@ function renderOverview() {
       }).filter(function(f){ return f.values.length; });
     distributionPanel(row, {
       series: series, unit: terms.unit, noun: noun(), width: 232, height: 196,
-      showFacetTicks: false, help: metricHelp(terms.total),
-      heading: '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
-        + 'background:' + entColor(e) + '"></span>' + dataName(e) + ' total '
-        + escHtml(terms.word)
+      showFacetTicks: false,
+      // The swatch only where the bars are actually drawn in the structure's colour. Split
+      // by facet they are drawn in the facet's, and a structure-coloured dot beside them
+      // was a key to nothing - it said "this panel is about tumour" in a colour that
+      // appeared nowhere in the panel.
+      heading: (extentFacets.many ? '' :
+          '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
+          + 'background:' + entColor(e) + '"></span>')
+        + dataName(e) + ' total ' + escHtml(terms.word)
     });
   });
 }
@@ -3016,17 +3213,29 @@ async function renderScene() {
         new THREE.LineBasicMaterial({ vertexColors: true })));
     }
 
-    // Masks enclose the instances, so they are see-through and never merged: each wants its
-    // own transparency. In a plane a boundary line does that job without any.
+    // Only the mask that bounds the object is see-through, and it has to be: it encloses
+    // everything else, so drawn solid it is the only thing you would see. The other
+    // whole-structure masks are shapes in their own right and are drawn like the instances
+    // are - solid, shaded, and lit. Never merged, so each keeps its own material.
+    // In a plane a boundary line does the enclosing job without any transparency.
+    var bounding = (OBJECTS[0] || {}).object_mask_name;
     loaded.masks.forEach(function(mask) {
       var geometry = mergeInstances(THREE, [{ geometry: mask.geometry, rgb: colourOf(mask) }]);
       if (!geometry) return;
-      stage.scene.add(mask.flat
-        ? new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-            vertexColors: true, transparent: true, opacity: 0.55 }))
-        : new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
-            vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.12,
-            depthWrite: false })));
+      if (mask.flat) {
+        stage.scene.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+          vertexColors: true, transparent: true, opacity: 0.55 })));
+        return;
+      }
+      var encloses = bounding != null && mask.entity === String(bounding);
+      var surface = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
+        vertexColors: true, side: THREE.DoubleSide,
+        shininess: 14, specular: 0x0d0d10,
+        transparent: encloses, opacity: encloses ? 0.12 : 1,
+        depthWrite: !encloses
+      }));
+      if (!encloses) { surface.castShadow = true; surface.receiveShadow = true; }
+      stage.scene.add(surface);
     });
 
     stage.frameShadow();
@@ -3062,14 +3271,6 @@ async function renderScene() {
       if (refit !== false) _objectStage.fit();
 
       var drawn = loaded.instances.length;
-      var total = summary.entities
-        .filter(function(e){ return sceneState.entities.has(e.name); })
-        .reduce(function(sum, e){ return sum + e.instances; }, 0);
-      noteEl.textContent = drawn.toLocaleString() + ' instance(s) drawn'
-        + (drawn < total ? ' of ' + total.toLocaleString() + ', the largest by '
-            + extentTerms().word : '')
-        + ', ' + loaded.masks.length + ' mask(s), in ' + current.id + '.'
-        + (GEOM_SOURCE ? ' Geometry: ' + GEOM_SOURCE + '.' : '');
       buildControls(summary);
     } catch (error) {
       holder.style.display = 'none';
@@ -3139,7 +3340,9 @@ async function renderScene() {
     summary.entities.forEach(function(entity) {
       var label = document.createElement('label');
       label.title = [
-        entity.instances ? entity.instances.toLocaleString() + ' instance(s)' : '',
+        entity.instances
+          ? entity.instances.toLocaleString()
+            + (entity.instances === 1 ? ' instance' : ' instances') : '',
         entity.masks ? 'whole-structure mask' : ''
       ].filter(Boolean).join(', ');
       var box = document.createElement('input');
@@ -3286,14 +3489,23 @@ async function openInstance(item, title) {
   stage.fit();
 }
 
-/** The gallery strip for one structure, inside its block. */
-function renderGallery(container, entity) {
+/**
+ * The gallery strip for one structure, inside its block.
+ *
+ * `rowType` says what a card is. For a structure segmented instance by instance it is one
+ * instance; for one segmented as a single piece it is that piece, one card per object -
+ * a strip of six livers side by side, which is the only place in the report the shapes
+ * themselves can be compared rather than their numbers.
+ */
+function renderGallery(container, entity, rowType) {
   container.replaceChildren();
+  var masks = rowType === 'file';
+  var thing = masks ? 'mask' : 'instance';
   var objects = GEOMETRY.filter(function(o) {
     return !st.only || (plotGroupBy === 'group' ? o.group : o.id) === st.only;
   });
   if (!objects.length) {
-    geometryHint(container, 'the instances are drawn here');
+    geometryHint(container, 'the ' + thing + 's are drawn here');
     return;
   }
 
@@ -3321,18 +3533,26 @@ function renderGallery(container, entity) {
     grid.appendChild(loading);
     try {
       var source = sourceOf(objects);
-      var totals = await queryRows(galleryCountSql(source, entity, state.metric));
+      var totals = await queryRows(
+        galleryCountSql(source, entity, state.metric, rowType));
       var rows = await queryRows(
-        gallerySql(source, entity, state.metric, state.order, wanted()));
+        gallerySql(source, entity, state.metric, state.order, wanted(), rowType));
 
       grid.replaceChildren();
       if (!rows.length) {
-        footer.textContent = 'No ' + entity + ' instance has a ' + labelFor(state.metric) + '.';
+        footer.textContent = 'No ' + entity + ' ' + thing + ' has a '
+          + labelFor(state.metric) + '.';
         return;
       }
       // Two encodings: the shape takes the structure's colour, the border says which object
       // (or group) it came from, the same colour the charts above use.
       var meshHex = litEntColour(entity);
+      // A mask card is named after its object, and object names are folder paths that
+      // differ in the middle: trimming to a fixed width leaves them all reading the same.
+      // The shared prefix and suffix come off instead, as they do on the chart ticks.
+      var owners = uniq(rows.map(function(r){ return String(r.object_id); }));
+      var shortOwner = {};
+      shortFacetLabels(owners).forEach(function(short, i){ shortOwner[owners[i]] = short; });
       for (const row of rows) {
         var drawable = decodeDrawable(row);
         if (!drawable) continue;
@@ -3347,28 +3567,34 @@ function renderGallery(container, entity) {
         thumb.height = THUMB_PX * 2;
         var caption = document.createElement('figcaption');
         var value = numOrNull(row.value);
-        caption.textContent = '#' + row.label + ' · '
-          + (isFinite(value) ? value.toPrecision(3) : '-');
+        // A mask is one per object, so the object names the card; an instance is one of
+        // thousands in an object, so its label number does.
+        // The full name is the hover.
+        var name = masks ? shortOwner[owner] : '#' + row.label;
+        caption.textContent = name + ' · ' + (isFinite(value) ? value.toPrecision(3) : '-');
         caption.title = owner + ': ' + labelFor(state.metric) + ' ' + value;
         card.append(thumb, caption);
         var skeleton = decodePayload(row.skeleton, 2);
         var item = { geometry: drawable.geometry, flat: drawable.flat, skeleton: skeleton };
-        card.addEventListener('click', (function(item, label, value) {
+        card.addEventListener('click', (function(item, title, value) {
           return function() {
             openInstance(Object.assign({ hex: meshHex }, item),
-              owner + ' · ' + entity + ' #' + label + ' · ' + labelFor(state.metric) + ' '
+              title + ' · ' + labelFor(state.metric) + ' '
               + (isFinite(value) ? value.toPrecision(4) : '-'));
           };
-        })(item, row.label, value));
+        })(item, owner + ' · ' + entity + (masks ? '' : ' #' + row.label), value));
         grid.appendChild(card);
         // Sequential: one WebGL stage draws them all, and each needs the canvas to itself.
         await paintThumb(thumb, item, meshHex);
       }
       footer.textContent = rows.length + ' of '
-        + Number((totals[0] || {}).n || 0).toLocaleString() + ' ' + entity + ' instances, '
+        + Number((totals[0] || {}).n || 0).toLocaleString() + ' ' + entity + ' '
+        + thing + 's, '
         + (state.order === 'random' ? 'a random sample' : state.order) + ' by '
-        + labelFor(state.metric).toLowerCase() + ', across ' + objects.length + ' object(s). '
-        + 'Click one to look at it properly; one with a skeleton is drawn see-through.';
+        + labelFor(state.metric).toLowerCase() + ', across ' + objects.length + ' '
+        + noun(objects.length !== 1) + '. Click one to look at it properly'
+        // Only instances are skeletonised, so only their strip is worth the caveat.
+        + (masks ? '.' : '; one with a skeleton is drawn see-through.');
     } catch (error) {
       grid.replaceChildren();
       footer.textContent = 'Could not read the geometry: '
@@ -3772,8 +3998,8 @@ function pairPanels(host, opts) {
   var notes = [];
   if (pooling) {
     notes.push('Each ' + (plotGroupBy === 'group' ? 'group' : noun()) + ' holds fewer than '
-      + ECDF_MIN_PER_SERIES + ' ' + pluralise(member) + ', so all ' + series[0].rows.length
-      + ' are pooled into one curve - one step per ' + member + '.');
+      + ECDF_MIN_PER_SERIES + ' of them, so all ' + series[0].rows.length + ' are pooled '
+      + 'into one curve - one step each.');
   }
   if (opts.allMean) {
     notes.push('Distances are each ' + member + '\u2019s mean to that structure.');
@@ -3835,6 +4061,7 @@ function facetsOf(rows, opts) {
 function renderEntityStats() {
   var container = document.getElementById('entity-stats-container');
   container.innerHTML = '';
+  setHtml('entity-coverage', coverageNote('per-instance measurements'));
 
   var instRows = filteredInstances();
   var entRows = filteredEnts();
@@ -3932,8 +4159,7 @@ function renderEntityStats() {
       + '<div class="charts-row" data-slot="hist"></div>'
       + '<div class="subsection-label mt-3" data-slot="corr-label" style="display:none">Free'
         + ' exploration: compare any two measurements of ' + named + '</div>'
-      + '<p class="subsection-desc" data-slot="corr-desc" style="display:none">Still about '
-        + named + ' and nothing else: one point per ' + named + ' instance, with any two of'
+      + '<p class="subsection-desc" data-slot="corr-desc" style="display:none">One point per ' + named + ' instance, with any two of'
         + ' its own measurements on the two axes. With enough instances the line is the median'
         + ' y per equal-count bin of x and the band the middle 50%; with only a few, the'
         + ' instances are drawn with a dotted least-squares line through them. R² (0–1) below'
@@ -4093,9 +4319,16 @@ function renderEntityStats() {
       + facetLegend()
       + '<div class="subsection-label">How big and what shape is the whole ' + named + '?</div>'
       + '<p class="subsection-desc">A mask has no instances to distribute, so this is one'
-        + ' measurement per object.</p>'
-      + '<div class="charts-row" data-slot="mask"></div>';
+        + ' measurement per ' + noun() + '.</p>'
+      + '<div class="charts-row" data-slot="mask"></div>'
+      + '<div class="subsection-label">What does each ' + named + ' look like?</div>'
+      + '<p class="subsection-desc">The shape behind each measurement above, one card per '
+        + noun() + '. Numbers say a mask is bigger or rounder than another; this is where'
+        + ' you see what it actually is, and whether a reading is telling you about the'
+        + ' structure or about a segmentation that leaked.</p>'
+      + '<div data-slot="mask-gallery"></div>';
     container.appendChild(block);
+    renderGallery(block.querySelector('[data-slot="mask-gallery"]'), ent, 'file');
     if (!mRows.length) return;
     var mkEl = block.querySelector('[data-slot="mask"]');
 
@@ -4275,11 +4508,20 @@ function renderCorrelation(host, rows, ent, color, opts) {
 // answer for a group is its *closest approach* - the nearest any of its members gets -
 // because that is what "this network reaches the membrane" means.
 
-function hasContacts() { return CONTACTS.length > 0; }
-
-/** Structures that have any recorded contact, which is what the selector offers. */
+/**
+ * Structures this section can say anything about: ones with a recorded contact, and with
+ * more than one instance to form a group from.
+ *
+ * A batch of whole-structure masks, or of structures segmented as a single instance each,
+ * has no group to describe - the whole section is then an elaborate way of saying "one".
+ */
 function contactStructures() {
-  return uniq(CONTACTS.map(function(e){ return e.entity_name; }).filter(Boolean));
+  var instances = {};
+  INSTANCES.forEach(function(r) {
+    instances[r.entity_name] = (instances[r.entity_name] || 0) + 1;
+  });
+  return uniq(CONTACTS.map(function(e){ return e.entity_name; }).filter(Boolean))
+    .filter(function(name){ return (instances[name] || 0) > 1; });
 }
 
 // Largest gap actually recorded - drives the slider range so it always fits the data
@@ -4335,7 +4577,11 @@ function contactClusters(objectId, entity, thr) {
  * the same code the instance section draws through.
  */
 function groupRows(scope, entity, thr) {
-  var targets = distCols(INSTANCES.filter(function(r){ return r.entity_name === entity; }));
+  // Not the distance to the nearest instance of the same structure: for a group that is
+  // one of its own members, a voxel step away by construction, and the same tiny number
+  // for every group. It says something about an instance and nothing about a network.
+  var targets = distCols(INSTANCES.filter(function(r){ return r.entity_name === entity; }))
+    .filter(function(col){ return col !== 'distance_to_closest_same_type_um'; });
   var groupOf = {};
   OBJECTS.forEach(function(r){ groupOf[r.object_id] = r.group_id; });
   var rows = [];
@@ -4444,12 +4690,25 @@ function initContactsControls() {
 
 function renderContacts() {
   var section = document.getElementById('s-groups');
-  if (!hasContacts()) { section.classList.add('d-none'); return; }
+  if (!contactStructures().length) { section.classList.add('d-none'); return; }
   section.classList.remove('d-none');
   var entity = initContactsControls();
   var thr = +document.getElementById('ct-thr').value;
   if (!entity) { section.classList.add('d-none'); return; }
   var named = dataName(entity);
+
+  // The example is the reader's own structures. Written out with somebody else's organelles
+  // it explained mitochondria to someone looking at blood vessels.
+  // No articles: a structure named `granules` turns "a granules" into nonsense, and the
+  // rule is clearer without an example anyway.
+  setHtml('ct-subtitle',
+    'Instances of <em>one</em> structure that touch each other, chained into groups: two '
+    + named + ' within a gap you choose are one connected network. Touching a '
+    + '<em>different</em> structure is a distance instead, and lives in the section above. '
+    + 'Everything here is one structure at a time, because that is what a contact is '
+    + 'between - and once the groups exist, they get the same questions asked of them as '
+    + 'the instances did.');
+  setHtml('ct-coverage', coverageNote('contacts'));
 
   var scope = uniq(filteredInstances().filter(function(r){ return r.entity_name === entity; })
                                       .map(function(r){ return r.object_id; }));
@@ -4516,7 +4775,7 @@ function renderGroupSizes(scope, entity, thr, named) {
   wrap.classList.remove('d-none');
 
   var facets = facetsOf(perObject);
-  setHtml('ct-compare-title', 'How much ' + named + ' network is there?');
+  setHtml('ct-compare-title', 'How large do the ' + named + ' groups get?');
   setHtml('ct-compare-desc',
     '<b>Left:</b> how many instances chain together into one group. <b>Right:</b> the share'
     + ' of ' + named + ' instances that reach another, out of <em>every</em> instance of it -'
@@ -4625,7 +4884,10 @@ function renderGroupReach(scope, entity, thr, named) {
     distributionPanel(farEl, {
       series: facets.valuesOf(rows, col, fallback),
       title: entity + ' group to ' + distColLabel(col), unit: 'µm', noun: 'group',
-      help: 'The nearest any member of the group gets. ' + metricHelp(col),
+      // Not the instance-level description with a prefix: that one talks about "the
+      // instance's voxels", which is not what this panel measures.
+      help: 'The nearest any member of the group gets to ' + dataName(distColLabel(col))
+        + '. 0 means the group overlaps it somewhere.',
       showFacetTicks: !facets.many
     });
   });
@@ -4782,7 +5044,7 @@ if (typeof document !== 'undefined' && document.getElementById
 // build.
 if (typeof globalThis !== 'undefined') {
   globalThis.AnatomyReport = {
-    adapt: adapt,
+    adapt: adapt, checkReadable: checkReadable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,
                                 PLANAR:PLANAR, MIXED_DIMS:MIXED_DIMS }; },
@@ -4807,6 +5069,7 @@ if (typeof globalThis !== 'undefined') {
     thumbsWanted: thumbsWanted, GALLERY_ROWS: GALLERY_ROWS, MAX_THUMBS: MAX_THUMBS,
     shortFacetLabels: shortFacetLabels, extentTerms: extentTerms, geometryMetrics: geometryMetrics,
     overviewSummary: overviewSummary, structureColumns: structureColumns,
+    coverageNote: coverageNote, seriesColour: seriesColour,
     entColor: entColor, renderAll: renderAll, dataName: dataName,
     groupRows: groupRows, groupBaselineRows: groupBaselineRows,
     dimPairs: dimPairs, facetsOf: facetsOf,

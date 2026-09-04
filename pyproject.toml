@@ -27,6 +27,15 @@ dependencies = [
     "psutil",
 ]
 
+# Reading a chunked store - N5 or Zarr, local or over S3 - so an object can be described by
+# a manifest instead of being downloaded. An extra rather than a dependency: measuring files
+# on disk needs neither, and zarr is pinned below 3 because zarr 3 dropped N5 support.
+[project.optional-dependencies]
+remote = [
+    "zarr>=2.16,<3",
+    "s3fs>=2023.6.0",
+]
+
 [project.scripts]
 label-anatomy = "label_anatomy.cli:cli"
 

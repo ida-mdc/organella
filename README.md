@@ -113,8 +113,9 @@ Useful flags, see `label-anatomy process --help` for the rest:
 - `--voxel-size-um z,y,x`: manual voxel size, otherwise inferred from the source TIFF
 - `--object-mask NAME`: the mask that bounds each object, e.g. `pm`. Everything is measured
   relative to it, so it is never inferred; `dry-run` lists the masks each folder has. Leave
-  it out and nothing bounds the object: no clipping, no cropping, and the columns that need
-  a boundary (polarity, the object's own extent) are simply not written
+  it out and nothing bounds the object: no clipping, no cropping, and no extent of its own.
+  Polarity is still measured, from the centre of everything segmented rather than from a
+  mask's centroid
 - `--no-clip`: measure outside the object mask too. Entities are clipped to it by
   default, because that is what naming a bounding mask means: a field of view often
   holds neighbouring cells, and on one real alpha cell 3678 of 8800 granules lay
@@ -128,6 +129,15 @@ Useful flags, see `label-anatomy process --help` for the rest:
   named means none: branches, length and tortuosity mean something for a filament and
   nothing for a granule, whose skeleton is one branch the length of its diameter - and
   skeletonising is the most expensive thing in a run, so it is not done on the off chance
+- `--entities liver,spleen`: measure only these, plus the object mask. Everything a folder
+  has is measured when this is left out, which for a published segmentation can be far more
+  than a question needs: each entity is another full-size channel of the stack, so a
+  TotalSegmentator subject projects 46 GB with all 117 structures and 2.4 GB with seven
+- `--label-map FILE`: JSON of `{"1": "liver", "2": "spleen"}`, splitting one volume whose
+  ids each mean a different structure into an entity per id. Only the ids it names become
+  entities, and with `--entities` only those are ever built. `--label-map-entity NAME` says
+  which entity to split when a folder has more than one label volume - an error rather than
+  a guess if you leave it out
 - `--no-instances` / `--no-contacts`: skip the expensive per-instance work
 - `--contact-max-um T`: largest surface-to-surface gap recorded as a contact. A contact is
   a pair of instances of *one* structure; touching a different structure is a distance,
@@ -185,6 +195,53 @@ my_cell/
   sample_nucleus_mask.tif
   sample_membrane_mask.tif
 ```
+
+The prefix is taken off the front, so the entity name is whatever is left and may have
+underscores in it: `s0011_rib_left_11_mask.tif` is the entity `rib_left_11`.
+
+**Published data is read where it lies.** A segmentation you downloaded is not going to be
+renamed to suit a reader, so two other layouts work as they come:
+
+- **Other formats.** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read alongside TIFF,
+  through SimpleITK. Their headers carry a reliable voxel size, which TIFF often does not -
+  spacing is taken as millimetres and converted, the convention every reader of these files
+  uses. `--voxel-size-um` overrides it.
+- **Entities in a subfolder**, named by nothing but the structure - a `segmentations/`,
+  `masks/` or `labels/` folder beside the source image. There is no prefix to strip, and
+  whether each file is a label or a mask is read off its content rather than guessed from
+  its name: more than one distinct non-zero value is a label volume, one is a mask.
+  `dry-run` lists these as `auto` and says so.
+
+```text
+s0011/                      # TotalSegmentator, exactly as downloaded
+  ct.nii.gz
+  segmentations/
+    liver.nii.gz
+    rib_left_11.nii.gz
+    ...                     # 117 of them
+```
+
+- **A remote store, read as a crop.** A folder holding one `source.json` and no images is
+  an object too: the manifest names a chunked store (N5 or Zarr, local or on S3), the arrays
+  in it, and the window to read. A chunked array is fetched block by block, so a 512³ crop of
+  OpenOrganelle's 122-gigavoxel HeLa cell is 0.64% of it, in under five seconds - full 4 nm
+  resolution without downloading the cell. Needs the `remote` extra
+  (`pip install 'label-anatomy[remote]'`).
+
+```json
+{
+  "store": "s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.n5",
+  "scale": "s0",
+  "crop": "3712:4224,256:768,5760:6272",
+  "source": "em/fibsem-uint16",
+  "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" }
+}
+```
+
+An object carrying that many structures is 118 channels of the whole field of view, so
+`--entities liver,spleen,aorta` is what makes it measurable at all. A single volume whose
+ids each mean a different structure is split by `--label-map`, which takes a JSON file of
+`{"1": "liver", "2": "spleen"}` and makes an entity per id it names.
 
 One of the masks bounds the object, and `--object-mask NAME` says which. Always, with no
 name-based guessing, because every distance and polarity in the report is measured against

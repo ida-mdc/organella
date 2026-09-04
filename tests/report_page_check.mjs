@@ -41,7 +41,12 @@ if (job.render) {
       tagName: tag, id, children: [], _html: '', _text: '',
       style: new Proxy({ cssText: '', setProperty() {} },
                        { set: (t, k, v) => (t[k] = v, true) }),
-      classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+      classList: {
+        add(name) { if (name === 'd-none') self._shown = false; },
+        remove(name) { if (name === 'd-none') self._shown = true; },
+        contains: () => false,
+        toggle() {},
+      },
       dataset: {},
       width: 0, height: 0, value: '', checked: false, type: '', className: '', title: '',
       selected: false, min: 0, max: 0, step: 0, name: '', href: '',
@@ -126,6 +131,15 @@ if (job.render) {
       plotted.push({
         traces: (data || []).map((t) => t.type || 'scatter'),
         title: layout?.title?.text ?? null,
+        // Enough of a stacked bar to check the arithmetic it draws: what each segment is
+        // called and how wide it is, plus what the axis says the whole is.
+        barmode: layout?.barmode ?? null,
+        series: (data || []).map((t) => ({
+          name: t.name ?? null,
+          x: Array.isArray(t.x) ? t.x.map(Number) : null,
+        })),
+        xTitle: (typeof layout?.xaxis?.title === 'string'
+          ? layout.xaxis.title : layout?.xaxis?.title?.text) ?? null,
         // A bracket is a path shape plus a stars annotation carrying the p-value.
         brackets: (layout?.annotations ?? [])
           .filter((a) => a.hovertext && a.hovertext.includes('Mann-Whitney'))
@@ -144,6 +158,10 @@ const R = globalThis.AnatomyReport;
 if (!R) throw new Error('the page did not export AnatomyReport');
 
 const out = {};
+
+// The series palette past its hand-picked entries: a report with a dozen structures must
+// not run out and start drawing the rest in grey.
+out.series = Array.from({ length: 20 }, (_, i) => R.seriesColour(i));
 
 // What each column means, as the page reads it out of the report's own footer. Set before
 // anything else, because both the panels and metricHelp() read it.
@@ -190,6 +208,9 @@ if (job.rows) {
   out.overview = R.overviewSummary();
   out.overview.colours = Object.fromEntries(
     out.overview.structures.map((name) => [name, R.entColor(name)]));
+  // The coverage caveats belong to the sections they qualify, not to the front page.
+  out.coverageNotes = Object.fromEntries(
+    ['per-instance measurements', 'contacts'].map((label) => [label, R.coverageNote(label)]));
 
   // ── the clustering the contacts section counts by ───────────────────────────
   if (job.clusters) {
@@ -247,6 +268,8 @@ if (job.geometry && job.geometry.length) {
     R.gallerySql(source, job.structure, metric, 'highest', 12),
     R.gallerySql(source, job.structure, metric, 'lowest', 12),
     R.gallerySql(source, job.structure, metric, 'random', 12),
+    R.galleryCountSql(source, job.structure, metric, 'file'),
+    R.gallerySql(source, job.structure, metric, 'highest', 12, 'file'),
   ];
 }
 
@@ -341,6 +364,9 @@ if (job.render) {
   }
   out.render = {
     failed,
+    // Which sections drew at all: one with nothing to say hides itself.
+    shown: ['s-overview', 's-3d', 's-entities', 's-groups', 's-structure']
+      .filter((id) => globalThis.document.getElementById(id)?._shown !== false),
     // Every question heading and the sentence under it, so a section that had nothing to
     // draw can be checked for saying why. Taken as the markup each node was given rather
     // than by class: a block builds its headings by setting innerHTML in one go, so in this
@@ -355,6 +381,11 @@ if (job.render) {
       if (host) walk(host);
       return out;
     })(),
+    // Where a caveat about what was measured ended up. The overview says what the batch
+    // holds; a gap in coverage is said by the section it is a gap in.
+    caveats: Object.fromEntries(
+      ['overview-warnings', 'entity-coverage', 'ct-coverage'].map(
+        (id) => [id, globalThis.document.getElementById(id)?.innerHTML ?? null])),
     plots: plotted.length,
     traceTypes: [...new Set(plotted.flatMap((p) => p.traces))].sort(),
     titles: plotted.map((p) => p.title).filter(Boolean),
@@ -362,6 +393,9 @@ if (job.render) {
     brackets: plotted.flatMap((p) => p.brackets),
     bracketedPanels: plotted.filter((p) => p.brackets.length).length,
     boxPanels: plotted.filter((p) => p.traces.includes('box')).length,
+    // The composition bar in the overview: one stack per object on one percentage scale.
+    stacks: plotted.filter((p) => p.barmode === 'stack')
+      .map((p) => ({ xTitle: p.xTitle, series: p.series })),
     // What each panel said it was measuring, from the report's own descriptions.
     helps: (() => {
       const out = [];
@@ -424,6 +458,16 @@ if (job.stars) out.stars = job.stars.map((p) => R.significanceStars(p));
 if (job.dimPairs) out.dimPairs = job.dimPairs.map((dims) => R.dimPairs(dims));
 if (job.dataNames) out.dataNames = job.dataNames.map((n) => R.dataName(n));
 if (job.pluralise) out.pluralise = job.pluralise.map((w) => R.pluralise(w));
+// What the page says about a parquet it cannot read, which is the only thing the reader
+// gets to go on.
+if (job.loadFailure !== undefined) {
+  try {
+    R.checkReadable(job.loadFailure, 'that file');
+    out.loadFailure = null;
+  } catch (error) {
+    out.loadFailure = error.message;
+  }
+}
 if (job.noun !== undefined || job.rows) {
   out.noun = R.nounState();
 }

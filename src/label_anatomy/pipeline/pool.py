@@ -33,6 +33,32 @@ Work = Tuple[Path, str]
 OnResult = Optional[Callable[[ObjectResult], None]]
 
 
+# The level the parent is logging at, left in the environment for the workers to pick up.
+LOG_LEVEL_ENV = "LABEL_ANATOMY_LOG_LEVEL"
+
+
+def log_in_this_worker() -> None:
+    """Give a spawned worker the same log handler the parent set up.
+
+    A spawned worker starts from a bare interpreter. It re-imports the package but never
+    runs the CLI, so every line it wrote about the object it was reading - the entities, the
+    extent, how many instances came out - went to a logger with no handler and was dropped
+    on the floor. The parent leaves its level in the environment; this reads it back, which
+    is what makes a long run say what it is doing while it does it.
+
+    Lines from several workers interleave, which is why each one names its object.
+    """
+    level = os.environ.get(LOG_LEVEL_ENV)
+    if not level:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    package_logger = logging.getLogger("label_anatomy")
+    package_logger.handlers[:] = [handler]
+    package_logger.setLevel(int(level))
+    package_logger.propagate = False
+
+
 def worker_count(requested: Optional[int], n_objects: int, peak_gb: float) -> int:
     """As many objects at once as memory allows, never more than there are objects."""
     if requested is not None:
@@ -85,7 +111,8 @@ def measure_in_pool(work: Sequence[Work], excluded: Sequence[str], n_workers: in
     context = multiprocessing.get_context("spawn")
     finished: List[ObjectResult] = []
     unrun: List[Tuple[int, Path, str]] = []
-    with ProcessPoolExecutor(max_workers=n_workers, mp_context=context) as pool:
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=context,
+                             initializer=log_in_this_worker) as pool:
         submitted = {
             pool.submit(measure_object, folder, group, tuple(excluded)): (i, folder, group)
             for i, (folder, group) in enumerate(work)

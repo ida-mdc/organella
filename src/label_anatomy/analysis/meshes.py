@@ -28,7 +28,11 @@ from label_anatomy.analysis.shapes import (
     METRICS_3D,
 )
 from label_anatomy.analysis.shapes import foreground_bounds
-from label_anatomy.analysis.distances import object_center_um, polarity_from_offset
+from label_anatomy.analysis.distances import (
+    object_center_um,
+    polarity_from_offset,
+    segmented_center_um,
+)
 from label_anatomy.analysis.parallel import WorkPool, batched, worker_share
 from label_anatomy.analysis.shapes import skeleton_graph_metrics
 from label_anatomy.analysis.cache import (
@@ -356,7 +360,8 @@ def mesh_rows_for_object(
     # Measured here rather than only carried, so `mesh` on its own writes usable geometry too;
     # a carried value from the report wins, and is the same number either way.
     centre = (object_center_um(volumes[object_mask_name] > 0, sample_size)
-              if object_mask_name and object_mask_name in volumes else None)
+              if object_mask_name and object_mask_name in volumes
+              else segmented_center_um(volumes.values(), sample_size))
 
     pool = WorkPool(worker_share(options.mesh_workers), what="meshing")
     try:

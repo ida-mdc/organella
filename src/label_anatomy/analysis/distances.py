@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Iterable, Sequence, Tuple
 
 import edt
 import numpy as np
@@ -73,6 +73,31 @@ def object_center_um(
     if centroid is None:
         return None
     return tuple(float(centroid[i] * float(voxel_size[i])) for i in range(len(voxel_size)))
+
+
+def segmented_center_um(
+    volumes: Iterable[np.ndarray],
+    voxel_size: Sequence[float],
+) -> Tuple[float, ...] | None:
+    """Centroid of everything segmented, in µm - the origin when no mask bounds the object.
+
+    A run that names an ``--object-mask`` measures polarity from that mask's centroid. A run
+    that names none used to have no origin at all, so it lost every polarity column and the
+    3D explode had no direction to push along - and the centre of what was segmented is a
+    perfectly good origin, closer to the point of the question than the middle of whatever
+    crop the images happen to have.
+
+    The union is accumulated in place: one boolean of the object's shape, not one per entity.
+    """
+    union: np.ndarray | None = None
+    for volume in volumes:
+        if union is None:
+            union = volume > 0
+        else:
+            union |= volume > 0
+    if union is None:
+        return None
+    return object_center_um(union, voxel_size)
 
 
 # The polarity columns of each dimensionality: a plane has one angle, not an azimuth and

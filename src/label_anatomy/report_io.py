@@ -29,6 +29,10 @@ from label_anatomy.model.report import Report
 logger = logging.getLogger(__name__)
 
 
+class EmptyReport(RuntimeError):
+    """Raised rather than writing a report with no rows: see :func:`write`."""
+
+
 PRIVACY_SUMMARY = [
     "- object folder paths and the names of the volumes read",
     "- voxel size, extent and per-structure measurements",
@@ -82,6 +86,14 @@ def write(report: Report, output: Path, *, root: Path, paths: Sequence[str],
     if output.suffix.lower() != ".parquet":
         output = output.with_suffix(".parquet")
     output.parent.mkdir(parents=True, exist_ok=True)
+
+    # A batch where every object failed leaves nothing to write, and writing it anyway
+    # produced a valid parquet with no columns at all: 2 kB that no reader can open, and
+    # DuckDB's complaint about it ("Need at least one non-root column") says nothing about
+    # the run. Refusing is the honest answer, and the caller knows which objects failed.
+    if not getattr(report.rows, "width", 0) or not report.rows.height:
+        raise EmptyReport(
+            f"nothing was measured, so there is no report to write to {output}")
 
     footer = footer_metadata(
         project_name=project_name or output.stem,
