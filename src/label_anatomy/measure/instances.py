@@ -294,7 +294,7 @@ class InstanceMeasurer:
         skels = (
             skeletons_for(object_id, entity, labels, sample_size,
                           cfg.max_skeleton_voxels, cfg.num_threads)
-            if wants_skeletons(entity, cfg.skeleton_entities) else {}
+            if wants_skeletons(entity, cfg.geometry_as) else {}
         )
         unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
 

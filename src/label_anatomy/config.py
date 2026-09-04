@@ -16,9 +16,10 @@ the CLI sets them from its own flags.
     LABEL_ANATOMY_ENTITY_COLOURS     path to a JSON file of structure: hex colour pairs, which
                                   the report carries so every widget colours the same way
     LABEL_ANATOMY_MAX_SKELETON_VOXELS  skip skeletons above this instance size
-    LABEL_ANATOMY_SKELETON_ENTITIES  comma-separated entities to skeletonise. Nothing named
-                                  means none: skeletonising is opt-in, so this is also the
-                                  only way to turn it off - by not asking
+    LABEL_ANATOMY_GEOMETRY_AS        "NAME=KIND" pairs saying how each structure's surface is
+                                  stored: mesh, ellipsoid, tube, or skeleton (a mesh with a
+                                  centre line over it). Unnamed structures are decided from
+                                  their measured shape, and are not skeletonised
     LABEL_ANATOMY_NUM_THREADS        kimimaro worker count; 1 by default because
                                   objects already run in parallel
                                   (0 = all cores)
@@ -38,7 +39,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -58,20 +59,89 @@ def normalize_name(s: str) -> str:
 EntityFilter = Optional[FrozenSet[str]]
 
 
-def wants_skeletons(entity: str, allowed: EntityFilter) -> bool:
-    """Whether this entity is one that was asked for by name.
+# What --geometry-as accepts per structure. Three name the surface an instance is stored
+# as; `skeleton` asks for a centre line, which is a different question - so the two combine
+# with a plus, and `mito=mesh+skeleton` is a mesh with its centre line drawn inside it.
+GEOMETRY_SURFACES = ("mesh", "ellipsoid", "tube")
+GEOMETRY_CHOICES = GEOMETRY_SURFACES + ("skeleton",)
+
+# A tube *is* a centre line, so asking for one asks for the skeleton too.
+_NEEDS_SKELETON = frozenset({"tube", "skeleton"})
+
+
+def wants_skeletons(entity: str, geometry_as: Mapping[str, str]) -> bool:
+    """Whether this entity needs a centre line: asked to be a tube, or to carry one.
 
     Opt-in, because branches, length and tortuosity mean something for a filament and
     nothing for a granule, whose skeleton is one branch the length of its diameter - and
     because skeletonising is the most expensive thing in a run: on one real object it was
     103 s of two minutes, most of it spent on structures nobody was going to read it for.
 
-    Names are compared normalised, so ``--skeleton-entities ER`` matches the entity
+    Names are compared normalised, so ``--geometry-as ER=tube`` matches the entity
     discovered from ``sample_ER_label.tif`` as ``er``.
     """
-    if not allowed:
-        return False
-    return normalize_name(entity) in {normalize_name(name) for name in allowed}
+    return bool(_tokens_for(entity, geometry_as) & _NEEDS_SKELETON)
+
+
+def forced_surface(entity: str, geometry_as: Mapping[str, str]) -> Optional[str]:
+    """The surface kind this entity was told to use, or None to decide from its shape.
+
+    Naming only ``skeleton`` forces nothing: the centre line is drawn over whatever the
+    shape itself calls for, which - now that a centre line exists - may be a tube.
+    """
+    for token in _tokens_for(entity, geometry_as):
+        if token in GEOMETRY_SURFACES:
+            return token
+    return None
+
+
+def _tokens_for(entity: str, geometry_as: Mapping[str, str]) -> FrozenSet[str]:
+    if not geometry_as:
+        return frozenset()
+    wanted = normalize_name(entity)
+    for name, choice in geometry_as.items():
+        if normalize_name(name) == wanted:
+            return frozenset(str(choice).split("+"))
+    return frozenset()
+
+
+def parse_geometry_as(raw: Optional[str]) -> Dict[str, str]:
+    """``"mito=mesh+skeleton,vesicle=ellipsoid"`` into ``{entity: choice}``.
+
+    One parameter rather than one per kind: a bare list of names could only ever answer a
+    yes/no question, and there are now several ways to store a structure. An unknown choice
+    is an error naming the ones there are - a typo silently meaning "decide for me" is how
+    a run quietly stops doing what was asked.
+    """
+    if raw is None or not str(raw).strip():
+        return {}
+    out: Dict[str, str] = {}
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name, sep, choice = part.partition("=")
+        name, choice = name.strip(), choice.strip().lower()
+        if not sep or not name or not choice:
+            raise ValueError(
+                f"--geometry-as takes NAME=KIND pairs, got {part!r}. "
+                f"Kinds: {', '.join(GEOMETRY_CHOICES)}, combined with '+'."
+            )
+        tokens = [t for t in choice.split("+") if t]
+        unknown = [t for t in tokens if t not in GEOMETRY_CHOICES]
+        if unknown:
+            raise ValueError(
+                f"--geometry-as: no kind called {unknown[0]!r}. "
+                f"Kinds: {', '.join(GEOMETRY_CHOICES)}, combined with '+'."
+            )
+        surfaces = [t for t in tokens if t in GEOMETRY_SURFACES]
+        if len(surfaces) > 1:
+            raise ValueError(
+                f"--geometry-as: {name} cannot be both {' and '.join(surfaces)}; "
+                "an instance has one surface."
+            )
+        out[normalize_name(name)] = "+".join(tokens)
+    return out
 
 
 def parse_entity_filter(raw: Optional[str]) -> EntityFilter:
@@ -224,9 +294,11 @@ class AnatomyConfig:
     # Structure name -> "#rrggbb", from a settings file. Empty means the built-in palette.
     entity_colours: Dict[str, str] = field(default_factory=dict)
     max_skeleton_voxels: int = 500_000
-    # None = every entity; an empty set = none. Skeletonising dominates a run, and a
-    # blob's skeleton says nothing, so restricting it to filaments is the big lever.
-    skeleton_entities: Optional[FrozenSet[str]] = None
+    # Structure -> how to store its surface: mesh, ellipsoid, tube, or skeleton (a mesh
+    # with a centre line over it). Unset for a structure means decide from its measured
+    # shape. This is also what asks for a skeleton at all, which dominates a run, so a
+    # structure not named here is not skeletonised.
+    geometry_as: Dict[str, str] = field(default_factory=dict)
     # 1, not 0: an object already has a worker process of its own, so asking kimimaro for a
     # process pool of its own costs a failed attempt per object where the pool cannot fork.
     # Objects already run in parallel.
@@ -256,8 +328,8 @@ class AnatomyConfig:
     # whether it belongs here, which is the safe direction to be wrong in.
     _RESULT_AFFECTING = (
         "object_mask", "voxel_size_um", "clip", "auto_label_masks", "entities",
-        "label_map", "label_map_entity", "max_skeleton_voxels",
-        "skeleton_entities", "contact_max_um", "polarity_spread", "distance_histograms",
+        "label_map", "label_map_entity", "geometry_as", "max_skeleton_voxels",
+        "contact_max_um", "polarity_spread", "distance_histograms",
         "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
     )
 
@@ -298,8 +370,7 @@ class AnatomyConfig:
             label_map_entity=(os.environ.get("LABEL_ANATOMY_LABEL_MAP_ENTITY") or None),
             entity_colours=_env_colours("LABEL_ANATOMY_ENTITY_COLOURS"),
             max_skeleton_voxels=_env_int("LABEL_ANATOMY_MAX_SKELETON_VOXELS", 500_000),
-            skeleton_entities=parse_entity_filter(
-                os.environ.get("LABEL_ANATOMY_SKELETON_ENTITIES")),
+            geometry_as=parse_geometry_as(os.environ.get("LABEL_ANATOMY_GEOMETRY_AS")),
             num_threads=_env_int("LABEL_ANATOMY_NUM_THREADS", 1),
             edt_threads=_env_int("LABEL_ANATOMY_EDT_THREADS", 0),
             contact_max_um=_env_float("LABEL_ANATOMY_CONTACT_MAX_UM", 0.5),

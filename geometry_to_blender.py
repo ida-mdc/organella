@@ -133,7 +133,7 @@ def merge_meshes(rows_iter):
     all_faces = []
     vert_offset = 0
     for _, row in rows_iter:
-        verts, faces = decode_mesh(row["mesh"])
+        verts, faces = decode_mesh(row["surface"])
         if verts is None:
             continue
         all_verts.append(verts)
@@ -237,7 +237,7 @@ def main():
     if EXCL_ENTITIES:
         df = df[~df["entity_name"].isin(set(EXCL_ENTITIES))]
 
-    df = df[df["mesh"].notna()]
+    df = df[df["surface"].notna()]
     print(f"[geometry_to_blender] {len(df)} rows with meshes after filtering")
     if df.empty:
         # A 2D object has outlines rather than meshes: there is no surface to import, and

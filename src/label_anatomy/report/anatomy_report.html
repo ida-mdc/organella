@@ -1262,8 +1262,10 @@ function hasGeometry() { return GEOMETRY.length > 0; }
 function sourceOf(objects) {
   return 'read_parquet([' + objects.map(function(o){ return esc(o.path); }).join(', ') + '])';
 }
-// A row has a mesh (a volume) or an outline (a plane); a mixed batch has both kinds.
-var HAS_GEOMETRY_SQL = '("mesh" IS NOT NULL OR "outline" IS NOT NULL)';
+// A row has a surface (a volume) or an outline (a plane); a mixed batch has both kinds.
+// The surface may be a mesh, an ellipsoid or a tube - surface_kind says which, and
+// SURFACE_BUILDERS turns each into the same positions-and-indices the scene merges.
+var HAS_GEOMETRY_SQL = '("surface" IS NOT NULL OR "outline" IS NOT NULL)';
 // The size to rank by, whichever the object has. Both columns exist in every geometry file.
 var GEOMETRY_SIZE_SQL = 'COALESCE("volume_um3", "area_um2")';
 
@@ -1283,7 +1285,7 @@ function geometryOwnersSql(files) {
 /** What is in an object's geometry file, and how big: the cheap query. */
 function sceneSummarySql(source) {
   return 'SELECT "entity_name" AS name, "row_type" AS row_type, COUNT(*) AS n,'
-    + ' SUM("mesh_faces") AS faces'
+    + ' SUM("surface_elements") AS faces'
     + ' FROM ' + source + ' WHERE ' + HAS_GEOMETRY_SQL
     + ' GROUP BY 1, 2 ORDER BY 1';
 }
@@ -1300,7 +1302,7 @@ function sceneGapSql(source) {
 function sceneGeometrySql(source, names, metricCols, limit) {
   return 'SELECT "entity_name" AS entity, "row_type" AS row_type, "label_id" AS label, '
     + metricCols.map(function(m){ return '"' + m + '"'; }).join(', ')
-    + ', "mesh" AS mesh, "outline" AS outline'
+    + ', "surface" AS surface, "surface_kind" AS surface_kind, "outline" AS outline'
     + ' FROM ' + source
     + ' WHERE ' + HAS_GEOMETRY_SQL
     + ' AND "entity_name" IN (' + names.map(esc).join(', ') + ')'
@@ -1341,7 +1343,8 @@ function gallerySql(source, entity, metric, order, limit, rowType) {
     ? 'ORDER BY random() LIMIT ' + limit
     : 'ORDER BY "' + metric + '"' + (order === 'lowest' ? ' ASC' : ' DESC') + ' LIMIT ' + limit;
   return 'SELECT * FROM (SELECT "object_id" AS object_id, "label_id" AS label, "'
-    + metric + '" AS value, "mesh" AS mesh, "outline" AS outline, "skeleton" AS skeleton'
+    + metric + '" AS value, "surface" AS surface, "surface_kind" AS surface_kind,'
+    + ' "outline" AS outline, "skeleton" AS skeleton'
     + ' FROM ' + source + galleryWhereSql(entity, metric, rowType) + ' ' + pick
     + ') ORDER BY value DESC';
 }
@@ -2517,15 +2520,145 @@ function decodePayload(bytes, perIndex) {
   return { positions: positions, indices: indices.subarray(0, nIndices * perIndex) };
 }
 
+// Rings and segments of the sphere an ellipsoid is tessellated from. A rendering choice,
+// not a property of the data: the stored surface is 15 floats, and this is how finely they
+// are turned into triangles. Raise it for a close-up, lower it for a scene of thousands.
+var ELLIPSOID_RINGS = 12;
+var ELLIPSOID_SEGMENTS = 16;
+
 /**
- * One row's drawable geometry: a triangle mesh for a volume, closed outline loops for a
- * plane. Same container, two indices per element instead of three, so the caller only needs
- * `flat` to decide between a Mesh and LineSegments.
+ * An ellipsoid surface as triangles: one unit sphere, scaled by its radii and turned onto
+ * its own principal axes.
+ *
+ * The payload is 15 float32 - centre, radii, then a row-major 3x3 of axes - which is what
+ * makes it worth having: a round instance that would be a few hundred vertices on the wire
+ * is 60 bytes, and the tessellation happens here where the viewer can choose how fine it
+ * needs to be.
+ */
+function ellipsoidDrawable(payload) {
+  var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (payload.byteLength < 60) return null;
+  var f = [];
+  for (var i = 0; i < 15; i++) f.push(view.getFloat32(i * 4, true));
+  var cx = f[0], cy = f[1], cz = f[2];
+  var rx = f[3], ry = f[4], rz = f[5];
+  var axes = f.slice(6);            // rows: axis for rx, ry, rz
+  var rings = ELLIPSOID_RINGS, segs = ELLIPSOID_SEGMENTS;
+  var positions = new Float32Array((rings + 1) * (segs + 1) * 3);
+  var p = 0;
+  for (var ring = 0; ring <= rings; ring++) {
+    var phi = Math.PI * ring / rings;
+    var sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
+    for (var seg = 0; seg <= segs; seg++) {
+      var theta = 2 * Math.PI * seg / segs;
+      // A point on the unit sphere, stretched by the radii, then rotated onto the axes.
+      var ux = sinPhi * Math.cos(theta) * rx;
+      var uy = sinPhi * Math.sin(theta) * ry;
+      var uz = cosPhi * rz;
+      positions[p++] = cx + axes[0] * ux + axes[3] * uy + axes[6] * uz;
+      positions[p++] = cy + axes[1] * ux + axes[4] * uy + axes[7] * uz;
+      positions[p++] = cz + axes[2] * ux + axes[5] * uy + axes[8] * uz;
+    }
+  }
+  var indices = new Uint32Array(rings * segs * 6);
+  var k = 0;
+  for (var ring2 = 0; ring2 < rings; ring2++) {
+    for (var seg2 = 0; seg2 < segs; seg2++) {
+      var a = ring2 * (segs + 1) + seg2, b = a + segs + 1;
+      indices[k++] = a; indices[k++] = b; indices[k++] = a + 1;
+      indices[k++] = b; indices[k++] = b + 1; indices[k++] = a + 1;
+    }
+  }
+  return { positions: positions, indices: indices };
+}
+
+// Sides of the ring swept along a tube's centre line. Same kind of rendering choice as
+// ELLIPSOID_SEGMENTS: the stored surface is a polyline, and this is how round it is drawn.
+var TUBE_SIDES = 8;
+
+/**
+ * A tube surface: the instance's own centre line, swept by its own radius.
+ *
+ * The payload is a skeleton - quantised vertices and edge pairs - with one float32 radius
+ * per vertex on the end, which kimimaro measured while skeletonising. A filament is a
+ * polyline rather than a deformed cylinder because a polyline can differ in length,
+ * curvature and how many branches it has, none of which a fixed base mesh can become.
+ *
+ * Each edge becomes its own sleeve. Sleeves are not stitched to each other at the joints:
+ * at a branch point there is no single ring to stitch to, and overlapping sleeves read
+ * correctly as a solid tube anyway.
+ */
+function tubeDrawable(payload) {
+  var line = decodePayload(payload, 2);
+  if (!line) return null;
+  var nV = line.positions.length / 3;
+  var radiiOffset = payload.byteLength - nV * 4;
+  if (radiiOffset < 0) return null;
+  var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  var radii = new Float32Array(nV);
+  for (var i = 0; i < nV; i++) radii[i] = view.getFloat32(radiiOffset + i * 4, true);
+
+  var nE = line.indices.length / 2;
+  var sides = TUBE_SIDES;
+  var positions = new Float32Array(nE * sides * 2 * 3);
+  var indices = new Uint32Array(nE * sides * 6);
+  var p = 0, k = 0;
+  for (var e = 0; e < nE; e++) {
+    var a = line.indices[e * 2], b = line.indices[e * 2 + 1];
+    var ax = line.positions[a * 3], ay = line.positions[a * 3 + 1], az = line.positions[a * 3 + 2];
+    var bx = line.positions[b * 3], by = line.positions[b * 3 + 1], bz = line.positions[b * 3 + 2];
+    var dx = bx - ax, dy = by - ay, dz = bz - az;
+    var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (!(len > 0)) { continue; }
+    dx /= len; dy /= len; dz /= len;
+    // Any vector not parallel to the segment gives a frame to sweep the ring in.
+    var ux = Math.abs(dz) < 0.9 ? 0 : 1, uy = 0, uz = Math.abs(dz) < 0.9 ? 1 : 0;
+    var e1x = uy * dz - uz * dy, e1y = uz * dx - ux * dz, e1z = ux * dy - uy * dx;
+    var e1n = Math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z) || 1;
+    e1x /= e1n; e1y /= e1n; e1z /= e1n;
+    var e2x = dy * e1z - dz * e1y, e2y = dz * e1x - dx * e1z, e2z = dx * e1y - dy * e1x;
+    var base = p / 3;
+    for (var end = 0; end < 2; end++) {
+      var cx = end ? bx : ax, cy = end ? by : ay, cz = end ? bz : az;
+      var r = radii[end ? b : a];
+      for (var side = 0; side < sides; side++) {
+        var t = 2 * Math.PI * side / sides;
+        var ca = Math.cos(t) * r, sa = Math.sin(t) * r;
+        positions[p++] = cx + e1x * ca + e2x * sa;
+        positions[p++] = cy + e1y * ca + e2y * sa;
+        positions[p++] = cz + e1z * ca + e2z * sa;
+      }
+    }
+    for (var s2 = 0; s2 < sides; s2++) {
+      var n2 = (s2 + 1) % sides;
+      var i0 = base + s2, i1 = base + n2, j0 = base + sides + s2, j1 = base + sides + n2;
+      indices[k++] = i0; indices[k++] = j0; indices[k++] = i1;
+      indices[k++] = j0; indices[k++] = j1; indices[k++] = i1;
+    }
+  }
+  if (k === 0) return null;
+  return { positions: positions.subarray(0, p), indices: indices.subarray(0, k) };
+}
+
+// How a stored surface becomes triangles, one entry per kind the writer can emit. A test
+// checks these keys against the writer's own list, so a kind nothing here can draw fails
+// the suite instead of quietly vanishing in a browser.
+var SURFACE_BUILDERS = {
+  mesh: function(payload) { return decodePayload(payload, 3); },
+  ellipsoid: ellipsoidDrawable,
+  tube: tubeDrawable,
+};
+
+/**
+ * One row's drawable geometry: a surface for a volume, closed outline loops for a plane.
+ * Same container - positions and indices - so the caller only needs `flat` to decide
+ * between a Mesh and LineSegments, whichever kind the surface was stored as.
  */
 function decodeDrawable(row) {
-  if (row.mesh) {
-    var mesh = decodePayload(row.mesh, 3);
-    if (mesh) return { geometry: mesh, flat: false };
+  if (row.surface) {
+    var build = SURFACE_BUILDERS[row.surface_kind || 'mesh'] || SURFACE_BUILDERS.mesh;
+    var surface = build(row.surface);
+    if (surface) return { geometry: surface, flat: false };
   }
   if (row.outline) {
     var outline = decodePayload(row.outline, 2);
@@ -5045,6 +5178,9 @@ if (typeof document !== 'undefined' && document.getElementById
 if (typeof globalThis !== 'undefined') {
   globalThis.AnatomyReport = {
     adapt: adapt, checkReadable: checkReadable,
+    // The surface kinds this page can draw, so the writer's list can be checked against it.
+    surfaceKinds: Object.keys(SURFACE_BUILDERS),
+    decodeDrawable: decodeDrawable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,
                                 PLANAR:PLANAR, MIXED_DIMS:MIXED_DIMS }; },

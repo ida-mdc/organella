@@ -57,7 +57,7 @@ def _run(root: Path, out: Path) -> Path:
     os.environ["LABEL_ANATOMY_DISTANCE_HISTOGRAMS"] = "1"
     # And skeletons for the filaments, which is what a real run names: skeletonising is
     # opt-in, so without this the report carries no branches, length or tortuosity.
-    os.environ["LABEL_ANATOMY_SKELETON_ENTITIES"] = "mito"
+    os.environ["LABEL_ANATOMY_GEOMETRY_AS"] = "mito=skeleton"
     paths = ["control", "treated"]
     report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1)
     assert not report.failures, report.failures

@@ -200,7 +200,7 @@ def test_distances_and_contacts_work_in_a_plane():
 
 
 def test_a_2d_filament_gets_skeleton_metrics(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_SKELETON_ENTITIES", "mito")
+    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
     filament = np.zeros((40, 40), np.int32)
     filament[20, 5:25] = 1
 
@@ -223,7 +223,7 @@ def test_2d_geometry_is_outlines_and_never_meshes():
                                 object_id="flat_a", options=MeshOptions(contact_max_um=None))
 
     assert len(rows) == 1
-    assert rows[0]["mesh"] == b""
+    assert rows[0]["surface"] == b""
     assert rows[0]["spatial_dims"] == 2
     n_vertices, n_edges = payload_counts(rows[0]["outline"])
     # A closed loop: one edge per vertex, so a canvas can fill it and not only stroke it.
@@ -239,7 +239,7 @@ def test_3d_geometry_is_still_meshes_and_no_outlines():
                                 object_id="ball", options=MeshOptions(contact_max_um=None))
 
     assert rows[0]["outline"] == b""
-    assert rows[0]["mesh"] != b""
+    assert rows[0]["surface"] != b""
     assert rows[0]["spatial_dims"] == 3
 
 
@@ -306,7 +306,7 @@ def test_the_pages_queries_find_2d_geometry(tmp_path, page_sql):
     size = page_sql["geometrySize"]
 
     drawable = con.execute(
-        f'''SELECT "row_type", "entity_name", "label_id", "mesh" IS NULL AS flat
+        f'''SELECT "row_type", "entity_name", "label_id", "surface" IS NULL AS flat
             FROM {source} WHERE {has_geometry} ORDER BY {size} DESC NULLS LAST'''
     ).fetchall()
     assert [r[0] for r in drawable] == ["file", "instance", "instance"]

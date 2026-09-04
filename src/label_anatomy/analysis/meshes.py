@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -42,7 +42,8 @@ from label_anatomy.analysis.cache import (
     regions_for,
     skeletons_for,
 )
-from label_anatomy.config import EntityFilter, wants_skeletons
+from label_anatomy.config import forced_surface, wants_skeletons
+from label_anatomy.analysis.primitives import choose_surface, surface_counts, surface_of
 
 logger = logging.getLogger(__name__)
 
@@ -65,19 +66,20 @@ GEOMETRY_COLUMNS = [
     "volume_um3", "surface_area_um2", "sphericity",
     "area_um2", "perimeter_um", "circularity", *CARRIED_METRICS,
     "entity_a", "label_a", "entity_b", "label_b", "gap_um",
-    "mesh_vertices", "mesh_faces", "skeleton_vertices", "skeleton_edges",
+    "surface_kind",
+    "surface_vertices", "surface_elements", "skeleton_vertices", "skeleton_edges",
     "outline_vertices", "outline_edges",
-    "mesh", "skeleton", "outline",
+    "surface", "skeleton", "outline",
 ]
 
 _TEXT_FIELDS = {"object_id", "group_id", "entity_name", "entity_kind", "row_type",
-                "entity_a", "entity_b"}
+                "entity_a", "entity_b", "surface_kind"}
 # The carried metrics stay floats, branches included: "not measured" is NaN, which an
 # integer column cannot hold.
 _INT_FIELDS = {"label_id", "label_a", "label_b", "spatial_dims",
-               "mesh_vertices", "mesh_faces", "skeleton_vertices", "skeleton_edges",
+               "surface_vertices", "surface_elements", "skeleton_vertices", "skeleton_edges",
                "outline_vertices", "outline_edges"}
-_BLOB_FIELDS = {"mesh", "skeleton", "outline"}
+_BLOB_FIELDS = {"surface", "skeleton", "outline"}
 
 GEOMETRY_FILENAME = "geometry.parquet"
 
@@ -89,8 +91,9 @@ class MeshOptions:
     step_size: int = 2
     target_reduction: float = 0.8
     level: Optional[float] = None
-    # None = all. Same filter the metrics use, so the two share one computation per object.
-    skeleton_entities: EntityFilter = None
+    # Structure -> mesh | ellipsoid | tube | skeleton. Unset means decide from the measured
+    # shape. Same mapping the metrics use, so the two share one computation per object.
+    geometry_as: Mapping[str, str] = field(default_factory=dict)
     max_skeleton_voxels: Optional[int] = 500_000
     num_threads: int = 1
     # Contacts ride along so "Colour by → Contact group" works; None leaves them out. Cheap
@@ -184,7 +187,7 @@ def generate_mesh(
             )
             verts_xyz = verts_xyz.astype(np.float32)
             faces = faces_s
-        return _quantised_payload(verts_xyz, faces.astype(np.uint32))
+        return quantised_payload(verts_xyz, faces.astype(np.uint32))
     except Exception as exc:
         logger.debug("anatomy: meshing failed (%s); emitting no geometry", exc)
         return b""
@@ -242,7 +245,7 @@ def generate_outline(
             offset += n
         if not verts:
             return b""
-        return _quantised_payload(np.vstack(verts), np.vstack(edges))
+        return quantised_payload(np.vstack(verts), np.vstack(edges))
     except Exception as exc:
         logger.debug("anatomy: outlining failed (%s); emitting no geometry", exc)
         return b""
@@ -274,7 +277,7 @@ def skeleton_payload(skeleton) -> bytes:
         ]).astype(np.float32)
     else:
         verts_xyz = np.column_stack([verts[:, 2], verts[:, 1], verts[:, 0]]).astype(np.float32)
-    return _quantised_payload(verts_xyz, edges)
+    return quantised_payload(verts_xyz, edges)
 
 
 def payload_counts(payload: bytes) -> Tuple[Optional[int], Optional[int]]:
@@ -285,7 +288,7 @@ def payload_counts(payload: bytes) -> Tuple[Optional[int], Optional[int]]:
     return int(n_verts), int(n_indices)
 
 
-def _quantised_payload(verts_xyz: np.ndarray, indices: np.ndarray) -> bytes:
+def quantised_payload(verts_xyz: np.ndarray, indices: np.ndarray) -> bytes:
     """Vertices quantised to uint16 plus an index array."""
     min_xyz = verts_xyz.min(axis=0)
     scale_xyz = verts_xyz.max(axis=0) - min_xyz
@@ -390,7 +393,8 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                 "object_id": object_id, "group_id": group_id, "entity_name": name,
                 "entity_kind": kind, "row_type": "file", "label_id": None,
                 "spatial_dims": ndim,
-                "mesh": b"" if planar else generate_mesh(
+                "surface_kind": "mesh",
+                "surface": b"" if planar else generate_mesh(
                     binary, (0, 0, 0), sample_size,
                     step_size=options.step_size,
                     smooth_sigma=sigma_for_shape(
@@ -415,15 +419,21 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
         skeletons = (
             skeletons_for(object_id, name, labels, sample_size,
                           options.max_skeleton_voxels, options.num_threads)
-            if wants_skeletons(name, options.skeleton_entities)
+            if wants_skeletons(name, options.geometry_as)
             else {}
         )
         # In batches, so the pool always has work but the cropped masks in flight never
         # add up to another copy of the object.
+        # What this structure's instances are stored as. Named on the command line, or
+        # decided per instance from its own measured shape.
+        told = forced_surface(name, options.geometry_as)
         for batch in batched(props, _GEOMETRY_BATCH):
             pending: List[Dict[str, Any]] = []
             tasks: List[Tuple[Any, ...]] = []
             oversized: List[bool] = []
+            # Row index in `pending` for each task, since a parametric surface needs no
+            # task at all - which is most of them, and most of the run's meshing.
+            task_rows: List[int] = []
             for rp in batch:
                 stats = measured.get(int(rp.label), {})
                 shape_metrics = {key: stats.get(key, float("nan")) for key in shape_keys}
@@ -434,17 +444,37 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                 roundness = shape_metrics.get("sphericity",
                                               shape_metrics.get("circularity", float("nan")))
                 carried = (metrics or {}).get((name, int(rp.label))) or {}
+                skeleton = skeletons.get(int(rp.label))
+                skeleton_shape = _skeleton_metrics(skeleton)
+                # A plane's surface is its outline, and neither primitive is a 2D shape, so
+                # the selector only runs on volumes.
+                surface_kind = "mesh" if planar else (told or choose_surface(
+                    roundness, shape_metrics.get("aspect_ratio_major_minor"),
+                    skeleton_shape.get("branches"), has_skeleton=skeleton is not None,
+                ))
+                surface = surface_of(surface_kind, stats, skeleton)
+                # Falling back rather than storing nothing: an ellipsoid needs finite
+                # moments and a tube needs a centre line, and an instance that has neither
+                # is still a shape somebody wants to see.
+                if surface_kind != "mesh" and not surface:
+                    surface_kind = "mesh"
                 pending.append({
                     **_polarity(stats.get("centroid_um"), centre),
-                    **_skeleton_metrics(skeletons.get(int(rp.label))),
+                    **skeleton_shape,
                     **{k: v for k, v in carried.items() if k in CARRIED_METRICS},
                     **shape_metrics,
                     "object_id": object_id, "group_id": group_id, "entity_name": name,
                     "entity_kind": kind, "row_type": "instance", "label_id": int(rp.label),
                     "spatial_dims": ndim,
-                    "skeleton": skeleton_payload(skeletons.get(int(rp.label))),
+                    "surface_kind": surface_kind,
+                    "surface": surface,
+                    "outline": b"",
+                    "skeleton": skeleton_payload(skeleton),
                 })
+                if surface_kind != "mesh":
+                    continue
                 image = rp.image.astype(bool)
+                task_rows.append(len(pending) - 1)
                 tasks.append((
                     image, origin, tuple(sample_size), planar,
                     options.step_size,
@@ -464,9 +494,10 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                                                 [tasks[i] for i in farmed],
                                                 total=len(props))):
                 geometry[i] = done
-            for row, payloads in zip(pending, geometry):
-                row["mesh"], row["outline"] = payloads
-                rows.append(row)
+            for task_index, payloads in enumerate(geometry):
+                row = pending[task_rows[task_index]]
+                row["surface"], row["outline"] = payloads
+            rows.extend(pending)
 
     if options.contact_max_um is not None:
         rows.extend(_contact_rows(volumes, kinds, sample_size, object_id, group_id,
@@ -508,7 +539,7 @@ def _contact_rows(
             "object_id": object_id, "group_id": group_id, "row_type": "contact",
             "entity_a": entity, "label_a": label_a,
             "entity_b": entity, "label_b": label_b,
-            "gap_um": gap_um, "mesh": b"", "skeleton": b"",
+            "gap_um": gap_um, "surface": b"", "skeleton": b"",
         }
         for entity, label_a, label_b, gap_um in contacts
     ]
@@ -537,12 +568,13 @@ def write_geometry_parquet(path: Path, rows: Sequence[Mapping[str, Any]]) -> Pat
                pl.Binary if name in _BLOB_FIELDS else pl.Float64)
         for name in GEOMETRY_COLUMNS
     }
-    mesh_counts = [payload_counts(r.get("mesh") or b"") for r in rows]
+    surface_counted = [surface_counts(str(r.get("surface_kind") or "mesh"),
+                                      r.get("surface") or b"") for r in rows]
     skeleton_counts = [payload_counts(r.get("skeleton") or b"") for r in rows]
     outline_counts = [payload_counts(r.get("outline") or b"") for r in rows]
     header_counts = {
-        "mesh_vertices": [c[0] for c in mesh_counts],
-        "mesh_faces": [c[1] for c in mesh_counts],
+        "surface_vertices": [c[0] for c in surface_counted],
+        "surface_elements": [c[1] for c in surface_counted],
         "skeleton_vertices": [c[0] for c in skeleton_counts],
         "skeleton_edges": [c[1] for c in skeleton_counts],
         "outline_vertices": [c[0] for c in outline_counts],

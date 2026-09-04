@@ -73,6 +73,15 @@ def label_metrics(labels: np.ndarray, sample_size: Sequence[float]) -> Dict[int,
             "aspect_ratio_major_minor": aspect,
             "centroid_um": tuple(reversed(stats.GetCentroid(label))),
             "n_samples": int(stats.GetNumberOfPixels(label)),
+            # The equal-second-moment ellipsoid, kept in ITK's own (x, y, z) order because
+            # that is the order the geometry payloads use. Free: this filter has already
+            # computed the moments it comes from, so an instance drawn as its ellipsoid
+            # costs no pass over the voxels at all. Diameters are ascending and pair with
+            # the rows of the axes matrix.
+            "ellipsoid_diameters_um": tuple(
+                float(v) for v in stats.GetEquivalentEllipsoidDiameter(label)),
+            "ellipsoid_axes": tuple(float(v) for v in stats.GetPrincipalAxes(label)),
+            "centroid_xyz_um": tuple(float(v) for v in stats.GetCentroid(label)),
         }
     return measured
 

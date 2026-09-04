@@ -93,7 +93,7 @@ def mesh_options(**overrides: Any) -> "MeshOptions":
         step_size=cfg.mesh_step_size,
         target_reduction=cfg.mesh_target_reduction,
         level=cfg.mesh_level,
-        skeleton_entities=cfg.skeleton_entities,
+        geometry_as=cfg.geometry_as,
         max_skeleton_voxels=cfg.max_skeleton_voxels,
         num_threads=cfg.num_threads,
         contact_max_um=cfg.contact_max_um,
@@ -160,7 +160,7 @@ def _apply_analysis_env(
     num_threads: int | None,
     polarity_spread: bool = False,
     distance_histograms: bool = False,
-    skeleton_entities: str | None = None,
+    geometry_as: str | None = None,
     entities: str | None = None,
     label_map: Path | None = None,
     label_map_entity: str | None = None,
@@ -177,7 +177,7 @@ def _apply_analysis_env(
         "LABEL_ANATOMY_NUM_THREADS": num_threads,
         "LABEL_ANATOMY_POLARITY_SPREAD": "1" if polarity_spread else None,
         "LABEL_ANATOMY_DISTANCE_HISTOGRAMS": "1" if distance_histograms else None,
-        "LABEL_ANATOMY_SKELETON_ENTITIES": skeleton_entities,
+        "LABEL_ANATOMY_GEOMETRY_AS": geometry_as,
         "LABEL_ANATOMY_ENTITIES": entities,
         "LABEL_ANATOMY_LABEL_MAP": label_map,
         "LABEL_ANATOMY_LABEL_MAP_ENTITY": label_map_entity,
@@ -291,11 +291,15 @@ def colours(report: Path, palette: Path) -> None:
               help="Skip curve skeletons for instances above this voxel count (default: 500000).")
 @click.option("--num-threads", type=int, default=None, metavar="N",
               help="kimimaro worker count (default: 1; objects already run in parallel).")
-@click.option("--skeleton-entities", default=None, metavar="NAMES",
-              help="Skeletonise these entities, e.g. mito,er, and no others. Nothing named "
-                   "means none: branches, length and tortuosity mean something for a "
-                   "filament and nothing for a granule, whose skeleton is one branch the "
-                   "length of its diameter - and skeletonising is the most expensive thing "
+@click.option("--geometry-as", "geometry_as", default=None, metavar="NAME=KIND,...",
+              help="How each structure's surface is stored: mesh, ellipsoid or tube, "
+                   "and/or skeleton for a centre line over it - combine with '+', e.g. "
+                   "mito=mesh+skeleton,vesicle=ellipsoid. A structure not named here is "
+                   "decided from its measured shape: round and compact ones become "
+                   "ellipsoids of 60 bytes instead of meshes, which is what makes tens of "
+                   "thousands of instances drawable. It is also not skeletonised, since "
+                   "branches, length and tortuosity mean something for a filament and "
+                   "nothing for a granule, and skeletonising is the most expensive thing "
                    "in a run.")
 @click.option("--polarity-spread", is_flag=True,
               help="Also measure each instance's angular spread on the polarity sphere.")
@@ -330,7 +334,7 @@ def process(
     label_map: Path | None, label_map_entity: str | None,
     contact_max_um: float | None,
     max_skeleton_voxels: int | None, num_threads: int | None,
-    skeleton_entities: str | None, polarity_spread: bool,
+    geometry_as: str | None, polarity_spread: bool,
     distance_histograms: bool, colours: Path | None, no_contacts: bool, no_instances: bool,
     max_workers: int | None, resume: bool, with_mesh: bool,
     mesh_dir: Path | None, mesh_smooth_sigma: float | None, mesh_step_size: int | None,
@@ -348,7 +352,7 @@ def process(
     _apply_analysis_env(object_mask, object_noun, voxel_size_um, no_clip, auto_label_masks,
                         contact_max_um, max_skeleton_voxels, num_threads,
                         polarity_spread, distance_histograms,
-                        skeleton_entities, entities, label_map, label_map_entity)
+                        geometry_as, entities, label_map, label_map_entity)
 
     meshes_to = (mesh_dir or output.with_name(output.stem + "_meshes")) if with_mesh else None
     _apply_mesh_env(meshes_to, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
@@ -507,9 +511,10 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
 @click.option("--no-clip", "no_clip", is_flag=True,
               help="Measure outside the object mask too; entities are clipped to it by "
                    "default.")
-@click.option("--skeleton-entities", default=None, metavar="NAMES",
-              help="Overlay skeletons for these entities, e.g. mito,er, and no others. "
-                   "Nothing named means no overlay at all.")
+@click.option("--geometry-as", "geometry_as", default=None, metavar="NAME=KIND,...",
+              help="How each structure's surface is stored: mesh, ellipsoid or tube, "
+                   "and/or skeleton for a centre line over it, combined with '+', e.g. "
+                   "mito=mesh+skeleton. Unnamed structures are decided from their shape.")
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
               help="Gap threshold for the contact rows the 3D viewer groups by (default: 0.5).")
 @click.option("--no-contacts", is_flag=True, help="Leave the contact rows out of the CSV.")
@@ -517,7 +522,7 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
 def mesh(
     object_dir: Path, out_dir: Path, object_mask: str | None,
     voxel_size_um: str | None, no_clip: bool,
-    skeleton_entities: str | None, contact_max_um: float | None,
+    geometry_as: str | None, contact_max_um: float | None,
     no_contacts: bool,
     mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
@@ -537,7 +542,7 @@ def mesh(
     if not objects:
         raise click.ClickException(f"No object folders found under {object_dir}.")
     _apply_analysis_env(object_mask, None, voxel_size_um, no_clip, False, contact_max_um,
-                        None, None, skeleton_entities=skeleton_entities)
+                        None, None, geometry_as=geometry_as)
     _apply_mesh_env(None, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,
                     reuse_geometry=reuse_geometry)

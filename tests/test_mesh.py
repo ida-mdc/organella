@@ -108,7 +108,7 @@ def test_rows_cover_label_instances_and_whole_masks():
     # The widgets read instance rows for labels and file rows for whole masks.
     assert ("instance", "mito") in by_type
     assert ("file", "pm") in by_type
-    assert all(r["mesh"] for r in rows)
+    assert all(r["surface"] for r in rows)
     assert all(set(r) <= set(GEOMETRY_COLUMNS) for r in rows)
 
 
@@ -179,13 +179,13 @@ def test_skeletons_ride_with_the_instances_they_belong_to():
     rows = mesh_rows_for_object(
         volumes, kinds, VOXEL, object_id="object_a",
         options=MeshOptions(contact_max_um=None,
-                            skeleton_entities=frozenset(k for k, v in kinds.items()
-                                                        if v == "label")))
+                            geometry_as={k: "mesh+skeleton" for k, v in kinds.items()
+                                         if v == "label"}))
 
     instances = [r for r in rows if r["row_type"] == "instance"]
     assert instances and all(r["skeleton"] for r in instances)
     for row in instances:
-        mesh_verts, _ = decode_payload(row["mesh"])
+        mesh_verts, _ = decode_payload(row["surface"])
         skel_verts, edges = decode_payload(row["skeleton"], per_index=2)
         assert edges.max() < len(skel_verts)
         # Same coordinate frame: centroids agree to well under a voxel, even though the
@@ -214,7 +214,7 @@ def test_contact_rows_ride_in_the_same_file():
     # The 3D viewer colours instances by contact group, which needs these rows present.
     assert contacts
     assert all(r["entity_a"] and r["entity_b"] and r["gap_um"] >= 0 for r in contacts)
-    assert all(r["mesh"] == b"" for r in contacts)
+    assert all(r["surface"] == b"" for r in contacts)
 
 
 # ── the file the widgets query ────────────────────────────────────────────────
@@ -228,13 +228,13 @@ def test_geometry_parquet_carries_the_payloads_as_blobs(tmp_path):
     assert path.name == "geometry.parquet"
     assert table.columns == GEOMETRY_COLUMNS
     assert table.height == len(rows)
-    assert table["mesh"].dtype == pl.Binary
+    assert table["surface"].dtype == pl.Binary
     # Round-trips: a blob read back out of the file decodes to the same mesh.
-    meshed = table.filter(pl.col("mesh").is_not_null())
-    verts, faces = decode_payload(meshed["mesh"][0])
+    meshed = table.filter(pl.col("surface").is_not_null())
+    verts, faces = decode_payload(meshed["surface"][0])
     assert len(verts) and faces.max() < len(verts)
     # Nothing to draw is NULL rather than an empty blob, so "has geometry" is one predicate.
-    assert table.filter(pl.col("row_type") == "contact")["mesh"].null_count() > 0
+    assert table.filter(pl.col("row_type") == "contact")["surface"].null_count() > 0
 
 
 def test_geometry_parquet_counts_the_payloads_it_stores(tmp_path):
@@ -244,9 +244,9 @@ def test_geometry_parquet_counts_the_payloads_it_stores(tmp_path):
     table = pl.read_parquet(write_geometry(tmp_path / "object_a", rows))
 
     # A widget budgets its draw calls from these without reading any geometry.
-    for row in table.filter(pl.col("mesh").is_not_null()).iter_rows(named=True):
-        verts, faces = decode_payload(row["mesh"])
-        assert (row["mesh_vertices"], row["mesh_faces"]) == (len(verts), len(faces))
+    for row in table.filter(pl.col("surface").is_not_null()).iter_rows(named=True):
+        verts, faces = decode_payload(row["surface"])
+        assert (row["surface_vertices"], row["surface_elements"]) == (len(verts), len(faces))
 
 
 def test_a_mask_has_no_label_id_to_join_on(tmp_path):
@@ -362,9 +362,9 @@ def test_oversized_and_pooled_instances_come_back_in_order(monkeypatch):
                                           options=mesh_mod.MeshOptions(mesh_workers=4, **opts))
 
     assert [r["label_id"] for r in serial] == [r["label_id"] for r in split]
-    assert all(a["mesh"] == b["mesh"] for a, b in zip(serial, split))
+    assert all(a["surface"] == b["surface"] for a, b in zip(serial, split))
     sprawling = [r for r in split if r["label_id"] == 99][0]
-    assert sprawling["mesh"], "the inline instance lost its geometry"
+    assert sprawling["surface"], "the inline instance lost its geometry"
 
 
 def test_the_mesh_pool_is_bounded_by_memory_not_just_cores():

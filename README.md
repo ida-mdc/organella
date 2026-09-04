@@ -125,10 +125,19 @@ Useful flags, see `label-anatomy process --help` for the rest:
   the report, so every chart draws that structure the same and a shared report arrives
   coloured; unnamed structures keep the built-in palette. `label-anatomy colours
   report.parquet palette.json` does it to a report you already have, in about a second
-- `--skeleton-entities mito,er`: skeletonise these structures, and no others. Nothing
-  named means none: branches, length and tortuosity mean something for a filament and
-  nothing for a granule, whose skeleton is one branch the length of its diameter - and
-  skeletonising is the most expensive thing in a run, so it is not done on the off chance
+- `--geometry-as mito=mesh+skeleton,vesicle=ellipsoid`: how each structure is stored for
+  drawing - `mesh`, `ellipsoid` or `tube` for the surface, `skeleton` for a centre line over
+  it, combined with `+`. A structure not named here is decided from its measured shape, and
+  is not skeletonised: branches, length and tortuosity mean something for a filament and
+  nothing for a granule, whose skeleton is one branch the length of its diameter, and
+  skeletonising is the most expensive thing in a run.
+
+  A mesh per instance does not scale - one 512³ crop of a HeLa cell produced 2,698 meshes
+  and 4.8 million vertices - and most instances are not shapes that need one. A vesicle at
+  sphericity 1.0 *is* an ellipsoid, so it is stored as 60 bytes (centre, radii, axes) and
+  tessellated by the viewer; a filament *is* a tube, so it is stored as its centre line with
+  a radius per node. **No measurement changes**: volume, surface area and sphericity all come
+  from the voxels, and the surface is only ever drawn
 - `--entities liver,spleen`: measure only these, plus the object mask. Everything a folder
   has is measured when this is left out, which for a published segmentation can be far more
   than a question needs: each entity is another full-size channel of the stack, so a

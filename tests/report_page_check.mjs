@@ -333,6 +333,24 @@ if (job.explodes) {
     (e) => R.explodeOffset({ dist: e.dist, n: e.n }, e.factor));
 }
 
+// One stored surface per entry, through the page's own builder for its kind: an ellipsoid
+// is 15 floats here and triangles by the time the scene sees it, so what it turns into is
+// worth pinning.
+out.surfaceKinds = R.surfaceKinds;
+
+if (job.drawables) {
+  out.drawables = job.drawables.map((d) => {
+    const got = R.decodeDrawable({ surface: asArrowView(d.base64), surface_kind: d.kind });
+    if (!got) return null;
+    return {
+      vertices: got.geometry.positions.length / 3,
+      indices: got.geometry.indices.length,
+      flat: got.flat,
+      bbox: bboxOf(got.geometry.positions),
+    };
+  });
+}
+
 if (job.payloads) {
   out.payloads = job.payloads.map((p) => {
     const decoded = R.decodePayload(asArrowView(p.base64), p.perIndex);

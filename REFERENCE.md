@@ -185,6 +185,48 @@ structure into an entity per id; only the ids it names become entities, and when
 `--entities` is given too, only those are ever materialised. Which entity to split is asked
 for rather than guessed when a folder has more than one label volume.
 
+### What a surface is stored as
+
+A mesh per instance does not scale. One 512³ crop of `jrc_hela-2` produced 2,698 meshes and
+4.8 million vertices; a whole macrophage at the same settings holds 34,110 instances. But
+most of those are not shapes that need a mesh, so a surface is one of three kinds and
+`surface_kind` says which:
+
+| kind | when | stored as |
+| --- | --- | --- |
+| `ellipsoid` | round and compact | 60 bytes: centre, radii, a 3×3 of axes |
+| `tube` | elongated, with a centre line | the skeleton polyline plus a radius per node |
+| `mesh` | everything else | marching cubes, as before |
+
+**No measurement depends on this.** Volume, surface area, sphericity and aspect ratio all
+come from ITK's Crofton estimator on the voxels (`analysis/shapes.py`), and nothing in the
+measurers reads a surface. That is what makes approximating one legitimate: an ellipsoid
+changes no number in the report, only the picture.
+
+Both parametric kinds are free of new computation. The ellipsoid is
+`GetEquivalentEllipsoidDiameter` / `GetPrincipalAxes` / `GetCentroid` on the
+`LabelShapeStatisticsImageFilter` that already runs for every instance; the tube's radii are
+kimimaro's own, measured while skeletonising and previously discarded. A parametric instance
+also never enters the meshing pool, so the run gets shorter as well as smaller.
+
+`choose_surface` in `analysis/primitives.py` is the whole of the policy - pure, and the
+thresholds are its only constants. `--geometry-as NAME=KIND` overrides it: `mesh`,
+`ellipsoid` or `tube` for the surface and `skeleton` for a centre line over it, combined with
+`+`, because a surface and an overlay are different questions - `mito=mesh+skeleton` is the
+alpha-cell case. Naming only `skeleton` forces no surface, so a filament that now has a
+centre line can be drawn as the tube it is.
+
+A tube is a polyline rather than a deformed base cylinder deliberately: a polyline can differ
+in length, curvature and how many branches it has, none of which a fixed mesh can be
+deformed into. And a sheet has no parametric family at all - ER reads about 0.05 sphericity -
+so it stays a mesh, which is why the kinds are three representations for three topologies
+rather than one trick applied everywhere.
+
+The page holds one builder per kind in `SURFACE_BUILDERS`, each returning the same positions
+and indices the scene already merges, so there is no second render path - the tessellation
+density is a viewer-side choice. A test compares the writer's kinds with the page's, so a
+kind nothing can draw fails the suite rather than vanishing silently in a browser.
+
 ### 2D and 3D
 
 An object is a volume or a plane, and each is measured by the metrics that mean something
@@ -689,7 +731,7 @@ name:
 | `LABEL_ANATOMY_LABEL_MAP_ENTITY` | unset: the folder's one label entity | `--label-map-entity NAME` |
 | `LABEL_ANATOMY_ENTITY_COLOURS` | built-in palette | `--colours FILE` |
 | `LABEL_ANATOMY_MAX_SKELETON_VOXELS` | `500000` | `--max-skeleton-voxels` |
-| `LABEL_ANATOMY_SKELETON_ENTITIES` | unset: nothing is skeletonised | `--skeleton-entities mito,er` |
+| `LABEL_ANATOMY_GEOMETRY_AS` | unset: decided from each shape, nothing skeletonised | `--geometry-as mito=mesh+skeleton` |
 | `LABEL_ANATOMY_EDT_THREADS` | `0` (all cores) | none |
 | `LABEL_ANATOMY_NUM_THREADS` | `1` (objects already run in parallel) | `--num-threads` |
 | `LABEL_ANATOMY_CONTACT_MAX_UM` | `0.5` | `--contact-max-um` |

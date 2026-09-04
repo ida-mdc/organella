@@ -144,7 +144,7 @@ class GeometryWriter:
                 step_size=cfg.mesh_step_size,
                 target_reduction=cfg.mesh_target_reduction,
                 level=cfg.mesh_level,
-                skeleton_entities=cfg.skeleton_entities,
+                geometry_as=cfg.geometry_as,
                 max_skeleton_voxels=cfg.max_skeleton_voxels,
                 num_threads=cfg.num_threads,
                 contact_max_um=cfg.contact_max_um,

@@ -105,7 +105,7 @@ def test_a_skeleton_decodes_as_line_segments():
     volumes, kinds = _volumes()
     rows = mesh_rows_for_object(volumes, kinds, VOXEL, object_id="object_a",
                                 options=MeshOptions(contact_max_um=None,
-                                                    skeleton_entities=frozenset({"mito"})))
+                                                    geometry_as={"mito": "skeleton"}))
     skeleton = next(r["skeleton"] for r in rows if r.get("skeleton"))
 
     decoded = decode(skeleton, per_index=2)
@@ -283,7 +283,7 @@ def test_a_narrower_gap_can_only_drop_edges(con, geometry_dir):
 def test_a_mesh_is_never_an_empty_blob(con, geometry_dir):
     empty = con.execute(
         f"""SELECT COUNT(*) FROM {source_of(geometry_dir, 'object_a')}
-            WHERE "mesh" IS NOT NULL AND octet_length("mesh") = 0"""
+            WHERE "surface" IS NOT NULL AND octet_length("surface") = 0"""
     ).fetchone()[0]
 
     # "Has geometry" is one IS NOT NULL for the page; an empty blob would pass it and
