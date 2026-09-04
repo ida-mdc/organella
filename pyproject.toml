@@ -1,0 +1,50 @@
+[project]
+name = "label-anatomy"
+version = "0.1.0"
+description = "The spatial anatomy of segmented objects: measure a batch of them, and read the result in one standalone page"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Helmholtz Imaging Engineering & Support Unit MDC" },
+]
+
+dependencies = [
+    "numpy>=2.0.0",
+    "pyarrow",
+    "polars>=1.0.0",
+    "scipy>=1.13.0",
+    "scikit-image>=0.23.0",
+    # The measuring itself: ITK's LabelShapeStatisticsImageFilter, spacing aware, and with
+    # a Crofton boundary estimator built for the smooth surfaces a segmented organelle has.
+    "SimpleITK>=2.3",
+    "tifffile>=2024.5.0",
+    "imagecodecs",
+    "edt>=2.4.0",
+    "fast-simplification>=0.1.6",
+    "kimimaro>=4.0.0",
+    "crackle-codec",
+    "posix-ipc",
+    "psutil",
+]
+
+[project.scripts]
+label-anatomy = "label_anatomy.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/label_anatomy"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]

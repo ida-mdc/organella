@@ -224,8 +224,8 @@ def main():
     geometry_path, out_blend, out_render = resolve_config()
 
     print(f"[geometry_to_blender] Reading {geometry_path}")
-    # Only the columns this needs: the metrics beside them are for the viewer, and the
-    # skeleton overlay has no Blender equivalent.
+    # Only the columns this needs: the metrics beside them are for the report page, and
+    # the skeleton overlay has no Blender equivalent.
     df = pd.read_parquet(
         geometry_path, columns=["object_id", "entity_name", "row_type", "mesh"]
     )
@@ -241,9 +241,9 @@ def main():
     print(f"[geometry_to_blender] {len(df)} rows with meshes after filtering")
     if df.empty:
         # A 2D object has outlines rather than meshes: there is no surface to import, and
-        # a flat polygon in Blender would be a worse view of it than the viewer's own.
+        # a flat polygon in Blender would be a worse view of it than the report's own.
         print("[geometry_to_blender] Nothing to import. (2D objects carry outlines, not "
-              "meshes — look at those in the viewer's gallery instead.)")
+              "meshes — look at those in the report's instance gallery instead.)")
         return
 
     setup_scene()
