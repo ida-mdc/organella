@@ -229,3 +229,49 @@ def test_a_surface_and_a_centre_line_are_asked_for_together():
 def test_an_instance_cannot_be_asked_to_be_two_surfaces():
     with pytest.raises(ValueError, match="one surface"):
         parse_geometry_as("mito=mesh+tube")
+
+
+# ── how much a mesh costs, once it is the only thing left ─────────────────────
+
+def test_an_index_is_two_bytes_until_it_cannot_be():
+    """A triangle mesh has about twice as many faces as vertices, so the index array is
+    three quarters of a payload - measured at exactly 30 bytes per vertex before this."""
+    from label_anatomy.analysis.meshes import NARROW_INDEX_LIMIT, index_dtype
+
+    assert index_dtype(NARROW_INDEX_LIMIT - 1) == np.uint16
+    assert index_dtype(NARROW_INDEX_LIMIT) == np.uint32
+
+
+def test_a_narrow_mesh_round_trips_through_every_reader():
+    """The width is derived from the vertex count, not recorded, so writer and reader agree
+    by construction - and the page has to agree too."""
+    from label_anatomy.analysis.meshes import quantised_payload
+
+    verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], np.float32)
+    faces = np.array([[0, 1, 2], [0, 2, 3]], np.uint32)
+    payload = quantised_payload(verts, faces)
+
+    # 32-byte header, 4 vertices at 6 bytes, 2 faces at 3 narrow indices.
+    assert len(payload) == 32 + 4 * 6 + 2 * 3 * 2
+    out = run_page({"rows": [], "structure": "mito",
+                    "drawables": [{"base64": base64.b64encode(payload).decode(),
+                                   "kind": "mesh"}]})["drawables"][0]
+    assert out["vertices"] == 4 and out["indices"] == 6
+
+
+def test_a_surface_is_decimated_to_its_budget():
+    """A decimation *fraction* bounds nothing: one ER sheet came out at 2.87 million
+    vertices where a vesicle came out at 57. A budget bounds the worst case."""
+    from label_anatomy.analysis.meshes import generate_mesh
+
+    zz, yy, xx = np.ogrid[:60, :60, :60]
+    blob = ((zz - 30) ** 2 + (yy - 30) ** 2 + (xx - 30) ** 2) <= 26 ** 2
+    unbounded = generate_mesh(blob, (0, 0, 0), (0.02, 0.02, 0.02), step_size=1,
+                              target_reduction=0.0, max_vertices=0)
+    budgeted = generate_mesh(blob, (0, 0, 0), (0.02, 0.02, 0.02), step_size=1,
+                             target_reduction=0.0, max_vertices=500)
+
+    big, _ = struct.unpack_from("<II", unbounded, 0)
+    small, _ = struct.unpack_from("<II", budgeted, 0)
+    assert big > 2000, "the test blob should be big enough for the budget to bite"
+    assert small <= 500 * 1.1, f"budget of 500 gave {small} vertices"

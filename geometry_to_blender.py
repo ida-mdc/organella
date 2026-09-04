@@ -72,7 +72,11 @@ def decode_mesh(payload):
     min_xyz   = np.frombuffer(raw, dtype=np.float32, count=3, offset=8)
     scale_xyz = np.frombuffer(raw, dtype=np.float32, count=3, offset=20)
     verts_q   = np.frombuffer(raw, dtype=np.uint16,  count=nV * 3, offset=32).reshape(nV, 3)
-    faces     = np.frombuffer(raw, dtype=np.uint32,  count=nF * 3, offset=32 + nV * 6).reshape(nF, 3)
+    # Indices are 2 bytes unless the surface has more vertices than that can address. The
+    # width follows from nV rather than being recorded, so every reader agrees by
+    # construction - see analysis/meshes.index_dtype.
+    index_dt  = np.uint16 if nV < 65536 else np.uint32
+    faces     = np.frombuffer(raw, dtype=index_dt, count=nF * 3, offset=32 + nV * 6).reshape(nF, 3)
 
     verts = min_xyz + verts_q.astype(np.float32) / 65535.0 * scale_xyz
     return verts, faces

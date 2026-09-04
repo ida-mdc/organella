@@ -151,6 +151,12 @@ Useful flags, see `label-anatomy process --help` for the rest:
 - `--contact-max-um T`: largest surface-to-surface gap recorded as a contact. A contact is
   a pair of instances of *one* structure; touching a different structure is a distance,
   and is measured as one
+- `--mesh-max-vertices N`: most vertices any one surface keeps, 200000 by default; `0`
+  lifts the cap. A decimation *fraction* bounds nothing - at `--mesh-target-reduction 0.5`
+  one ER sheet still came out at 2.87 million vertices, 86 MB and two thirds of that
+  object's whole geometry, next to 57 for a vesicle. Indices are three quarters of a mesh
+  payload (exactly 30 bytes per vertex: 6 for the quantised position, 24 for the faces), so
+  the vertex count is what to bound
 - `--mesh-smooth-sigma` / `--mesh-step-size` / `--mesh-target-reduction` / `--mesh-level`
 - `--mesh-workers N`: processes meshing one object's instances. The default divides the
   machine between the two levels of parallelism, so objects and instances do not each

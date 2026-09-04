@@ -94,6 +94,7 @@ def mesh_options(**overrides: Any) -> "MeshOptions":
         target_reduction=cfg.mesh_target_reduction,
         level=cfg.mesh_level,
         geometry_as=cfg.geometry_as,
+        max_vertices=cfg.mesh_max_vertices,
         max_skeleton_voxels=cfg.max_skeleton_voxels,
         num_threads=cfg.num_threads,
         contact_max_um=cfg.contact_max_um,
@@ -109,9 +110,11 @@ def _apply_mesh_env(
     level: float | None,
     mesh_format: str | None = None,
     mesh_workers: int | None = None,
+    mesh_max_vertices: int | None = None,
     reuse_geometry: bool = False,
 ) -> None:
     settings = {
+        "LABEL_ANATOMY_MESH_MAX_VERTICES": mesh_max_vertices,
         "LABEL_ANATOMY_MESH_DIR": mesh_dir,
         "LABEL_ANATOMY_MESH_FORMAT": mesh_format,
         "LABEL_ANATOMY_MESH_WORKERS": mesh_workers,
@@ -137,6 +140,13 @@ def _mesh_flags(fn):
                      help="Decimation fraction (default: 0.8, keeping ~20%% of faces)."),
         click.option("--mesh-level", type=float, default=None, metavar="L",
                      help="Iso-surface level on the signed distance field (default: 0)."),
+        click.option("--mesh-max-vertices", type=int, default=None, metavar="N",
+                     help="Most vertices any one surface keeps; 0 lifts the cap "
+                          "(default: 200000). A decimation fraction bounds nothing: at 0.5 "
+                          "one ER sheet was still 2.87 million vertices - 86 MB, two thirds "
+                          "of that object's whole geometry - where a vesicle was 57. This "
+                          "bounds the worst case, which is the one that breaks storing and "
+                          "drawing."),
         click.option("--mesh-workers", type=int, default=None, metavar="N",
                      help="Processes meshing instances of one object (default: the cores "
                           "the object pool is not using)."),
@@ -339,7 +349,7 @@ def process(
     max_workers: int | None, resume: bool, with_mesh: bool,
     mesh_dir: Path | None, mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
-    mesh_workers: int | None, reuse_geometry: bool,
+    mesh_workers: int | None, mesh_max_vertices: int | None, reuse_geometry: bool,
 ) -> None:
     """Analyse every object folder under OBJECT_DIR and write one report."""
     objects = find_object_dirs(object_dir)
@@ -357,6 +367,7 @@ def process(
     meshes_to = (mesh_dir or output.with_name(output.stem + "_meshes")) if with_mesh else None
     _apply_mesh_env(meshes_to, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,
+                    mesh_max_vertices=mesh_max_vertices,
                     reuse_geometry=reuse_geometry)
 
     excluded = {"anatomy-contacts"} if no_contacts else set()
@@ -526,7 +537,7 @@ def mesh(
     no_contacts: bool,
     mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
-    mesh_workers: int | None, reuse_geometry: bool,
+    mesh_workers: int | None, mesh_max_vertices: int | None, reuse_geometry: bool,
 ) -> None:
     """Write per-object geometry for the 3D views and the Blender export.
 
@@ -545,6 +556,7 @@ def mesh(
                         None, None, geometry_as=geometry_as)
     _apply_mesh_env(None, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,
+                    mesh_max_vertices=mesh_max_vertices,
                     reuse_geometry=reuse_geometry)
     options = mesh_options(**({"contact_max_um": None} if no_contacts else {}))
 

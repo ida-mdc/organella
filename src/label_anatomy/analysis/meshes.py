@@ -101,6 +101,11 @@ class MeshOptions:
     contact_max_um: Optional[float] = 0.5
     # Processes to mesh instances with. 0 = work it out: the batch's share of the cores.
     mesh_workers: int = 0
+    # Most vertices any one surface may keep; 0 lifts the cap. A fixed decimation fraction
+    # bounds nothing - at 0.5 one ER sheet was still 2.87 million vertices, 86 MB, two
+    # thirds of that object's entire geometry, next to 57 for a vesicle. This bounds the
+    # worst case, which is the one that breaks storing and drawing.
+    max_vertices: int = 200_000
 
 
 def sigma_for_shape(sphericity_value: float, fill_ratio: float,
@@ -128,6 +133,7 @@ def generate_mesh(
     smooth_sigma: float = 0.7,
     target_reduction: float = 0.8,
     level: Optional[float] = None,
+    max_vertices: int = 0,
 ) -> bytes:
     """Mesh a (Z,Y,X) binary mask via marching cubes on a signed distance field.
 
@@ -184,6 +190,17 @@ def generate_mesh(
         if target_reduction > 0 and len(faces) > 100:
             verts_xyz, faces_s = fast_simplification.simplify(
                 verts_xyz, faces.astype(int), target_reduction=target_reduction, verbose=False,
+            )
+            verts_xyz = verts_xyz.astype(np.float32)
+            faces = faces_s
+        # A fixed fraction cannot bound anything: at 0.5 an ER sheet still came out at
+        # 2.87 million vertices - 86 MB, two thirds of one object's whole geometry - where a
+        # vesicle came out at 57. A budget bounds the worst case instead, which is the one
+        # that breaks storing and drawing.
+        if max_vertices and len(verts_xyz) > max_vertices and len(faces) > 100:
+            verts_xyz, faces_s = fast_simplification.simplify(
+                verts_xyz, faces.astype(int),
+                target_reduction=1.0 - max_vertices / len(verts_xyz), verbose=False,
             )
             verts_xyz = verts_xyz.astype(np.float32)
             faces = faces_s
@@ -288,8 +305,26 @@ def payload_counts(payload: bytes) -> Tuple[Optional[int], Optional[int]]:
     return int(n_verts), int(n_indices)
 
 
+# An index needs 4 bytes only once a surface has more vertices than 2 bytes can address.
+# Worth the branch: a triangle mesh has about twice as many faces as vertices, so the index
+# array is three quarters of the payload - measured at exactly 30 bytes per vertex, 6 of
+# them the quantised position and 24 the indices. Below this many vertices the whole payload
+# is 40% smaller for nothing, and on one real object 151 of 158 meshes were below it.
+NARROW_INDEX_LIMIT = 65536
+
+
+def index_dtype(n_verts: int) -> np.dtype:
+    """The integer type this surface's indices are stored in.
+
+    Derived from the vertex count rather than recorded, so every reader works it out the
+    same way from the header it has already read - a width flag would be a second source of
+    truth for something the first one already determines.
+    """
+    return np.dtype(np.uint16 if n_verts < NARROW_INDEX_LIMIT else np.uint32)
+
+
 def quantised_payload(verts_xyz: np.ndarray, indices: np.ndarray) -> bytes:
-    """Vertices quantised to uint16 plus an index array."""
+    """Vertices quantised to uint16 plus an index array, narrow where it can be."""
     min_xyz = verts_xyz.min(axis=0)
     scale_xyz = verts_xyz.max(axis=0) - min_xyz
     scale_xyz[scale_xyz == 0] = 1.0
@@ -298,7 +333,8 @@ def quantised_payload(verts_xyz: np.ndarray, indices: np.ndarray) -> bytes:
     ).astype(np.uint16)
     header = np.array([len(verts_xyz), len(indices)], dtype=np.uint32)
     quant_params = np.concatenate([min_xyz, scale_xyz]).astype(np.float32)
-    return header.tobytes() + quant_params.tobytes() + verts_q.tobytes() + indices.tobytes()
+    narrowed = np.asarray(indices).astype(index_dtype(len(verts_xyz)), copy=False)
+    return header.tobytes() + quant_params.tobytes() + verts_q.tobytes() + narrowed.tobytes()
 
 
 def _bbox_extent(binary: np.ndarray) -> float:
@@ -332,12 +368,13 @@ def _instance_geometry(task: Tuple[Any, ...]) -> Tuple[bytes, bytes]:
     is one instance's cropped mask, which is why farming these out is worth it: the work is
     an EDT, a blur, marching cubes and a decimation, and the payload is a few kilobytes.
     """
-    image, origin, sample_size, planar, step_size, sigma, target_reduction, level = task
+    (image, origin, sample_size, planar, step_size, sigma, target_reduction, level,
+     max_vertices) = task
     if planar:
         return b"", generate_outline(image, origin, sample_size)
     return generate_mesh(image, origin, sample_size, step_size=step_size,
                          smooth_sigma=sigma, target_reduction=target_reduction,
-                         level=level), b""
+                         level=level, max_vertices=max_vertices), b""
 
 
 def mesh_rows_for_object(
@@ -401,6 +438,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                         roundness, float(binary.sum() / extent) if extent else float("nan"),
                         sigma_min=0.3, sigma_max=options.smooth_sigma * 2),
                     target_reduction=options.target_reduction, level=options.level,
+                    max_vertices=options.max_vertices,
                 ),
                 "outline": generate_outline(binary, (0, 0), sample_size) if planar else b"",
                 "skeleton": b"",
@@ -480,7 +518,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                     options.step_size,
                     sigma_for_shape(roundness, fill_ratio, sigma_min=0.3,
                                     sigma_max=options.smooth_sigma * 2),
-                    options.target_reduction, options.level,
+                    options.target_reduction, options.level, options.max_vertices,
                 ))
                 oversized.append(image.size > _INLINE_INSTANCE_SAMPLES)
 

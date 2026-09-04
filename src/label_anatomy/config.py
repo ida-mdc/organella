@@ -30,6 +30,7 @@ the CLI sets them from its own flags.
     LABEL_ANATOMY_MESH_DIR           where to write geometry.parquet per object; unset = no meshing
     LABEL_ANATOMY_MESH_SMOOTH_SIGMA / _STEP_SIZE / _TARGET_REDUCTION / _LEVEL
                                   mesh generation knobs, as the --mesh-* flags
+    LABEL_ANATOMY_MESH_MAX_VERTICES  most vertices one surface keeps (0 = no cap)
 """
 
 from __future__ import annotations
@@ -319,6 +320,8 @@ class AnatomyConfig:
     # Processes to mesh instances with. 0 = the share of the cores the batch is not already
     # using for objects, which `analyse` works out and passes down.
     mesh_workers: int = 0
+    # Most vertices any one surface keeps; 0 lifts the cap. See MeshOptions.max_vertices.
+    mesh_max_vertices: int = 200_000
     # Keep an object's geometry.parquet if it already has one, rather than meshing it again.
     # Meshing dominates a run, so a batch that died partway is worth minutes rather than hours.
     reuse_geometry: bool = False
@@ -385,5 +388,6 @@ class AnatomyConfig:
                 if os.environ.get("LABEL_ANATOMY_MESH_LEVEL") else None
             ),
             mesh_workers=_env_int("LABEL_ANATOMY_MESH_WORKERS", 0),
+            mesh_max_vertices=_env_int("LABEL_ANATOMY_MESH_MAX_VERTICES", 200_000),
             reuse_geometry=_env_flag("LABEL_ANATOMY_REUSE_GEOMETRY"),
         )

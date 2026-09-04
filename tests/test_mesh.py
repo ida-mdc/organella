@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from label_anatomy.cli import cli
 from label_anatomy.analysis.meshes import (
+    NARROW_INDEX_LIMIT,
     GEOMETRY_COLUMNS,
     MeshOptions,
     generate_mesh,
@@ -32,14 +33,20 @@ VOXEL = (0.1, 0.02, 0.02)
 
 
 def decode_payload(raw: bytes, per_index: int = 3):
-    """Mirror of decodePayload in plugin_anatomy_3d.js and geometry_to_blender.py."""
+    """Mirror of decodePayload in the report page and geometry_to_blender.py.
+
+    The index width is not recorded: it follows from the vertex count, so every reader
+    works it out from the header rather than trusting a second source of truth.
+    """
     n_verts, n_indices = struct.unpack_from("<II", raw, 0)
     params = np.frombuffer(raw, dtype="<f4", count=6, offset=8)
     verts_q = np.frombuffer(raw, dtype="<u2", count=n_verts * 3, offset=32).reshape(n_verts, 3)
+    index_dt = "<u2" if n_verts < NARROW_INDEX_LIMIT else "<u4"
+    width = np.dtype(index_dt).itemsize
     indices = np.frombuffer(
-        raw, dtype="<u4", count=n_indices * per_index, offset=32 + n_verts * 6
+        raw, dtype=index_dt, count=n_indices * per_index, offset=32 + n_verts * 6
     ).reshape(n_indices, per_index)
-    assert 32 + n_verts * 6 + n_indices * per_index * 4 == len(raw), "trailing bytes"
+    assert 32 + n_verts * 6 + n_indices * per_index * width == len(raw), "trailing bytes"
     return verts_q / 65535.0 * params[3:] + params[:3], indices
 
 

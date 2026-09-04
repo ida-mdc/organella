@@ -227,6 +227,31 @@ and indices the scene already merges, so there is no second render path - the te
 density is a viewer-side choice. A test compares the writer's kinds with the page's, so a
 kind nothing can draw fails the suite rather than vanishing silently in a browser.
 
+### What a mesh costs, once it is the only thing left
+
+The kinds above take care of the many small instances. What remains is a handful of large
+ones, and on one real object they are almost all of the bytes: of 128 MB of surfaces, ER
+alone was 82 MB and the top 14 instances were 94%.
+
+A mesh payload is **exactly 30 bytes per vertex** - 6 for the quantised position and 24 for
+the faces, because a closed triangle mesh has about twice as many faces as vertices and each
+was three `uint32`. So two things bound it, neither needing a new dependency:
+
+**Indices are `uint16` below 65,536 vertices**, which on that object was 151 of 158 meshes:
+40% off each of them. The width is *derived* from the vertex count rather than recorded, so
+the writer, the report page, the test mirror and the Blender importer all work it out from
+the header they have already read - a width flag would be a second source of truth for
+something the first already determines.
+
+**`--mesh-max-vertices` bounds the worst case.** A decimation fraction cannot: at 0.5 the ER
+sheet was still 2.87 million vertices where a vesicle was 57. The budget is what makes a
+file size predictable, so it defaults to 200,000 rather than being opt-in.
+
+Deliberately *not* a mesh codec. Draco or meshopt would give 10-15x, but both need a WASM
+decoder, and the report page is one standalone HTML file with no build step that you can
+drop a parquet onto - embedding a decoder or fetching one from a CDN would cost exactly the
+property that makes the page droppable. Quantisation and a budget keep that intact.
+
 ### 2D and 3D
 
 An object is a volume or a plane, and each is measured by the metrics that mean something
@@ -738,6 +763,7 @@ name:
 | `LABEL_ANATOMY_POLARITY_SPREAD` | `0` | `--polarity-spread` |
 | `LABEL_ANATOMY_DISTANCE_HISTOGRAMS` | `0` | `--distance-histograms` |
 | `LABEL_ANATOMY_MESH_DIR` | unset (no geometry) | `--with-mesh` / `--mesh-dir` |
+| `LABEL_ANATOMY_MESH_MAX_VERTICES` | `200000` (0 = no cap) | `--mesh-max-vertices` |
 | `LABEL_ANATOMY_MESH_SMOOTH_SIGMA` | `0.7` | `--mesh-smooth-sigma` |
 | `LABEL_ANATOMY_MESH_STEP_SIZE` | `2` | `--mesh-step-size` |
 | `LABEL_ANATOMY_MESH_TARGET_REDUCTION` | `0.8` | `--mesh-target-reduction` |

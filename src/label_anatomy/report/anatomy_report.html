@@ -2509,7 +2509,14 @@ function decodePayload(bytes, perIndex) {
   if (!nVerts || !nIndices) return null;
   var params = new Float32Array(buffer, 8, 6);
   var quantised = new Uint16Array(buffer, 32, nVerts * 3);
-  var indices = new Uint32Array(buffer.slice(32 + nVerts * 6));
+  // Two bytes an index unless the surface has more vertices than that can address. The
+  // width follows from nVerts rather than being recorded, so writer and reader agree by
+  // construction - a triangle mesh has twice as many faces as vertices, which makes the
+  // index array three quarters of the payload and worth the branch.
+  var indexBytes = buffer.slice(32 + nVerts * 6);
+  var indices = nVerts < 65536
+    ? new Uint16Array(indexBytes)
+    : new Uint32Array(indexBytes);
 
   var positions = new Float32Array(nVerts * 3);
   for (var i = 0; i < nVerts; i++) {
