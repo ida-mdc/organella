@@ -337,6 +337,26 @@ if (job.explodes) {
 // is 15 floats here and triangles by the time the scene sees it, so what it turns into is
 // worth pinning.
 out.surfaceKinds = R.surfaceKinds;
+out.impostorKinds = R.impostorKinds;
+
+// What a stored surface becomes as impostor instances. The shaders need a GPU; the
+// arithmetic that feeds them does not, so that part is checked here.
+if (job.impostors) {
+  out.impostors = job.impostors.map((d) => {
+    const bytes = asArrowView(d.base64);
+    if (d.kind === 'ellipsoid') {
+      const f = R.ellipsoidOf(bytes);
+      return f && { centre: [...f.slice(0, 3)], radii: [...f.slice(3, 6)] };
+    }
+    const caps = R.capsulesOf(bytes);
+    return caps && {
+      capsules: caps.n,
+      firstA: [...caps.a.slice(0, 3)],
+      firstB: [...caps.b.slice(0, 3)],
+      radius: caps.r[0],
+    };
+  });
+}
 
 if (job.drawables) {
   out.drawables = job.drawables.map((d) => {

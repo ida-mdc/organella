@@ -3185,6 +3185,247 @@ function makeStage(THREE, canvas, opts) {
  * Merge decoded instances into one geometry with per-vertex colours: one draw call for the
  * whole object, however it is coloured, because the colour rides on the vertices.
  */
+// ══════════════════════════════════════════════════════════════
+//  Impostors: ray-cast the quadric instead of tessellating it
+// ══════════════════════════════════════════════════════════════
+//
+// A tessellated tube is faceted at any zoom you care to look at, and a scene of 4,972
+// microtubules is 1.2 million segments before it is anything else. An impostor draws one
+// box per primitive and solves the ray-surface intersection in the fragment shader, so the
+// surface is exact at every pixel and the cost is per primitive rather than per triangle.
+// This is how molecular viewers draw bonds and atoms at these counts.
+//
+// It does NOT replace the triangle path. Only a shape with a closed-form ray intersection
+// can be cast this way - an ellipsoid and a capsule can, an ER sheet at 200,000 triangles
+// cannot - so this is a second path that handles two of the three surface kinds, and the
+// merged mesh still draws the rest.
+
+/** Capsules along a tube's centre line: one per segment, radius per end. */
+function capsulesOf(payload) {
+  var line = decodePayload(payload, 2);
+  if (!line) return null;
+  var nV = line.positions.length / 3;
+  var radiiOffset = payload.byteLength - nV * 4;
+  if (radiiOffset < 0) return null;
+  var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  var radii = new Float32Array(nV);
+  for (var i = 0; i < nV; i++) radii[i] = view.getFloat32(radiiOffset + i * 4, true);
+  var nE = line.indices.length / 2;
+  var out = { a: new Float32Array(nE * 3), b: new Float32Array(nE * 3),
+              r: new Float32Array(nE), n: 0 };
+  for (var e = 0; e < nE; e++) {
+    var ia = line.indices[e * 2], ib = line.indices[e * 2 + 1];
+    if (ia === ib) continue;
+    var k = out.n;
+    out.a[k * 3] = line.positions[ia * 3];
+    out.a[k * 3 + 1] = line.positions[ia * 3 + 1];
+    out.a[k * 3 + 2] = line.positions[ia * 3 + 2];
+    out.b[k * 3] = line.positions[ib * 3];
+    out.b[k * 3 + 1] = line.positions[ib * 3 + 1];
+    out.b[k * 3 + 2] = line.positions[ib * 3 + 2];
+    // One radius per capsule: the larger end, so a tapering tube is never drawn thinner
+    // than the centre line says it is.
+    out.r[k] = Math.max(radii[ia], radii[ib]);
+    out.n++;
+  }
+  return out.n ? out : null;
+}
+
+/** The 15 floats of an ellipsoid: centre, radii, and the axes as rows. */
+function ellipsoidOf(payload) {
+  if (!payload || payload.byteLength < 60) return null;
+  var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  var f = new Float32Array(15);
+  for (var i = 0; i < 15; i++) f[i] = view.getFloat32(i * 4, true);
+  return f;
+}
+
+// Lighting written out by hand rather than borrowed from MeshPhongMaterial: a ShaderMaterial
+// that joins three.js's light chunks has to track their uniforms, and the point here is to
+// compare shapes, not to re-implement a material. Kept close to the merged mesh's look -
+// one key light, a fill, and the same near-black specular.
+var IMPOSTOR_LIGHTING = [
+  'vec3 shade(vec3 normal, vec3 base, vec3 viewDir) {',
+  '  vec3 key = normalize(vec3(0.6, 0.9, 0.7));',
+  '  vec3 fill = normalize(vec3(-0.5, -0.2, -0.8));',
+  '  float lambert = max(dot(normal, key), 0.0) * 0.78',
+  '               + max(dot(normal, fill), 0.0) * 0.22 + 0.22;',
+  '  vec3 halfway = normalize(key - viewDir);',
+  '  float spec = pow(max(dot(normal, halfway), 0.0), 14.0) * 0.05;',
+  '  return base * lambert + vec3(spec);',
+  '}'
+].join('\n');
+
+var CAPSULE_VERTEX = [
+  'in vec3 iA; in vec3 iB; in float iR; in vec3 iColor;',
+  'out vec3 vA; out vec3 vB; out float vR; out vec3 vColor; out vec3 vWorld;',
+  'void main() {',
+  '  vA = iA; vB = iB; vR = iR; vColor = iColor;',
+  // A world-space box around the capsule: always covers it, and costs one mix().
+  '  vec3 lo = min(iA, iB) - vec3(iR);',
+  '  vec3 hi = max(iA, iB) + vec3(iR);',
+  '  vWorld = mix(lo, hi, position + 0.5);',
+  '  gl_Position = projectionMatrix * modelViewMatrix * vec4(vWorld, 1.0);',
+  '}'
+].join('\n');
+
+var CAPSULE_FRAGMENT = [
+  'in vec3 vA; in vec3 vB; in float vR; in vec3 vColor; in vec3 vWorld;',
+  'out vec4 fragColour;',
+  IMPOSTOR_LIGHTING,
+  // Ray against a capsule: the segment AB swept by a sphere of radius R.
+  'float hitCapsule(vec3 ro, vec3 rd, vec3 a, vec3 b, float r, out vec3 normal) {',
+  '  vec3 ba = b - a, oa = ro - a;',
+  '  float baba = dot(ba, ba), bard = dot(ba, rd), baoa = dot(ba, oa);',
+  '  float rdoa = dot(rd, oa), oaoa = dot(oa, oa);',
+  '  float A = baba - bard * bard;',
+  '  float B = baba * rdoa - baoa * bard;',
+  '  float C = baba * oaoa - baoa * baoa - r * r * baba;',
+  '  float h = B * B - A * C;',
+  '  if (h >= 0.0) {',
+  '    float t = (-B - sqrt(h)) / A;',
+  '    float y = baoa + t * bard;',
+  '    if (y > 0.0 && y < baba && t > 0.0) {',    // the barrel
+  '      normal = normalize((oa + t * rd - ba * y / baba) / r);',
+  '      return t;',
+  '    }',
+  // the caps
+  '    vec3 oc = y <= 0.0 ? oa : ro - b;',
+  '    float bb = dot(rd, oc);',
+  '    float cc = dot(oc, oc) - r * r;',
+  '    float hh = bb * bb - cc;',
+  '    if (hh > 0.0) {',
+  '      float t2 = -bb - sqrt(hh);',
+  '      if (t2 > 0.0) { normal = normalize((oc + t2 * rd) / r); return t2; }',
+  '    }',
+  '  }',
+  '  return -1.0;',
+  '}',
+  'void main() {',
+  '  vec3 ro = cameraPosition;',
+  '  vec3 rd = normalize(vWorld - ro);',
+  '  vec3 normal;',
+  '  float t = hitCapsule(ro, rd, vA, vB, vR, normal);',
+  '  if (t < 0.0) discard;',
+  '  vec3 hit = ro + rd * t;',
+  // The impostor has to own its depth, or it sorts by the box that covers it and
+  // interpenetrates every mesh in the scene wrongly.
+  '  vec4 clip = projectionMatrix * viewMatrix * vec4(hit, 1.0);',
+  '  gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;',
+  '  fragColour = vec4(shade(normal, vColor, rd), 1.0);',
+  '}'
+].join('\n');
+
+var ELLIPSOID_VERTEX = [
+  'in vec3 iCentre; in vec3 iRadii; in vec3 iAx0; in vec3 iAx1; in vec3 iAx2; in vec3 iColor;',
+  'out vec3 vCentre; out vec3 vRadii; out mat3 vAxes; out vec3 vColor; out vec3 vWorld;',
+  'void main() {',
+  '  vCentre = iCentre; vRadii = iRadii; vColor = iColor;',
+  '  vAxes = mat3(iAx0, iAx1, iAx2);',
+  // A box around the ellipsoid: its own extent along each world axis.
+  '  vec3 extent = abs(iAx0) * iRadii.x + abs(iAx1) * iRadii.y + abs(iAx2) * iRadii.z;',
+  '  vWorld = iCentre + (position * 2.0) * extent;',
+  '  gl_Position = projectionMatrix * modelViewMatrix * vec4(vWorld, 1.0);',
+  '}'
+].join('\n');
+
+var ELLIPSOID_FRAGMENT = [
+  'in vec3 vCentre; in vec3 vRadii; in mat3 vAxes; in vec3 vColor; in vec3 vWorld;',
+  'out vec4 fragColour;',
+  IMPOSTOR_LIGHTING,
+  'void main() {',
+  '  vec3 ro = cameraPosition;',
+  '  vec3 rd = normalize(vWorld - ro);',
+  // Into the ellipsoid frame, where it is the unit sphere and the intersection is trivial.
+  '  mat3 toLocal = transpose(vAxes);',
+  '  vec3 o = (toLocal * (ro - vCentre)) / vRadii;',
+  '  vec3 d = (toLocal * rd) / vRadii;',
+  '  float A = dot(d, d), B = dot(o, d), C = dot(o, o) - 1.0;',
+  '  float h = B * B - A * C;',
+  '  if (h < 0.0) discard;',
+  '  float t = (-B - sqrt(h)) / A;',
+  '  if (t < 0.0) discard;',
+  '  vec3 local = o + t * d;',
+  '  vec3 hit = vAxes * (local * vRadii) + vCentre;',
+  // The normal of an ellipsoid is not the local one rotated: it is scaled by 1/r^2 first.
+  '  vec3 normal = normalize(vAxes * (local / (vRadii * vRadii)));',
+  '  vec4 clip = projectionMatrix * viewMatrix * vec4(hit, 1.0);',
+  '  gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;',
+  '  fragColour = vec4(shade(normal, vColor, rd), 1.0);',
+  '}'
+].join('\n');
+
+/** One instanced draw for every capsule in the scene, or null if there are none. */
+function capsuleImpostors(THREE, items) {
+  var A = [], B = [], R = [], C = [];
+  items.forEach(function(item) {
+    var caps = capsulesOf(item.surface);
+    if (!caps) return;
+    var off = item.offset || [0, 0, 0], rgb = item.rgb;
+    for (var i = 0; i < caps.n; i++) {
+      A.push(caps.a[i * 3] + off[0], caps.a[i * 3 + 1] + off[1], caps.a[i * 3 + 2] + off[2]);
+      B.push(caps.b[i * 3] + off[0], caps.b[i * 3 + 1] + off[1], caps.b[i * 3 + 2] + off[2]);
+      R.push(caps.r[i]);
+      C.push(rgb[0], rgb[1], rgb[2]);
+    }
+  });
+  if (!R.length) return null;
+  var geometry = new THREE.InstancedBufferGeometry();
+  var box = new THREE.BoxGeometry(1, 1, 1);
+  geometry.setAttribute('position', box.getAttribute('position'));
+  geometry.setIndex(box.getIndex());
+  geometry.setAttribute('iA', new THREE.InstancedBufferAttribute(new Float32Array(A), 3));
+  geometry.setAttribute('iB', new THREE.InstancedBufferAttribute(new Float32Array(B), 3));
+  geometry.setAttribute('iR', new THREE.InstancedBufferAttribute(new Float32Array(R), 1));
+  geometry.setAttribute('iColor', new THREE.InstancedBufferAttribute(new Float32Array(C), 3));
+  geometry.instanceCount = R.length;
+  var material = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader: CAPSULE_VERTEX,
+    fragmentShader: CAPSULE_FRAGMENT, side: THREE.DoubleSide
+  });
+  return { mesh: new THREE.Mesh(geometry, material), count: R.length };
+}
+
+/** One instanced draw for every ellipsoid in the scene, or null if there are none. */
+function ellipsoidImpostors(THREE, items) {
+  var centre = [], radii = [], ax0 = [], ax1 = [], ax2 = [], colour = [];
+  items.forEach(function(item) {
+    var f = ellipsoidOf(item.surface);
+    if (!f) return;
+    var off = item.offset || [0, 0, 0], rgb = item.rgb;
+    centre.push(f[0] + off[0], f[1] + off[1], f[2] + off[2]);
+    radii.push(f[3], f[4], f[5]);
+    ax0.push(f[6], f[7], f[8]);
+    ax1.push(f[9], f[10], f[11]);
+    ax2.push(f[12], f[13], f[14]);
+    colour.push(rgb[0], rgb[1], rgb[2]);
+  });
+  if (!radii.length) return null;
+  var geometry = new THREE.InstancedBufferGeometry();
+  var box = new THREE.BoxGeometry(1, 1, 1);
+  geometry.setAttribute('position', box.getAttribute('position'));
+  geometry.setIndex(box.getIndex());
+  var attr = function(values, size) {
+    return new THREE.InstancedBufferAttribute(new Float32Array(values), size);
+  };
+  geometry.setAttribute('iCentre', attr(centre, 3));
+  geometry.setAttribute('iRadii', attr(radii, 3));
+  geometry.setAttribute('iAx0', attr(ax0, 3));
+  geometry.setAttribute('iAx1', attr(ax1, 3));
+  geometry.setAttribute('iAx2', attr(ax2, 3));
+  geometry.setAttribute('iColor', attr(colour, 3));
+  geometry.instanceCount = radii.length / 3;
+  var material = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader: ELLIPSOID_VERTEX,
+    fragmentShader: ELLIPSOID_FRAGMENT, side: THREE.DoubleSide
+  });
+  return { mesh: new THREE.Mesh(geometry, material), count: radii.length / 3 };
+}
+
+// Which surface kinds an impostor can draw. Everything else stays on the merged mesh: an
+// impostor needs a closed-form ray intersection, which a triangle soup does not have.
+var IMPOSTOR_KINDS = { ellipsoid: ellipsoidImpostors, tube: capsuleImpostors };
+
 function mergeInstances(THREE, items) {
   var vertexCount = 0, indexCount = 0;
   items.forEach(function(item) {
@@ -3347,7 +3588,10 @@ var _objectStage = null;
 // What the reader last chose, kept across re-renders so changing a filter does not reset the
 // view to the first object with structure colouring.
 var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: null,
-                   explode: 0, gap: null, maxGap: null };
+                   explode: 0, gap: null, maxGap: null,
+                   // Off by default: it is a second render path, and the merged mesh is
+                   // what every other section's geometry already looks like.
+                   impostors: false };
 
 async function renderScene() {
   var controls = document.getElementById('scene-controls');
@@ -3420,7 +3664,11 @@ async function renderScene() {
                  n: [numOrNull(row.polar_nx) || 0, numOrNull(row.polar_ny) || 0,
                      numOrNull(row.polar_nz) || 0] },
         geometry: drawable.geometry,
-        flat: drawable.flat
+        flat: drawable.flat,
+        // The stored surface as it arrived. An impostor ray-casts the quadric itself, so
+        // it wants the 60 bytes or the centre line - not the triangles just built from it.
+        surface: row.surface,
+        kind: String(row.surface_kind || 'mesh')
       };
       (row.row_type === 'file' ? masks : instances).push(item);
     });
@@ -3470,12 +3718,27 @@ async function renderScene() {
     }
 
     var asItem = function(item) {
-      return { geometry: item.geometry, rgb: colourOf(item),
+      return { geometry: item.geometry, rgb: colourOf(item), kind: item.kind,
+               surface: item.surface,
                offset: explodeOffset(item.polar, sceneState.explode) };
     };
+    var solid = loaded.instances.filter(function(i){ return !i.flat; }).map(asItem);
+
+    // With impostors on, the two kinds that have a closed-form ray intersection are drawn
+    // by casting it instead of tessellating it; everything else stays on the merged mesh.
+    var castable = [];
+    if (sceneState.impostors) {
+      Object.keys(IMPOSTOR_KINDS).forEach(function(kind) {
+        var batch = IMPOSTOR_KINDS[kind](THREE, solid.filter(function(i) {
+          return i.kind === kind && i.surface;
+        }));
+        if (batch) { stage.scene.add(batch.mesh); castable.push(kind); }
+      });
+      solid = solid.filter(function(i) { return castable.indexOf(i.kind) < 0 || !i.surface; });
+    }
+
     // A plane has no surface to shade: same merge, built as LineSegments.
-    var surfaces = mergeInstances(THREE, loaded.instances
-      .filter(function(i){ return !i.flat; }).map(asItem));
+    var surfaces = mergeInstances(THREE, solid);
     if (surfaces) {
       var mesh = new THREE.Mesh(surfaces, new THREE.MeshPhongMaterial({
         vertexColors: true, side: THREE.DoubleSide, flatShading: false,
@@ -3616,6 +3879,30 @@ async function renderScene() {
         paint();
         if (_objectStage) _objectStage.fit();
       }));
+    }
+
+    // Only worth offering when there is something an impostor can draw: with no ellipsoids
+    // or tubes in scope the switch would do nothing and say nothing about why.
+    if (loaded && loaded.instances.some(function(item) {
+      return item.surface && IMPOSTOR_KINDS[item.kind];
+    })) {
+      var toggle = document.createElement('label');
+      toggle.className = 'ctrl';
+      toggle.style.cssText = 'display:inline-flex;align-items:center;gap:.35rem';
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !!sceneState.impostors;
+      box.addEventListener('change', function() {
+        sceneState.impostors = box.checked;
+        paint();
+      });
+      toggle.appendChild(box);
+      toggle.appendChild(document.createTextNode('Ray-cast round shapes'));
+      toggle.title = 'Draw ellipsoids and tubes by solving the ray-surface intersection '
+        + 'per pixel instead of tessellating them: exact at any zoom, and one draw per '
+        + 'shape rather than per triangle. Meshes are unaffected - a triangle soup has no '
+        + 'closed form to solve.';
+      controls.appendChild(toggle);
     }
 
     var chips = document.createElement('div');
@@ -5330,6 +5617,10 @@ if (typeof globalThis !== 'undefined') {
     adapt: adapt, checkReadable: checkReadable,
     // The surface kinds this page can draw, so the writer's list can be checked against it.
     surfaceKinds: Object.keys(SURFACE_BUILDERS),
+    // The kinds an impostor can ray-cast, and the parsers that feed it. The shaders need a
+    // GPU to test; what a payload turns into does not.
+    impostorKinds: Object.keys(IMPOSTOR_KINDS),
+    capsulesOf: capsulesOf, ellipsoidOf: ellipsoidOf,
     decodeDrawable: decodeDrawable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,
