@@ -405,3 +405,67 @@ def test_an_ellipsoid_needs_no_tessellation_at_all():
 
     assert out["centre"] == pytest.approx([5.0, 6.0, 7.0])
     assert out["radii"] == pytest.approx([1.0, 2.0, 4.0])
+
+
+# ── the centre line a tube follows ────────────────────────────────────────────
+
+def _median_turn(points):
+    import numpy as np
+
+    step = np.diff(points, axis=0)
+    length = np.linalg.norm(step, axis=1)
+    unit = step / np.maximum(length[:, None], 1e-12)
+    cos = np.clip((unit[:-1] * unit[1:]).sum(1), -1, 1)
+    return float(np.median(np.degrees(np.arccos(cos))))
+
+
+def _lattice_walk(n=60, voxel=0.016, seed=0):
+    """A straight filament as a skeleton actually walks it: quantised onto the voxel grid."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    jitter = np.round(rng.normal(0, 0.6, (n, 3))) * voxel
+    jitter[:, 0] = 0
+    line = np.stack([np.arange(n) * voxel, np.zeros(n), np.zeros(n)], 1)
+    edges = np.stack([np.arange(n - 1), np.arange(1, n)], 1)
+    return (line + jitter).astype("float32"), edges
+
+
+def test_the_lattice_comes_out_of_a_centre_line():
+    """A skeleton steps from voxel to voxel and turns about 34° at each one on real data.
+    That zig-zag is what a swept tube shows as blocky, and it is in the data - no renderer
+    can smooth a centre line that is not smooth."""
+    from label_anatomy.analysis.primitives import smooth_centre_line
+    import numpy as np
+
+    points, edges = _lattice_walk()
+    radii = np.full(len(points), 0.01, "float32")
+    smoothed, _ = smooth_centre_line(points, edges, radii)
+
+    assert _median_turn(points) > 30
+    assert _median_turn(smoothed) < 8
+
+
+def test_smoothing_does_not_move_an_end_or_a_junction():
+    """A junction is where arms meet and an end is where the structure stops; moving either
+    would pull the arms apart and shorten every filament."""
+    from label_anatomy.analysis.primitives import smooth_centre_line
+    import numpy as np
+
+    points, edges = _lattice_walk(n=30)
+    # A T: node 10 gains a third neighbour, so it is a junction and must not move.
+    extra = np.array([[10, 30]])
+    points = np.vstack([points, points[10] + np.array([0, 0.05, 0], "float32")])
+    radii = np.full(len(points), 0.01, "float32")
+    smoothed, _ = smooth_centre_line(points, np.vstack([edges, extra]), radii)
+
+    assert np.allclose(smoothed[0], points[0])
+    assert np.allclose(smoothed[29], points[29])
+    assert np.allclose(smoothed[10], points[10]), "a junction must stay where the arms meet"
+
+
+def test_a_tube_payload_stores_the_smoothed_line():
+    payload = _straight_tube(n_nodes=20)
+    line, _ = _decode_tube(payload)
+
+    assert _median_turn(line) < 5

@@ -1300,13 +1300,28 @@ function sceneGapSql(source) {
  * columns the colouring and the explode offset need beside the payload.
  */
 function sceneGeometrySql(source, names, metricCols, limit) {
-  return 'SELECT "entity_name" AS entity, "row_type" AS row_type, "label_id" AS label, '
+  // The budget is shared out per structure, not competed for. Taking the largest N across
+  // the whole scene sounds fair and is not: on one real object the top 4,000 by volume were
+  // 3,978 granules and 22 microtubules, because a granule is five times the volume of a
+  // microtubule instance - so turning granules on made the microtubules vanish, which reads
+  // as a bug in the viewer rather than as a budget being spent.
+  var each = Math.max(1, Math.floor(limit / Math.max(1, names.length)));
+  return 'SELECT * FROM (SELECT "entity_name" AS entity, "row_type" AS row_type,'
+    + ' "label_id" AS label, '
     + metricCols.map(function(m){ return '"' + m + '"'; }).join(', ')
     + ', "surface" AS surface, "surface_kind" AS surface_kind, "outline" AS outline'
+    // Projected, because the ordering outside the window cannot reach a column the inner
+    // select did not carry - and which size column an object has depends on its dimensions.
+    + ', ' + GEOMETRY_SIZE_SQL + ' AS scene_size'
+    + ', ROW_NUMBER() OVER (PARTITION BY "entity_name" ORDER BY '
+    + GEOMETRY_SIZE_SQL + ' DESC NULLS LAST) AS rank_in_entity'
     + ' FROM ' + source
     + ' WHERE ' + HAS_GEOMETRY_SQL
     + ' AND "entity_name" IN (' + names.map(esc).join(', ') + ')'
-    + ' ORDER BY ' + GEOMETRY_SIZE_SQL + ' DESC NULLS LAST LIMIT ' + limit;
+    + ') WHERE rank_in_entity <= ' + each
+    // Biggest first still, so a scene cut short by the budget shows the object
+    // rather than whichever corner the rows happened to come back in.
+    + ' ORDER BY scene_size DESC NULLS LAST';
 }
 
 /** The contact edges at one gap, which is what "colour by contact group" unions over. */

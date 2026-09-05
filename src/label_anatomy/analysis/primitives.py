@@ -109,6 +109,54 @@ def ellipsoid_payload(
     return struct.pack("<15f", *values)
 
 
+# Passes of Laplacian smoothing over a centre line, and how far each moves a node toward
+# the average of its neighbours. Ten at 0.5 takes the lattice out without pulling a curve
+# straight: measured on a real microtubule, the median turn between consecutive steps went
+# from 33.6° to about 4°, where the turn a filament actually has is a couple of degrees.
+CENTRE_LINE_PASSES = 10
+CENTRE_LINE_STRENGTH = 0.5
+
+
+def smooth_centre_line(vertices: np.ndarray, edges: np.ndarray,
+                       radii: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Take the voxel lattice out of a skeleton, without moving where it branches or ends.
+
+    A skeleton walks from voxel to voxel, so its steps are one of a handful of lattice
+    lengths - 16 nm, 16√2, 16√3 on 16 nm data - and it turns about 34° at every one of
+    them. That zig-zag is what a swept tube shows as blocky, and it is in the *data*: no
+    amount of tessellation or ray-casting can smooth a centre line that is not smooth.
+
+    Only nodes with exactly two neighbours move. A branch point is where arms meet and an
+    end is where the structure stops, so both are anchors: smoothing them would pull a
+    junction off the arms that share it and shorten every filament by half a step.
+    """
+    if len(vertices) < 3 or len(edges) == 0:
+        return vertices, radii
+    left, right = edges[:, 0].astype(np.intp), edges[:, 1].astype(np.intp)
+    degree = np.bincount(left, minlength=len(vertices)) + np.bincount(right, minlength=len(vertices))
+    moving = degree == 2
+    if not moving.any():
+        return vertices, radii
+
+    # Scattered adds rather than a loop over edges: one object's filaments are 1.2 million
+    # edges, and ten passes of a Python loop over them is minutes where this is milliseconds.
+    points = vertices.astype(np.float64, copy=True)
+    widths = radii.astype(np.float64, copy=True)
+    share = np.maximum(degree, 1)
+    for _ in range(CENTRE_LINE_PASSES):
+        neighbour_sum = np.zeros_like(points)
+        radius_sum = np.zeros_like(widths)
+        np.add.at(neighbour_sum, left, points[right])
+        np.add.at(neighbour_sum, right, points[left])
+        np.add.at(radius_sum, left, widths[right])
+        np.add.at(radius_sum, right, widths[left])
+        mean_point = neighbour_sum / share[:, None]
+        mean_width = radius_sum / share
+        points[moving] += CENTRE_LINE_STRENGTH * (mean_point[moving] - points[moving])
+        widths[moving] += CENTRE_LINE_STRENGTH * (mean_width[moving] - widths[moving])
+    return points.astype(np.float32), widths.astype(np.float32)
+
+
 def tube_payload(skeleton, radius_floor_um: float = 0.0) -> bytes:
     """One instance as its centre line, swept by its own radius.
 
@@ -138,6 +186,7 @@ def tube_payload(skeleton, radius_floor_um: float = 0.0) -> bytes:
         return b""
     if verts.shape[1] != 3:
         return b""
+    verts, radii = smooth_centre_line(verts, edges, radii)
     verts_xyz = np.column_stack([verts[:, 2], verts[:, 1], verts[:, 0]]).astype(np.float32)
     radii = np.maximum(radii, float(radius_floor_um)).astype(np.float32)
     if not np.all(np.isfinite(verts_xyz)) or not np.all(np.isfinite(radii)):
