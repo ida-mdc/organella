@@ -2579,9 +2579,127 @@ function ellipsoidDrawable(payload) {
   return { positions: positions, indices: indices };
 }
 
-// Sides of the ring swept along a tube's centre line. Same kind of rendering choice as
-// ELLIPSOID_SEGMENTS: the stored surface is a polyline, and this is how round it is drawn.
-var TUBE_SIDES = 8;
+// Sides of the ring swept along a tube's centre line, and the resolution of the ball put
+// at each junction. Rendering choices, like ELLIPSOID_SEGMENTS: the stored surface is a
+// polyline and this is how round it is drawn.
+var TUBE_SIDES = 12;
+var JOINT_RINGS = 6;
+var JOINT_SEGMENTS = 8;
+
+/**
+ * A rotation-minimising frame along a polyline, by double reflection.
+ *
+ * Computing a frame per segment from a fixed up-vector - which is what this did first -
+ * gives each ring its own rotation, so consecutive rings are turned against each other and
+ * the tube visibly twists and shears. Propagating one frame instead is the standard fix
+ * (Wang et al. 2008): reflect the previous frame onto the next tangent twice, which is the
+ * least rotation that keeps it perpendicular.
+ */
+function minimisingFrames(points, tangents) {
+  var n = points.length / 3;
+  var normals = new Float32Array(n * 3);
+  // Any unit vector perpendicular to the first tangent will do to start.
+  var tx = tangents[0], ty = tangents[1], tz = tangents[2];
+  var ax = Math.abs(tx) < 0.9 ? 1 : 0, ay = Math.abs(tx) < 0.9 ? 0 : 1, az = 0;
+  var rx = ay * tz - az * ty, ry = az * tx - ax * tz, rz = ax * ty - ay * tx;
+  var rn = Math.hypot(rx, ry, rz) || 1;
+  rx /= rn; ry /= rn; rz /= rn;
+  normals[0] = rx; normals[1] = ry; normals[2] = rz;
+  for (var i = 0; i < n - 1; i++) {
+    var vx = points[(i + 1) * 3] - points[i * 3];
+    var vy = points[(i + 1) * 3 + 1] - points[i * 3 + 1];
+    var vz = points[(i + 1) * 3 + 2] - points[i * 3 + 2];
+    var c1 = vx * vx + vy * vy + vz * vz;
+    var t0x = tangents[i * 3], t0y = tangents[i * 3 + 1], t0z = tangents[i * 3 + 2];
+    var t1x = tangents[(i + 1) * 3], t1y = tangents[(i + 1) * 3 + 1], t1z = tangents[(i + 1) * 3 + 2];
+    var lx = rx, ly = ry, lz = rz, mx = t0x, my = t0y, mz = t0z;
+    if (c1 > 0) {
+      var d1 = 2 / c1 * (vx * rx + vy * ry + vz * rz);
+      lx = rx - d1 * vx; ly = ry - d1 * vy; lz = rz - d1 * vz;
+      var d2 = 2 / c1 * (vx * t0x + vy * t0y + vz * t0z);
+      mx = t0x - d2 * vx; my = t0y - d2 * vy; mz = t0z - d2 * vz;
+    }
+    var wx = t1x - mx, wy = t1y - my, wz = t1z - mz;
+    var c2 = wx * wx + wy * wy + wz * wz;
+    if (c2 > 0) {
+      var d3 = 2 / c2 * (wx * lx + wy * ly + wz * lz);
+      rx = lx - d3 * wx; ry = ly - d3 * wy; rz = lz - d3 * wz;
+    } else { rx = lx; ry = ly; rz = lz; }
+    var m = Math.hypot(rx, ry, rz) || 1;
+    rx /= m; ry /= m; rz /= m;
+    normals[(i + 1) * 3] = rx; normals[(i + 1) * 3 + 1] = ry; normals[(i + 1) * 3 + 2] = rz;
+  }
+  return normals;
+}
+
+/** Unit tangents along a polyline, averaged at the interior nodes so rings meet squarely. */
+function polylineTangents(points) {
+  var n = points.length / 3;
+  var tangents = new Float32Array(n * 3);
+  for (var i = 0; i < n; i++) {
+    var a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    var dx = points[b * 3] - points[a * 3];
+    var dy = points[b * 3 + 1] - points[a * 3 + 1];
+    var dz = points[b * 3 + 2] - points[a * 3 + 2];
+    var len = Math.hypot(dx, dy, dz);
+    if (!(len > 0)) { dx = 0; dy = 0; dz = 1; len = 1; }
+    tangents[i * 3] = dx / len; tangents[i * 3 + 1] = dy / len; tangents[i * 3 + 2] = dz / len;
+  }
+  return tangents;
+}
+
+/** The polylines of a skeleton graph: each runs between nodes that are not simple joins. */
+function skeletonPaths(nIndices, indices, nVerts) {
+  var neighbours = [];
+  for (var i = 0; i < nVerts; i++) neighbours.push([]);
+  for (var e = 0; e < nIndices; e++) {
+    var a = indices[e * 2], b = indices[e * 2 + 1];
+    if (a === b) continue;
+    neighbours[a].push(b);
+    neighbours[b].push(a);
+  }
+  var seen = {}, paths = [];
+  function walk(start, next) {
+    var path = [start], prev = start, node = next;
+    for (;;) {
+      path.push(node);
+      if (neighbours[node].length !== 2) break;
+      var onward = neighbours[node][0] === prev ? neighbours[node][1] : neighbours[node][0];
+      prev = node; node = onward;
+      if (node === start) { path.push(node); break; }   // a closed loop
+    }
+    return path;
+  }
+  for (var v = 0; v < nVerts; v++) {
+    if (neighbours[v].length === 2) continue;           // start only at ends and junctions
+    for (var k = 0; k < neighbours[v].length; k++) {
+      var key = v < neighbours[v][k] ? v + ':' + neighbours[v][k]
+                                     : neighbours[v][k] + ':' + v;
+      if (seen[key]) continue;
+      seen[key] = 1;
+      var path = walk(v, neighbours[v][k]);
+      for (var j = 0; j + 1 < path.length; j++) {
+        var a2 = path[j], b2 = path[j + 1];
+        seen[a2 < b2 ? a2 + ':' + b2 : b2 + ':' + a2] = 1;
+      }
+      paths.push(path);
+    }
+  }
+  // Anything left is a ring of simple joins with no end to start from.
+  for (var v2 = 0; v2 < nVerts; v2++) {
+    if (neighbours[v2].length !== 2) continue;
+    var key2 = v2 < neighbours[v2][0] ? v2 + ':' + neighbours[v2][0]
+                                      : neighbours[v2][0] + ':' + v2;
+    if (seen[key2]) continue;
+    var loop = walk(v2, neighbours[v2][0]);
+    for (var j2 = 0; j2 + 1 < loop.length; j2++) {
+      var a3 = loop[j2], b3 = loop[j2 + 1];
+      seen[a3 < b3 ? a3 + ':' + b3 : b3 + ':' + a3] = 1;
+    }
+    paths.push(loop);
+  }
+  return { paths: paths, neighbours: neighbours };
+}
 
 /**
  * A tube surface: the instance's own centre line, swept by its own radius.
@@ -2591,9 +2709,11 @@ var TUBE_SIDES = 8;
  * polyline rather than a deformed cylinder because a polyline can differ in length,
  * curvature and how many branches it has, none of which a fixed base mesh can become.
  *
- * Each edge becomes its own sleeve. Sleeves are not stitched to each other at the joints:
- * at a branch point there is no single ring to stitch to, and overlapping sleeves read
- * correctly as a solid tube anyway.
+ * One ring per node, shared by the segments either side of it, carried along a
+ * rotation-minimising frame; and a ball at every node that is not a simple join, which is
+ * how a branch or an end is closed without inventing a ring that fits both arms. Emitting
+ * an unstitched sleeve per segment instead - which is what this did first - left a visible
+ * seam at every node and drew twice the vertices to do it.
  */
 function tubeDrawable(payload) {
   var line = decodePayload(payload, 2);
@@ -2605,46 +2725,69 @@ function tubeDrawable(payload) {
   var radii = new Float32Array(nV);
   for (var i = 0; i < nV; i++) radii[i] = view.getFloat32(radiiOffset + i * 4, true);
 
-  var nE = line.indices.length / 2;
-  var sides = TUBE_SIDES;
-  var positions = new Float32Array(nE * sides * 2 * 3);
-  var indices = new Uint32Array(nE * sides * 6);
-  var p = 0, k = 0;
-  for (var e = 0; e < nE; e++) {
-    var a = line.indices[e * 2], b = line.indices[e * 2 + 1];
-    var ax = line.positions[a * 3], ay = line.positions[a * 3 + 1], az = line.positions[a * 3 + 2];
-    var bx = line.positions[b * 3], by = line.positions[b * 3 + 1], bz = line.positions[b * 3 + 2];
-    var dx = bx - ax, dy = by - ay, dz = bz - az;
-    var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (!(len > 0)) { continue; }
-    dx /= len; dy /= len; dz /= len;
-    // Any vector not parallel to the segment gives a frame to sweep the ring in.
-    var ux = Math.abs(dz) < 0.9 ? 0 : 1, uy = 0, uz = Math.abs(dz) < 0.9 ? 1 : 0;
-    var e1x = uy * dz - uz * dy, e1y = uz * dx - ux * dz, e1z = ux * dy - uy * dx;
-    var e1n = Math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z) || 1;
-    e1x /= e1n; e1y /= e1n; e1z /= e1n;
-    var e2x = dy * e1z - dz * e1y, e2y = dz * e1x - dx * e1z, e2z = dx * e1y - dy * e1x;
-    var base = p / 3;
-    for (var end = 0; end < 2; end++) {
-      var cx = end ? bx : ax, cy = end ? by : ay, cz = end ? bz : az;
-      var r = radii[end ? b : a];
-      for (var side = 0; side < sides; side++) {
-        var t = 2 * Math.PI * side / sides;
-        var ca = Math.cos(t) * r, sa = Math.sin(t) * r;
-        positions[p++] = cx + e1x * ca + e2x * sa;
-        positions[p++] = cy + e1y * ca + e2y * sa;
-        positions[p++] = cz + e1z * ca + e2z * sa;
+  var graph = skeletonPaths(line.indices.length / 2, line.indices, nV);
+  var positions = [], indices = [], sides = TUBE_SIDES;
+
+  graph.paths.forEach(function(path) {
+    if (path.length < 2) return;
+    var pts = new Float32Array(path.length * 3);
+    for (var i = 0; i < path.length; i++) {
+      pts[i * 3] = line.positions[path[i] * 3];
+      pts[i * 3 + 1] = line.positions[path[i] * 3 + 1];
+      pts[i * 3 + 2] = line.positions[path[i] * 3 + 2];
+    }
+    var tangents = polylineTangents(pts);
+    var normals = minimisingFrames(pts, tangents);
+    var base = positions.length / 3;
+    for (var n2 = 0; n2 < path.length; n2++) {
+      var tx = tangents[n2 * 3], ty = tangents[n2 * 3 + 1], tz = tangents[n2 * 3 + 2];
+      var ux = normals[n2 * 3], uy = normals[n2 * 3 + 1], uz = normals[n2 * 3 + 2];
+      var vx = ty * uz - tz * uy, vy = tz * ux - tx * uz, vz = tx * uy - ty * ux;
+      var r = radii[path[n2]];
+      for (var s2 = 0; s2 < sides; s2++) {
+        var a2 = 2 * Math.PI * s2 / sides, ca = Math.cos(a2) * r, sa = Math.sin(a2) * r;
+        positions.push(pts[n2 * 3] + ux * ca + vx * sa,
+                       pts[n2 * 3 + 1] + uy * ca + vy * sa,
+                       pts[n2 * 3 + 2] + uz * ca + vz * sa);
       }
     }
-    for (var s2 = 0; s2 < sides; s2++) {
-      var n2 = (s2 + 1) % sides;
-      var i0 = base + s2, i1 = base + n2, j0 = base + sides + s2, j1 = base + sides + n2;
-      indices[k++] = i0; indices[k++] = j0; indices[k++] = i1;
-      indices[k++] = j0; indices[k++] = j1; indices[k++] = i1;
+    for (var seg = 0; seg + 1 < path.length; seg++) {
+      for (var s3 = 0; s3 < sides; s3++) {
+        var nxt = (s3 + 1) % sides;
+        var i0 = base + seg * sides + s3, i1 = base + seg * sides + nxt;
+        var j0 = i0 + sides, j1 = i1 + sides;
+        indices.push(i0, j0, i1, j0, j1, i1);
+      }
+    }
+  });
+
+  // A ball wherever the centre line ends or divides: at a junction there is no one ring
+  // that fits every arm, and overlapping a sphere reads as a solid joint from any angle.
+  for (var v = 0; v < nV; v++) {
+    var degree = graph.neighbours[v].length;
+    if (degree === 2 || degree === 0) continue;
+    var r2 = radii[v], cx = line.positions[v * 3];
+    var cy = line.positions[v * 3 + 1], cz = line.positions[v * 3 + 2];
+    var b2 = positions.length / 3;
+    for (var ring = 0; ring <= JOINT_RINGS; ring++) {
+      var phi = Math.PI * ring / JOINT_RINGS;
+      for (var sg = 0; sg <= JOINT_SEGMENTS; sg++) {
+        var th = 2 * Math.PI * sg / JOINT_SEGMENTS;
+        positions.push(cx + r2 * Math.sin(phi) * Math.cos(th),
+                       cy + r2 * Math.sin(phi) * Math.sin(th),
+                       cz + r2 * Math.cos(phi));
+      }
+    }
+    for (var ring2 = 0; ring2 < JOINT_RINGS; ring2++) {
+      for (var sg2 = 0; sg2 < JOINT_SEGMENTS; sg2++) {
+        var p0 = b2 + ring2 * (JOINT_SEGMENTS + 1) + sg2, p1 = p0 + JOINT_SEGMENTS + 1;
+        indices.push(p0, p1, p0 + 1, p1, p1 + 1, p0 + 1);
+      }
     }
   }
-  if (k === 0) return null;
-  return { positions: positions.subarray(0, p), indices: indices.subarray(0, k) };
+
+  if (!indices.length) return null;
+  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };
 }
 
 // How a stored surface becomes triangles, one entry per kind the writer can emit. A test

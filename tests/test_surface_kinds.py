@@ -288,3 +288,84 @@ def test_a_surface_is_decimated_to_its_budget():
     small, _ = struct.unpack_from("<II", budgeted, 0)
     assert big > 2000, "the test blob should be big enough for the budget to bite"
     assert small <= 500 * 1.1, f"budget of 500 gave {small} vertices"
+
+
+# ── what a swept tube has to get right ────────────────────────────────────────
+
+def _swept(payload):
+    return run_page({"rows": [], "structure": "mito",
+                     "drawables": [{"base64": base64.b64encode(payload).decode(),
+                                    "kind": "tube"}]})["drawables"][0]
+
+
+class _Line:
+    """The bits of a kimimaro skeleton a tube payload reads."""
+    def __init__(self, vertices, edges, radii):
+        self.vertices, self.edges, self.radii = vertices, edges, radii
+
+
+def _straight_tube(n_nodes=20, radius=0.5):
+    """A centre line with no branches, so ring count is the only thing being measured."""
+    import numpy as np
+    from label_anatomy.analysis.primitives import tube_payload
+
+    verts = np.stack([np.zeros(n_nodes), np.zeros(n_nodes),
+                      np.arange(n_nodes, dtype=float)], axis=1)   # (z, y, x)
+    edges = np.stack([np.arange(n_nodes - 1), np.arange(1, n_nodes)], axis=1)
+    return tube_payload(_Line(verts, edges, np.full(n_nodes, radius)))
+
+
+def test_a_tube_shares_one_ring_between_the_segments_either_side():
+    """An unstitched sleeve per segment leaves a seam at every node and draws twice the
+    vertices to do it; one ring per node is both continuous and smaller."""
+    payload = _straight_tube(n_nodes=20)
+    out = _swept(payload)
+
+    segments = 19
+    per_segment_would_be = segments * 12 * 2          # two rings each, unshared
+    rings_plus_two_end_balls = 20 * 12 + 2 * 7 * 9
+    assert out["vertices"] == rings_plus_two_end_balls
+    assert out["vertices"] < per_segment_would_be
+
+
+def test_a_straight_tube_does_not_wander_off_its_axis():
+    """A frame recomputed per segment turns each ring differently, which shears the tube
+    apart; one propagated frame keeps every ring on the same axis."""
+    payload = _straight_tube(n_nodes=20, radius=0.5)
+    box = _swept(payload)["bbox"]
+
+    # The line runs along x here; y and z should never exceed the radius.
+    for axis in ("y", "z"):
+        assert box[axis]["min"] == pytest.approx(-0.5, abs=0.02)
+        assert box[axis]["max"] == pytest.approx(0.5, abs=0.02)
+
+
+def test_a_tube_stays_within_its_own_radius_of_its_centre_line():
+    """A twisting frame shears consecutive rings apart, which shows up as a surface that
+    wanders further from the centre line than the radius it was given."""
+    import numpy as np
+
+    rod = next(r for r in _instances({"blobs": "tube"})
+               if r["label_id"] == 3 and r["surface_kind"] == "tube")
+    line, radii = _decode_tube(rod["surface"])
+    out = _swept(rod["surface"])
+
+    box = out["bbox"]
+    biggest = float(np.max(radii))
+    for axis, k in (("x", 0), ("y", 1), ("z", 2)):
+        assert box[axis]["min"] >= float(line[:, k].min()) - biggest * 1.6
+        assert box[axis]["max"] <= float(line[:, k].max()) + biggest * 1.6
+
+
+def _decode_tube(payload):
+    """The centre line and radii back out of a tube payload."""
+    import numpy as np
+
+    n_verts, n_edges = struct.unpack_from("<II", payload, 0)
+    params = np.frombuffer(payload, dtype="<f4", count=6, offset=8)
+    quantised = np.frombuffer(payload, dtype="<u2", count=n_verts * 3,
+                              offset=32).reshape(n_verts, 3)
+    line = quantised / 65535.0 * params[3:] + params[:3]
+    radii = np.frombuffer(payload, dtype="<f4", count=n_verts,
+                          offset=len(payload) - n_verts * 4)
+    return line, radii
