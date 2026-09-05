@@ -3271,6 +3271,9 @@ var CAPSULE_VERTEX = [
 
 var CAPSULE_FRAGMENT = [
   'in vec3 vA; in vec3 vB; in float vR; in vec3 vColor; in vec3 vWorld;',
+  // three.js declares viewMatrix and cameraPosition in its fragment prefix but not
+  // this one, and depth cannot be written without it. The renderer still fills it in.
+  'uniform mat4 projectionMatrix;',
   'out vec4 fragColour;',
   IMPOSTOR_LIGHTING,
   // Ray against a capsule: the segment AB swept by a sphere of radius R.
@@ -3331,6 +3334,9 @@ var ELLIPSOID_VERTEX = [
 
 var ELLIPSOID_FRAGMENT = [
   'in vec3 vCentre; in vec3 vRadii; in mat3 vAxes; in vec3 vColor; in vec3 vWorld;',
+  // three.js declares viewMatrix and cameraPosition in its fragment prefix but not
+  // this one, and depth cannot be written without it. The renderer still fills it in.
+  'uniform mat4 projectionMatrix;',
   'out vec4 fragColour;',
   IMPOSTOR_LIGHTING,
   'void main() {',
