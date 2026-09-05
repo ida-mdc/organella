@@ -95,6 +95,7 @@ def mesh_options(**overrides: Any) -> "MeshOptions":
         level=cfg.mesh_level,
         geometry_as=cfg.geometry_as,
         max_vertices=cfg.mesh_max_vertices,
+        surface_method=cfg.mesh_surface_method,
         max_skeleton_voxels=cfg.max_skeleton_voxels,
         num_threads=cfg.num_threads,
         contact_max_um=cfg.contact_max_um,
@@ -111,10 +112,12 @@ def _apply_mesh_env(
     mesh_format: str | None = None,
     mesh_workers: int | None = None,
     mesh_max_vertices: int | None = None,
+    mesh_surface_method: str | None = None,
     reuse_geometry: bool = False,
 ) -> None:
     settings = {
         "LABEL_ANATOMY_MESH_MAX_VERTICES": mesh_max_vertices,
+        "LABEL_ANATOMY_MESH_SURFACE_METHOD": mesh_surface_method,
         "LABEL_ANATOMY_MESH_DIR": mesh_dir,
         "LABEL_ANATOMY_MESH_FORMAT": mesh_format,
         "LABEL_ANATOMY_MESH_WORKERS": mesh_workers,
@@ -140,6 +143,12 @@ def _mesh_flags(fn):
                      help="Decimation fraction (default: 0.8, keeping ~20%% of faces)."),
         click.option("--mesh-level", type=float, default=None, metavar="L",
                      help="Iso-surface level on the signed distance field (default: 0)."),
+        click.option("--mesh-surface-method",
+                     type=click.Choice(["marching-cubes", "surface-nets"]), default=None,
+                     help="How the isosurface is extracted (default: marching-cubes). "
+                          "surface-nets puts one vertex per cell rather than per crossing "
+                          "edge: about 30%% less staircase noise, no fewer vertices, and "
+                          "66%% slower on a real ER sheet."),
         click.option("--mesh-max-vertices", type=int, default=None, metavar="N",
                      help="Most vertices any one surface keeps; 0 lifts the cap "
                           "(default: 200000). A decimation fraction bounds nothing: at 0.5 "
@@ -349,7 +358,8 @@ def process(
     max_workers: int | None, resume: bool, with_mesh: bool,
     mesh_dir: Path | None, mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
-    mesh_workers: int | None, mesh_max_vertices: int | None, reuse_geometry: bool,
+    mesh_workers: int | None, mesh_max_vertices: int | None,
+    mesh_surface_method: str | None, reuse_geometry: bool,
 ) -> None:
     """Analyse every object folder under OBJECT_DIR and write one report."""
     objects = find_object_dirs(object_dir)
@@ -368,6 +378,7 @@ def process(
     _apply_mesh_env(meshes_to, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,
                     mesh_max_vertices=mesh_max_vertices,
+                    mesh_surface_method=mesh_surface_method,
                     reuse_geometry=reuse_geometry)
 
     excluded = {"anatomy-contacts"} if no_contacts else set()
@@ -537,7 +548,8 @@ def mesh(
     no_contacts: bool,
     mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
-    mesh_workers: int | None, mesh_max_vertices: int | None, reuse_geometry: bool,
+    mesh_workers: int | None, mesh_max_vertices: int | None,
+    mesh_surface_method: str | None, reuse_geometry: bool,
 ) -> None:
     """Write per-object geometry for the 3D views and the Blender export.
 
@@ -557,6 +569,7 @@ def mesh(
     _apply_mesh_env(None, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
                     mesh_level, mesh_workers=mesh_workers,
                     mesh_max_vertices=mesh_max_vertices,
+                    mesh_surface_method=mesh_surface_method,
                     reuse_geometry=reuse_geometry)
     options = mesh_options(**({"contact_max_um": None} if no_contacts else {}))
 

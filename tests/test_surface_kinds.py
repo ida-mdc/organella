@@ -469,3 +469,56 @@ def test_a_tube_payload_stores_the_smoothed_line():
     line, _ = _decode_tube(payload)
 
     assert _median_turn(line) < 5
+
+
+# ── how the isosurface is extracted ───────────────────────────────────────────
+
+def _sphere_field(radius=20, size=64):
+    import numpy as np
+    from scipy.ndimage import distance_transform_edt
+
+    zz, yy, xx = np.ogrid[:size, :size, :size]
+    ball = ((zz - size // 2) ** 2 + (yy - size // 2) ** 2
+            + (xx - size // 2) ** 2) <= radius ** 2
+    padded = np.pad(ball, 2)
+    return (distance_transform_edt(padded)
+            - distance_transform_edt(~padded)).astype("float32")
+
+
+def test_surface_nets_closes_the_surface_it_builds():
+    """Every edge shared by exactly two triangles, or the mesh has holes and nothing
+    downstream - decimation, normals, a Blender import - behaves."""
+    import collections
+    from label_anatomy.analysis.meshes import surface_nets
+
+    _, faces = surface_nets(_sphere_field())
+
+    edges = collections.Counter()
+    for a, b, c in faces:
+        for edge in ((a, b), (b, c), (c, a)):
+            edges[tuple(sorted(edge))] += 1
+    assert faces.size and not [n for n in edges.values() if n != 2]
+
+
+def test_surface_nets_is_smoother_than_marching_cubes():
+    """The reason to have it at all: one vertex per cell sits at the average of that cell's
+    crossings, so a staircase boundary comes out less stepped."""
+    import numpy as np
+    from skimage.measure import marching_cubes
+    from label_anatomy.analysis.meshes import surface_nets
+
+    field = _sphere_field(radius=20)
+    centre = np.array(field.shape) / 2.0
+    mc_verts = marching_cubes(field, level=0.0, step_size=1)[0]
+    sn_verts, _ = surface_nets(field)
+
+    spread = lambda v: float(np.std(np.linalg.norm(v - centre, axis=1)))
+    assert spread(sn_verts) < spread(mc_verts) * 0.85
+
+
+def test_marching_cubes_stays_the_default():
+    """On a real ER sheet the two came out 0.16% apart in vertices, and surface nets took
+    66% longer - so it is offered, not imposed."""
+    from label_anatomy.analysis.meshes import MeshOptions
+
+    assert MeshOptions().surface_method == "marching-cubes"

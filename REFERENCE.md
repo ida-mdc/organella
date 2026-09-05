@@ -252,6 +252,27 @@ decoder, and the report page is one standalone HTML file with no build step that
 drop a parquet onto - embedding a decoder or fetching one from a CDN would cost exactly the
 property that makes the page droppable. Quantisation and a budget keep that intact.
 
+### Extracting the surface, and what a dual method does not buy
+
+`--mesh-surface-method` chooses between marching cubes, which puts a vertex on every
+crossing *edge*, and surface nets, which puts one per crossing *cell* at the average of that
+cell's crossings.
+
+The expectation was that a dual method would give far fewer, better-placed vertices, and on
+a real ER sheet it did not: 5,584,555 against 5,575,347, **0.16% apart**. A surface has about
+as many crossing cells as crossing edges, so the counts land together. What surface nets does
+buy is smoothness - on a sphere of known radius its vertices scatter 30% less (sd 0.142
+against 0.203) - for 66% more time.
+
+It also couples the axes. A dual vertex is the mean of all twelve of its cell's crossings, so
+what happens along z moves the vertex in x; marching cubes places each vertex on its own
+edge and cannot. On a small ball at 5x anisotropy that shifted the x extent by 7%, and alpha
+cells are sampled 0.1 x 0.02 x 0.02 µm. So marching cubes stays the default and surface nets
+is there for the cases where a smoother surface is worth the time - isotropic data, and
+structures whose staircases show.
+
+Neither is what makes geometry small: that is `--mesh-max-vertices` and the surface kinds.
+
 ### 2D and 3D
 
 An object is a volume or a plane, and each is measured by the metrics that mean something
@@ -764,6 +785,7 @@ name:
 | `LABEL_ANATOMY_DISTANCE_HISTOGRAMS` | `0` | `--distance-histograms` |
 | `LABEL_ANATOMY_MESH_DIR` | unset (no geometry) | `--with-mesh` / `--mesh-dir` |
 | `LABEL_ANATOMY_MESH_MAX_VERTICES` | `200000` (0 = no cap) | `--mesh-max-vertices` |
+| `LABEL_ANATOMY_MESH_SURFACE_METHOD` | `marching-cubes` | `--mesh-surface-method` |
 | `LABEL_ANATOMY_MESH_SMOOTH_SIGMA` | `0.7` | `--mesh-smooth-sigma` |
 | `LABEL_ANATOMY_MESH_STEP_SIZE` | `2` | `--mesh-step-size` |
 | `LABEL_ANATOMY_MESH_TARGET_REDUCTION` | `0.8` | `--mesh-target-reduction` |

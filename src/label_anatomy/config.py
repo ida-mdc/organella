@@ -322,6 +322,9 @@ class AnatomyConfig:
     mesh_workers: int = 0
     # Most vertices any one surface keeps; 0 lifts the cap. See MeshOptions.max_vertices.
     mesh_max_vertices: int = 200_000
+    # "marching-cubes" or "surface-nets"; see MeshOptions.surface_method for why the older
+    # one is still the default.
+    mesh_surface_method: str = "marching-cubes"
     # Keep an object's geometry.parquet if it already has one, rather than meshing it again.
     # Meshing dominates a run, so a batch that died partway is worth minutes rather than hours.
     reuse_geometry: bool = False
@@ -389,5 +392,7 @@ class AnatomyConfig:
             ),
             mesh_workers=_env_int("LABEL_ANATOMY_MESH_WORKERS", 0),
             mesh_max_vertices=_env_int("LABEL_ANATOMY_MESH_MAX_VERTICES", 200_000),
+            mesh_surface_method=(os.environ.get("LABEL_ANATOMY_MESH_SURFACE_METHOD")
+                                 or "marching-cubes"),
             reuse_geometry=_env_flag("LABEL_ANATOMY_REUSE_GEOMETRY"),
         )
