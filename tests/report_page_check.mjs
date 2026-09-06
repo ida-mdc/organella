@@ -337,6 +337,11 @@ if (job.explodes) {
 // is 15 floats here and triangles by the time the scene sees it, so what it turns into is
 // worth pinning.
 out.surfaceKinds = R.surfaceKinds;
+
+// How finely a scene of N surfaces gets tessellated: a budget shared out, not a constant.
+if (job.surfaceDetail) {
+  out.surfaceDetail = job.surfaceDetail.map((n) => ({ ...R.setSurfaceDetail(n) }));
+}
 out.impostorKinds = R.impostorKinds;
 
 // What a stored surface becomes as impostor instances. The shaders need a GPU; the

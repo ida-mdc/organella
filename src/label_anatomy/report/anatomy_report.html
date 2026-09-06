@@ -1299,29 +1299,16 @@ function sceneGapSql(source) {
  * The geometry to draw: the largest instances of the chosen structures, bounded, with the
  * columns the colouring and the explode offset need beside the payload.
  */
-function sceneGeometrySql(source, names, metricCols, limit) {
-  // The budget is shared out per structure, not competed for. Taking the largest N across
-  // the whole scene sounds fair and is not: on one real object the top 4,000 by volume were
-  // 3,978 granules and 22 microtubules, because a granule is five times the volume of a
-  // microtubule instance - so turning granules on made the microtubules vanish, which reads
-  // as a bug in the viewer rather than as a budget being spent.
-  var each = Math.max(1, Math.floor(limit / Math.max(1, names.length)));
-  return 'SELECT * FROM (SELECT "entity_name" AS entity, "row_type" AS row_type,'
-    + ' "label_id" AS label, '
+function sceneGeometrySql(source, names, metricCols) {
+  return 'SELECT "entity_name" AS entity, "row_type" AS row_type, "label_id" AS label, '
     + metricCols.map(function(m){ return '"' + m + '"'; }).join(', ')
     + ', "surface" AS surface, "surface_kind" AS surface_kind, "outline" AS outline'
-    // Projected, because the ordering outside the window cannot reach a column the inner
-    // select did not carry - and which size column an object has depends on its dimensions.
-    + ', ' + GEOMETRY_SIZE_SQL + ' AS scene_size'
-    + ', ROW_NUMBER() OVER (PARTITION BY "entity_name" ORDER BY '
-    + GEOMETRY_SIZE_SQL + ' DESC NULLS LAST) AS rank_in_entity'
     + ' FROM ' + source
     + ' WHERE ' + HAS_GEOMETRY_SQL
     + ' AND "entity_name" IN (' + names.map(esc).join(', ') + ')'
-    + ') WHERE rank_in_entity <= ' + each
-    // Biggest first still, so a scene cut short by the budget shows the object
-    // rather than whichever corner the rows happened to come back in.
-    + ' ORDER BY scene_size DESC NULLS LAST';
+    // Biggest first: nothing is left out any more, but the order still decides what a
+    // reader sees first while the rest is still being built.
+    + ' ORDER BY ' + GEOMETRY_SIZE_SQL + ' DESC NULLS LAST';
 }
 
 /** The contact edges at one gap, which is what "colour by contact group" unions over. */
@@ -2485,9 +2472,12 @@ function renderStructure() {
 // ══════════════════════════════════════════════════════════════
 var THREE_VERSION = '0.160.0';
 var CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/build/three.module.js';
-// Instance meshes per scene before some are left out. A real object has ~8k; merged they
-// cost one draw call but real memory.
-var MAX_MESHES = 4000;
+// Vertices a scene may tessellate its parametric surfaces into, shared out among them.
+// Nothing is left out of a scene any more - a cap left structures missing, and a reader
+// cannot tell "this object has no more" from "the viewer stopped drawing" - so the
+// tessellation gives way instead. A beta cell is 59,284 granules and 4,972 microtubules:
+// at a fixed 12x16 the granules alone are 13 million vertices before a tube is drawn.
+var SURFACE_VERTEX_BUDGET = 4000000;
 // Whatever the width, this many thumbnails is enough: each is its own WebGL render.
 var MAX_THUMBS = 60;
 var THUMB_PX = 104;
@@ -2545,8 +2535,25 @@ function decodePayload(bytes, perIndex) {
 // Rings and segments of the sphere an ellipsoid is tessellated from. A rendering choice,
 // not a property of the data: the stored surface is 15 floats, and this is how finely they
 // are turned into triangles. Raise it for a close-up, lower it for a scene of thousands.
-var ELLIPSOID_RINGS = 12;
-var ELLIPSOID_SEGMENTS = 16;
+// How finely a parametric surface is turned into triangles. Not constants: a scene of
+// 64,000 shapes and a scene of five want different answers, and the stored surface is the
+// same either way - an ellipsoid is 60 bytes whether it is drawn with 200 triangles or 30.
+// setSurfaceDetail shares SURFACE_VERTEX_BUDGET out among whatever is about to be drawn.
+var surfaceDetail = { rings: 12, segments: 16, sides: 12 };
+
+/** Pick a tessellation that draws this many surfaces within the vertex budget. */
+function setSurfaceDetail(count) {
+  var allowance = SURFACE_VERTEX_BUDGET / Math.max(1, count);
+  // An ellipsoid of r rings and 2r segments is about 2r² vertices; a tube is its sides
+  // times its nodes, so the same allowance buys fewer sides on a long filament.
+  var rings = Math.round(Math.sqrt(Math.max(4, allowance) / 2));
+  surfaceDetail = {
+    rings: Math.max(3, Math.min(12, rings)),
+    segments: Math.max(6, Math.min(16, rings * 2)),
+    sides: Math.max(4, Math.min(12, Math.round(allowance / 60))),
+  };
+  return surfaceDetail;
+}
 
 /**
  * An ellipsoid surface as triangles: one unit sphere, scaled by its radii and turned onto
@@ -2565,7 +2572,7 @@ function ellipsoidDrawable(payload) {
   var cx = f[0], cy = f[1], cz = f[2];
   var rx = f[3], ry = f[4], rz = f[5];
   var axes = f.slice(6);            // rows: axis for rx, ry, rz
-  var rings = ELLIPSOID_RINGS, segs = ELLIPSOID_SEGMENTS;
+  var rings = surfaceDetail.rings, segs = surfaceDetail.segments;
   var positions = new Float32Array((rings + 1) * (segs + 1) * 3);
   var p = 0;
   for (var ring = 0; ring <= rings; ring++) {
@@ -2597,7 +2604,6 @@ function ellipsoidDrawable(payload) {
 // Sides of the ring swept along a tube's centre line, and the resolution of the ball put
 // at each junction. Rendering choices, like ELLIPSOID_SEGMENTS: the stored surface is a
 // polyline and this is how round it is drawn.
-var TUBE_SIDES = 12;
 var JOINT_RINGS = 6;
 var JOINT_SEGMENTS = 8;
 
@@ -2741,7 +2747,7 @@ function tubeDrawable(payload) {
   for (var i = 0; i < nV; i++) radii[i] = view.getFloat32(radiiOffset + i * 4, true);
 
   var graph = skeletonPaths(line.indices.length / 2, line.indices, nV);
-  var positions = [], indices = [], sides = TUBE_SIDES;
+  var positions = [], indices = [], sides = surfaceDetail.sides;
 
   graph.paths.forEach(function(path) {
     if (path.length < 2) return;
@@ -3671,7 +3677,11 @@ async function renderScene() {
     var metricCols = [...new Set([sceneState.metric, 'polar_dist_um',
                                   'polar_nx', 'polar_ny', 'polar_nz'])];
     var rows = await queryRows(
-      sceneGeometrySql(sourceOf([current]), wanted, metricCols, MAX_MESHES));
+      sceneGeometrySql(sourceOf([current]), wanted, metricCols));
+
+    // Every instance of every structure that is switched on, so nothing is silently
+    // missing; what gives instead is how finely each one is tessellated.
+    setSurfaceDetail(rows.length);
 
     var instances = [], masks = [];
     rows.forEach(function(row) {
@@ -5642,6 +5652,7 @@ if (typeof globalThis !== 'undefined') {
     // GPU to test; what a payload turns into does not.
     impostorKinds: Object.keys(IMPOSTOR_KINDS),
     capsulesOf: capsulesOf, ellipsoidOf: ellipsoidOf,
+    setSurfaceDetail: setSurfaceDetail,
     decodeDrawable: decodeDrawable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,

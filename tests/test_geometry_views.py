@@ -235,25 +235,29 @@ def test_the_object_view_summarises_an_object_without_reading_geometry(con, geom
 
 
 def test_the_object_view_reads_only_the_structures_it_draws(con, geometry_dir):
+    """Pruned by structure and column, not by count.
+
+    The scene used to stop at a fixed number of instances, which left structures missing
+    with nothing said - and a reader cannot tell "this object has no more" from "the viewer
+    stopped drawing". Everything switched on is fetched; what gives instead is how finely
+    each surface is tessellated.
+    """
     source = source_of(geometry_dir, "object_a")
     # entity, row_type, label, then the metrics asked for, then the payloads.
     rows = con.execute(
-        build("sceneGeometrySql", source, ["mito"], ["volume_um3"], 2)).fetchall()
+        build("sceneGeometrySql", source, ["mito"], ["volume_um3"])).fetchall()
 
-    # The point of the sidecar: two meshes come back, not the object's worth.
-    assert len(rows) == 2
+    assert rows, "the sidecar should return this structure's instances"
     assert all(isinstance(row[4], (bytes, bytearray)) and len(row[4]) > 32 for row in rows)
-    # And the biggest two, so a bounded draw shows the object rather than a random corner.
-    volumes = [row[3] for row in con.execute(
-        build("sceneGeometrySql", source, ["mito"], ["volume_um3"], 99)).fetchall()]
+    # Biggest first, so what a reader sees first is the object rather than a corner of it.
+    volumes = [row[3] for row in rows]
     assert volumes == sorted(volumes, reverse=True)
-    assert [row[3] for row in rows] == volumes[:2]
 
 
 def test_the_object_view_draws_nothing_it_was_not_asked_for(con, geometry_dir):
     source = source_of(geometry_dir, "object_a")
     names = {row[0] for row in con.execute(
-        build("sceneGeometrySql", source, ["mito"], ["volume_um3"], 99)).fetchall()}
+        build("sceneGeometrySql", source, ["mito"], ["volume_um3"])).fetchall()}
 
     # Turning a structure off has to actually stop it being read: the membrane mask is the
     # expensive one, and it is off by default.

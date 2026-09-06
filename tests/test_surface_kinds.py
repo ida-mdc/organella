@@ -522,3 +522,27 @@ def test_marching_cubes_stays_the_default():
     from label_anatomy.analysis.meshes import MeshOptions
 
     assert MeshOptions().surface_method == "marching-cubes"
+
+
+# ── drawing everything, at whatever detail that affords ───────────────────────
+
+def test_the_scene_query_no_longer_caps_what_it_returns():
+    """A cap left structures missing with nothing said. It is gone; the tessellation is
+    what gives way instead."""
+    page = open("src/label_anatomy/report/anatomy_report.html", encoding="utf-8").read()
+
+    assert "MAX_MESHES" not in page
+    assert "SURFACE_VERTEX_BUDGET" in page
+
+
+def test_detail_falls_as_the_number_of_surfaces_rises():
+    """A beta cell is 64,000 shapes; at the fine setting the granules alone would be
+    13 million vertices before a microtubule is drawn."""
+    page = run_page({"rows": [], "structure": "mito",
+                     "surfaceDetail": [5, 60000]})["surfaceDetail"]
+
+    few, many = page[0], page[1]
+    assert few["rings"] >= many["rings"]
+    assert few["sides"] >= many["sides"]
+    # Never so coarse that a shape stops reading as one.
+    assert many["rings"] >= 3 and many["segments"] >= 6 and many["sides"] >= 4
