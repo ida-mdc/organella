@@ -302,6 +302,9 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
            style="width:2.5rem;height:2.5rem;border-width:2px;color:var(--ink);border-right-color:var(--rule)"></div>
       <div style="font-weight:600;margin-bottom:.5rem">Loading report…</div>
       <div id="loading-url" style="font-size:.72rem;color:var(--ink-3);word-break:break-all"></div>
+      <!-- What it is reading right now. A real report is a million rows and takes tens of
+           seconds; without this the spinner is indistinguishable from a page that has hung. -->
+      <div id="loading-step" style="font-size:.72rem;color:var(--ink-3);margin-top:.5rem"></div>
     </div>
 
     <div class="col-md-6 d-none" id="landing-error"
@@ -717,6 +720,89 @@ async function registerReport(buffer) {
   return _reportFile;
 }
 
+/**
+ * What a deep row is read for, so it can be asked for by name.
+ *
+ * A report is mostly deep rows - one real batch is 677k contacts and 197k distances
+ * against 49k instances - and `SELECT *` turns every one of them into an object with a
+ * key for each of the report's seventy columns, of which `adapt` reads five or nine. The
+ * other sixty-odd are null on those rows: they belong to the depths above. Building them
+ * anyway was most of the minute a real report took to open, and most of the two gigabytes
+ * it took to hold.
+ */
+var DEEP_COLUMNS = {
+  distance: ['object_id', 'distance_entity', 'distance_label', 'distance_target',
+             'distance_um', 'distance_mean_um', 'distance_hist_counts',
+             'distance_hist_min_um', 'distance_hist_max_um'],
+  contact: ['object_id', 'contact_entity', 'contact_label_a', 'contact_label_b',
+            'contact_gap_um']
+};
+
+/** A column name as SQL, quoted: the names come from the file's own schema. */
+function escName(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
+/**
+ * Every row of the report, deep ones carrying only the columns they are read for.
+ *
+ * The rows come back in one array, in the shape `adapt` reads: which depth a row is at is
+ * still its own `row_type`, and a deep row still finds its object by `object_id`.
+ */
+/**
+ * Say what is being read, and let the browser paint it before reading it.
+ *
+ * Every step below holds the main thread for seconds, so without the yield the line would
+ * only appear once there was nothing left to say.
+ */
+function loadingStep(text) {
+  setText('loading-step', text);
+  return new Promise(function(resolve) {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function(){ setTimeout(resolve, 0); });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+async function readReportRows(file, label) {
+  var source = ' FROM read_parquet(' + esc(file) + ')';
+  // One row first, and the readability check against it: a file this page cannot read has
+  // to be named as what it is, not reported as a binder error about the `row_type` column
+  // the queries below name. It is also where the column list comes from, so a report
+  // written without histograms is not asked for the columns it has not got.
+  await loadingStep('opening…');
+  var probe = await queryRows('SELECT *' + source + ' LIMIT 1');
+  checkReadable(probe, label);
+  var present = Object.keys(probe[0]);
+  var deep = Object.keys(DEEP_COLUMNS);
+
+  // How many rows of each depth there are, which is both what the reader is told and how a
+  // depth this report has none of is skipped rather than scanned for.
+  var counts = {};
+  (await queryRows('SELECT "row_type" AS type, COUNT(*) AS n' + source + ' GROUP BY 1'))
+    .forEach(function(r) { counts[r.type] = Number(r.n); });
+  var shallow = Object.keys(counts).filter(function(type) {
+    return deep.indexOf(type) < 0;
+  }).reduce(function(n, type) { return n + counts[type]; }, 0);
+
+  // Everything but the deep rows, whole: an object and an entity row are read across, and
+  // an instance row carries whichever `instance_*` columns this report has.
+  await loadingStep('reading ' + shallow.toLocaleString() + ' object, structure and instance rows…');
+  var rows = await queryRows('SELECT *' + source + ' WHERE "row_type" IS NULL'
+    + ' OR "row_type" NOT IN (' + deep.map(esc).join(', ') + ')');
+  for (var i = 0; i < deep.length; i++) {
+    if (!counts[deep[i]]) continue;
+    var wanted = ['row_type'].concat(DEEP_COLUMNS[deep[i]]).filter(function(name) {
+      return present.indexOf(name) >= 0;
+    });
+    await loadingStep('reading ' + counts[deep[i]].toLocaleString() + ' ' + deep[i] + ' rows…');
+    rows = rows.concat(await queryRows('SELECT ' + wanted.map(escName).join(', ') + source
+      + ' WHERE "row_type" = ' + esc(deep[i])));
+  }
+  await loadingStep('sorting ' + rows.length.toLocaleString() + ' rows into the report…');
+  return rows;
+}
+
 async function loadParquetBuffer(buffer, label) {
   var file = await registerReport(buffer);
   var footer = await readFooter(file);
@@ -725,12 +811,12 @@ async function loadParquetBuffer(buffer, label) {
   } catch (error) {
     COLUMN_HELP = {};
   }
-  var rows = await queryRows("SELECT * FROM read_parquet('" + file + "')");
   REPORT_NOUN = footer.anatomy_object_noun || null;
-  checkReadable(rows, label);
+  var rows = await readReportRows(file, label);
   adapt(rows);
   resetLoadState();
   setText('file-info', label);
+  await loadingStep('drawing…');
   onLoaded();
 }
 
@@ -5646,6 +5732,9 @@ if (typeof document !== 'undefined' && document.getElementById
 if (typeof globalThis !== 'undefined') {
   globalThis.AnatomyReport = {
     adapt: adapt, checkReadable: checkReadable,
+    // What a deep row is asked for, so a rename in the writer is a failing test
+    // rather than an empty section.
+    DEEP_COLUMNS: DEEP_COLUMNS,
     // The surface kinds this page can draw, so the writer's list can be checked against it.
     surfaceKinds: Object.keys(SURFACE_BUILDERS),
     // The kinds an impostor can ray-cast, and the parsers that feed it. The shaders need a

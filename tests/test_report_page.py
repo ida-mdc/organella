@@ -33,6 +33,48 @@ def test_every_row_kind_lands_in_the_population_it_belongs_to(page_of, report_pa
     assert adapt["contacts"] == counts["contact"]
 
 
+def test_the_columns_a_deep_row_is_asked_for_are_columns_a_run_writes(report_path):
+    """The page asks for deep rows by name; a rename in the writer would empty a section.
+
+    95% of a real report is contacts and distances, and the page reads five columns of one
+    and nine of the other - so it names them rather than taking `SELECT *` and building a
+    seventy-key object per row. Named columns can go stale: DuckDB is handed only the names
+    the file has, so a renamed one is quietly left out and the section it fed goes empty.
+    """
+    deep = run_page({})["constants"]["deepColumns"]
+    written = set(duckdb.connect().execute(
+        f"SELECT * FROM read_parquet('{report_path}') LIMIT 0").df().columns)
+
+    assert set(deep) == {"distance", "contact"}
+    for row_type, columns in deep.items():
+        missing = [name for name in columns if name not in written]
+        assert not missing, f"a {row_type} row is asked for {missing}, which no run writes"
+
+
+def test_a_deep_row_narrowed_to_those_columns_reads_the_same(report_path):
+    """And that they are *all* of them: the read has to survive the narrowing.
+
+    This is the other half of asking by name. The test above says every name is real; this
+    one says the names are enough - adapt over deep rows carrying only DEEP_COLUMNS has to
+    produce the populations it produces over the whole row, or the page is dropping a
+    reading nobody thought to add to the list.
+    """
+    rows = rows_of(report_path)
+    deep = run_page({})["constants"]["deepColumns"]
+    narrowed = [
+        {key: value for key, value in row.items()
+         if key == "row_type" or key in deep[row["row_type"]]}
+        if row["row_type"] in deep else row
+        for row in rows
+    ]
+
+    whole = run_page({"rows": rows, "structure": "mito"})
+    narrow = run_page({"rows": narrowed, "structure": "mito"})
+
+    assert narrow["adapt"] == whole["adapt"]
+    assert narrow["overview"] == whole["overview"]
+
+
 def test_a_deep_row_picks_up_the_group_of_the_object_above_it(page_of):
     """A deep row carries only object_id, and every chart colours by group."""
     assert page_of["adapt"]["instancesWithoutGroup"] == 0

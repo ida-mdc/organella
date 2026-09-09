@@ -726,6 +726,32 @@ The pairs are one panel each, side by side. They were a lower-triangle subplot m
 is compact and unreadable: which pair a panel was about had to be worked out from where it
 sat, and at five structures each was 148px wide with no axis of its own.
 
+### What a deep row is asked for
+
+A report is mostly deep rows. One real batch is 677,292 contacts and 197,016 distances
+against 49,254 instances, 40 structures and 8 objects: 95% of the file is the bottom two
+depths. Every row of it is one row of one wide table, so `SELECT *` hands the page a
+seventy-key object for each of those, of which the read uses five (a contact) or nine (a
+distance). The rest are null - they belong to the depths above.
+
+Building them anyway was the whole of the wait. On that batch the conversion out of Arrow
+took **49 s of a 66 s open** and the rows held about **2 GB**, and a browser that is not
+painting for a minute is a browser that has hung as far as anyone watching it is concerned.
+So the deep rows are asked for by name (`DEEP_COLUMNS`), one query per depth, and only the
+shallow rows are read whole - an instance row still arrives with whatever `instance_*`
+columns the report has, because that is what decides which metrics the page offers. Same
+rows, same order, same state: 26 s and 440 MB.
+
+Two things the split has to keep. A file this page cannot read still has to be named as
+what it is, so one row is read first and `checkReadable` runs against that - otherwise a
+report from before the typed rows would come back as a binder error about the `row_type`
+column these queries name. And that row is also where the column list comes from, so a
+report written without histograms is not asked for columns it has not got.
+
+The landing page says which depth it is on and how many rows that is, yielding to the
+browser so the line paints before the block of work it announces. The spinner alone cannot
+tell "reading 677,292 contacts" from "stopped".
+
 A structure's name comes out of the segmentation, not out of this page, so every heading and
 sentence that uses one marks it: "How far is each `mito` from other structures?" reads like
 a typo until you know that `mito` is a folder's own word. The mark is painted with a

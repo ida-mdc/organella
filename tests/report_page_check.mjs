@@ -562,6 +562,7 @@ out.constants = {
   hasGeometry: R.HAS_GEOMETRY_SQL,
   geometrySize: R.GEOMETRY_SIZE_SQL,
   metricLabels: R.geometryMetrics(),
+  deepColumns: R.DEEP_COLUMNS,
 };
 
 process.stdout.write(JSON.stringify(out));
