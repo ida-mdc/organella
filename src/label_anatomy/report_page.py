@@ -85,6 +85,23 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return str(Path(self.geometry).joinpath(*parts))
         return super().translate_path(path)
 
+    def end_headers(self) -> None:
+        """Never let a browser keep any of this.
+
+        Every report is served from the same port at the same paths, so a geometry file is
+        ``/__geometry/<object_id>/geometry.parquet`` whichever run wrote it - and this
+        server sends ``Last-Modified`` and nothing else, which is an invitation to cache
+        heuristically. View one batch, mesh it again, view it again, and the browser can
+        answer for some objects out of the copy it kept: DuckDB is handed one glob whose
+        files were written by two versions of the writer and refuses it ("schema mismatch
+        in glob"), which reads as broken geometry rather than as a stale cache.
+
+        Everything here is local and re-read in milliseconds, so there is nothing to weigh
+        against saying so.
+        """
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def log_message(self, *args) -> None:    # noqa: D102 - one line per request is noise
         pass
 

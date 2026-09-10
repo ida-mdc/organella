@@ -684,6 +684,22 @@ sitting empty when they have none. It arrives one of two ways:
   one origin because a browser will not fetch the geometry from another - and opens the page
   pointed at both
 
+Nothing the server sends may be cached, and the URL scheme is why. `view` serves on one
+port by default and mounts the geometry at one path, so an object's `geometry.parquet` is
+`/__geometry/<object_id>/geometry.parquet` whichever run wrote it. With `Last-Modified` and
+nothing else - which is what `SimpleHTTPRequestHandler` sends - a browser caches
+heuristically, so viewing a batch, meshing it again and viewing it again can answer *some*
+objects out of the copy it kept. DuckDB is then handed one glob whose files were written by
+two versions of the writer and refuses it:
+
+    schema mismatch in glob: column "surface" was read from the original file ... but
+    could not be found in file ...
+
+which names a file that is perfectly correct on disk. `Cache-Control: no-store` on every
+response is the fix, and costs nothing over localhost. The page also reads that error and
+the one a wholly pre-`surface` folder gives, and says which it is: mesh the batch again, or
+reload past the cache first.
+
 Either way the queries are the point of the sidecar being parquet: asking for the twelve
 roundest granules costs twelve meshes, not an object's worth. The header counts
 (`mesh_vertices`, `mesh_faces`) are columns of their own, so a section can budget its draw

@@ -305,6 +305,38 @@ def test_view_serves_the_report_and_points_the_page_at_it(tmp_path, report_path)
         f"http://127.0.0.1:{port}/report.parquet").read(4) == b"PAR1"
 
 
+def test_nothing_served_may_be_cached(tmp_path, report_path):
+    """The same URL serves every run's copy of a file, so a kept one is a wrong one.
+
+    A geometry file is /__geometry/<object_id>/geometry.parquet whichever run wrote it, and
+    `view` always serves on the same port. A browser that answers one object out of its
+    cache hands DuckDB a glob of two schemas, and the reader is told "schema mismatch in
+    glob" about files that are all correct on disk.
+    """
+    import shutil
+    import urllib.request
+
+    from label_anatomy import report_page as page_mod
+
+    served = tmp_path / "report.parquet"
+    shutil.copy(report_path, served)
+    port = page_mod.free_port()
+    thread = threading.Thread(
+        target=page_mod.serve, args=(served,),
+        kwargs={"port": port, "open_browser": False}, daemon=True)
+    thread.start()
+    for _ in range(100):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/report.parquet").read(4)
+            break
+        except OSError:
+            time.sleep(0.05)
+
+    for path in (page_mod.PAGE_FILENAME, "report.parquet"):
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/{path}") as answer:
+            assert answer.headers["Cache-Control"] == "no-store", path
+
+
 def test_a_report_with_geometry_is_opened_with_its_geometry_attached(report_path):
     from label_anatomy import report_page as page_mod
 

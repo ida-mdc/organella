@@ -1348,6 +1348,40 @@ function hasGeometry() { return GEOMETRY.length > 0; }
 function sourceOf(objects) {
   return 'read_parquet([' + objects.map(function(o){ return esc(o.path); }).join(', ') + '])';
 }
+
+/**
+ * What to tell the reader when the geometry will not read.
+ *
+ * Two of DuckDB's errors are one situation - geometry written before the surface kinds,
+ * which stored a `mesh` where this page reads a `surface` - and neither says so. Whether
+ * every file is that old or only one of them is the difference between the two, and
+ * between the two things to do about it:
+ *
+ *   all of them   the folder predates the surface kinds; mesh the batch again
+ *   one of them   a mixed read, which on a served report is nearly always the browser
+ *                 answering out of its cache: `label-anatomy view` serves every report on
+ *                 the same port at the same paths, so one object's geometry.parquet has
+ *                 the same URL whichever run wrote it
+ *
+ * Anything else is passed through: a message nobody wrote is better than a wrong guess.
+ */
+function geometryProblem(error) {
+  var message = error && error.message ? error.message : String(error);
+  var first = String(message).split('\n')[0];
+  if (/schema mismatch in glob/.test(message)) {
+    return 'These geometry files were not all written by the same run: one of them has no '
+      + '"surface" column, which is what a run before the surface kinds wrote. If the '
+      + 'report is being served, reload past the cache first (Ctrl-Shift-R) - the same URL '
+      + 'serves every run\u2019s geometry for an object. If it survives that, mesh the '
+      + 'batch again so every object comes from one run. (' + first + ')';
+  }
+  if (/Referenced column "surface" not found/.test(message)) {
+    return 'This geometry was written before the surface kinds, so it holds a mesh where '
+      + 'this page reads a surface. Mesh the batch again: label-anatomy mesh <report> '
+      + '(or process --with-mesh). (' + first + ')';
+  }
+  return message;
+}
 // A row has a surface (a volume) or an outline (a plane); a mixed batch has both kinds.
 // The surface may be a mesh, an ellipsoid or a tube - surface_kind says which, and
 // SURFACE_BUILDERS turns each into the same positions-and-indices the scene merges.
@@ -1515,7 +1549,7 @@ function acceptGeometry(fileList) {
     })
     .catch(function(err) {
       setText('geom-info', '');
-      alert(err && err.message ? err.message : String(err));
+      alert(geometryProblem(err));
     });
 }
 
@@ -3937,8 +3971,7 @@ async function renderScene() {
       buildControls(summary);
     } catch (error) {
       holder.style.display = 'none';
-      noteEl.textContent = 'Could not read the geometry: '
-        + (error && error.message ? error.message : String(error));
+      noteEl.textContent = 'Could not read the geometry: ' + geometryProblem(error);
     } finally {
       done();
     }
@@ -4284,8 +4317,7 @@ function renderGallery(container, entity, rowType) {
         + (masks ? '.' : '; one with a skeleton is drawn see-through.');
     } catch (error) {
       grid.replaceChildren();
-      footer.textContent = 'Could not read the geometry: '
-        + (error && error.message ? error.message : String(error));
+      footer.textContent = 'Could not read the geometry: ' + geometryProblem(error);
     }
   };
 
@@ -5780,6 +5812,7 @@ if (typeof globalThis !== 'undefined') {
     setGroupBy: function(by){ plotGroupBy = by; },
     setSignificance: function(on){ showSignificance = on; },
     sourceOf: sourceOf, geometryFilesIn: geometryFilesIn,
+    geometryProblem: geometryProblem,
     geometryOwnersSql: geometryOwnersSql, sceneSummarySql: sceneSummarySql,
     sceneGapSql: sceneGapSql, sceneGeometrySql: sceneGeometrySql,
     sceneEdgesSql: sceneEdgesSql, galleryCountSql: galleryCountSql, gallerySql: gallerySql,

@@ -503,6 +503,12 @@ if (job.dataNames) out.dataNames = job.dataNames.map((n) => R.dataName(n));
 if (job.pluralise) out.pluralise = job.pluralise.map((w) => R.pluralise(w));
 // What the page says about a parquet it cannot read, which is the only thing the reader
 // gets to go on.
+// What the reader is told when the geometry will not read - the only thing they get to
+// go on, and DuckDB's own words for it name no cause and no cure.
+if (job.geometryFailure) {
+  out.geometryFailure = job.geometryFailure.map((message) =>
+    R.geometryProblem(new Error(message)));
+}
 if (job.loadFailure !== undefined) {
   try {
     R.checkReadable(job.loadFailure, 'that file');

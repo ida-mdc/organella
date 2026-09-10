@@ -552,6 +552,48 @@ def test_a_report_with_no_rows_says_so(report_path):
     assert "no rows" in failure
 
 
+# ── geometry this page cannot read ───────────────────────────────────────────
+
+
+MIXED_GLOB = (
+    'Invalid Input Error: Failed to read file "geom_url_a.parquet": schema mismatch in '
+    'glob: column "surface" was read from the original file "geom_url_b.parquet", but '
+    'could not be found in file "geom_url_a.parquet"'
+)
+ALL_OLD = (
+    'Binder Error: Referenced column "surface" not found in FROM clause!\n'
+    'Candidate bindings: "surface_area_um2", "mesh_faces"'
+)
+
+
+def test_geometry_from_before_the_surface_kinds_says_to_mesh_it_again():
+    """DuckDB says a column is missing; only this page knows which run wrote it."""
+    told = run_page({"geometryFailure": [ALL_OLD]})["geometryFailure"][0]
+
+    assert "before the surface kinds" in told
+    assert "label-anatomy mesh" in told
+
+
+def test_geometry_from_two_runs_at_once_says_to_reload_past_the_cache_first():
+    """The likeliest cause is not on disk at all.
+
+    `label-anatomy view` serves every report on the same port at the same paths, so one
+    object's geometry.parquet has the same URL whichever run wrote it, and a browser that
+    kept the old body hands DuckDB a glob of two schemas. Told only "schema mismatch in
+    glob", a reader goes looking through their folders for a file that is not there.
+    """
+    told = run_page({"geometryFailure": [MIXED_GLOB]})["geometryFailure"][0]
+
+    assert "not all written by the same run" in told
+    assert "Ctrl-Shift-R" in told
+    assert "mesh the batch again" in told
+
+
+def test_a_geometry_error_nobody_wrote_a_message_for_is_passed_through():
+    told = run_page({"geometryFailure": ["IO Error: No files found that match the pattern"]})
+    assert told["geometryFailure"][0] == "IO Error: No files found that match the pattern"
+
+
 # ── how much of the region is which structure ────────────────────────────────
 
 
