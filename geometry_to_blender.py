@@ -9,6 +9,11 @@ CLI (headless):
 Reading parquet needs pandas and pyarrow inside Blender's own Python:
     <blender>/python/bin/python3 -m pip install pandas pyarrow
 
+Only `surface_kind == "mesh"` rows are imported: an ellipsoid is stored as ten numbers
+and a tube as its centre line, and turning either into triangles is the report page's job,
+not this one. Re-run the batch with `--geometry-as NAME=mesh` to get meshes for a structure
+you want in Blender.
+
 Mesh encoding (from anatomy, stored as a BLOB — parquet does the compressing):
   [uint32 nV][uint32 nF]
   [float32×3 min_xyz][float32×3 scale_xyz]
@@ -67,6 +72,13 @@ def decode_mesh(payload):
 
     nV, nF = struct.unpack_from("<II", raw, 0)
     if nV == 0 or nF == 0:
+        return None, None
+    # The length follows from the header, so a payload of another kind is caught here
+    # rather than in numpy. An ellipsoid is 60 bytes whose first eight read as nV = 1.09
+    # billion, which used to raise "buffer is smaller than requested size" from inside the
+    # merge - a crash, in the middle of an import, saying nothing about the cause.
+    index_bytes = 2 if nV < 65536 else 4
+    if len(raw) != 32 + nV * 6 + nF * 3 * index_bytes:
         return None, None
 
     min_xyz   = np.frombuffer(raw, dtype=np.float32, count=3, offset=8)
@@ -230,8 +242,17 @@ def main():
     print(f"[geometry_to_blender] Reading {geometry_path}")
     # Only the columns this needs: the metrics beside them are for the report page, and
     # the skeleton overlay has no Blender equivalent.
+    import pyarrow.parquet as pq
+
+    written = set(pq.read_schema(geometry_path).names)
+    if "surface" not in written:
+        print("[geometry_to_blender] This geometry was written before the surface kinds, "
+              "so it holds a 'mesh' column where this reads a 'surface'. Mesh the batch "
+              "again: label-anatomy mesh <report>.")
+        return
     df = pd.read_parquet(
-        geometry_path, columns=["object_id", "entity_name", "row_type", "mesh"]
+        geometry_path,
+        columns=["object_id", "entity_name", "row_type", "surface_kind", "surface"],
     )
 
     if CELLS:
@@ -242,7 +263,18 @@ def main():
         df = df[~df["entity_name"].isin(set(EXCL_ENTITIES))]
 
     df = df[df["surface"].notna()]
+    # A round instance is stored as the ellipsoid of its own moments and a filament as its
+    # centre line, neither of which holds triangles - the report page tessellates them as
+    # it draws. Nothing here does, so they are counted and left out rather than fed to a
+    # decoder that cannot read them. A run that is headed for Blender can ask for meshes:
+    # label-anatomy process --with-mesh --geometry-as NAME=mesh.
+    kinds = df["surface_kind"].fillna("mesh")
+    parametric = kinds[kinds != "mesh"].value_counts().to_dict()
+    df = df[kinds == "mesh"]
     print(f"[geometry_to_blender] {len(df)} rows with meshes after filtering")
+    for kind, n in sorted(parametric.items()):
+        print(f"[geometry_to_blender]   {n} {kind} instance(s) left out: no triangles are "
+              f"stored for one. Re-run with --geometry-as NAME=mesh to import them.")
     if df.empty:
         # A 2D object has outlines rather than meshes: there is no surface to import, and
         # a flat polygon in Blender would be a worse view of it than the report's own.

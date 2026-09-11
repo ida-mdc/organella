@@ -69,7 +69,11 @@ def _gaps_within(
     # Bounding-box padding per axis, so everything within max_gap is inside the window. One
     # entry per spatial axis, which is the only difference between 2D and 3D here.
     reach = [int(math.ceil(max_gap_um / v)) for v in anisotropy]
-    boxes = find_objects(labels.astype(np.int32, copy=False))
+    # Not cast to int32 first: find_objects takes any integer type, and entities are
+    # stacked in the narrowest one their ids need (usually uint16), so the cast was a
+    # full second copy of the largest array this measurer holds - and contacts are where
+    # a run peaks, which is what sizes the object pool.
+    boxes = find_objects(labels)
 
     closest: Dict[Tuple[int, int], float] = {}
     for label_id, box in enumerate(boxes, start=1):

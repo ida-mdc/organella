@@ -150,10 +150,14 @@ class MorphologyMeasurer:
                 centroid_um = centroid * np.array(sample_size)
                 row.update(polarity_from_offset(centroid_um - np.array(center, dtype=float)))
         else:
-            labels = volume.astype(np.int32, copy=False)
+            # One pass for the foreground, used twice: `volume > 0` on a whole entity is
+            # tens of megabytes, and this asked for it once to select the ids and again to
+            # count them. The int32 cast was a second copy of the volume on top, for a
+            # `> 0` and a `unique` that any integer type answers.
+            foreground = volume > 0
             row.update({
-                "instance_count": int(np.unique(labels[labels > 0]).size),
-                total_size_key(volume.ndim): float((labels > 0).sum() * sample_extent),
+                "instance_count": int(np.unique(volume[foreground]).size),
+                total_size_key(volume.ndim): float(foreground.sum() * sample_extent),
             })
         # NaN would break the very charts these scalars exist for: see null_if_not_finite.
         return {key: null_if_not_finite(value) for key, value in row.items()}

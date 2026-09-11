@@ -76,6 +76,56 @@ def test_it_reads_a_blob_however_parquet_hands_it_over(blender_script):
     assert np.array_equal(from_bytes, from_array)
 
 
+def test_the_columns_it_reads_are_columns_a_run_writes(blender_script, tmp_path):
+    """It asked parquet for `mesh` for two days after that column became `surface`.
+
+    Nothing caught it: the tests here decode a payload handed to them directly, and the
+    read is in main(), which needs Blender. So the names are checked against a geometry
+    file a real run wrote instead.
+    """
+    import inspect
+    import re
+
+    import pyarrow.parquet as pq
+
+    from label_anatomy.analysis.meshes import GEOMETRY_FILENAME, mesh_rows_for_object, write_geometry
+
+    volume = np.zeros((12, 12, 12), dtype=np.uint8)
+    volume[3:9, 3:9, 3:9] = 1
+    rows = mesh_rows_for_object({"blob": volume}, {"blob": "label"}, (1.0, 1.0, 1.0),
+                                object_id="object_a")
+    written = set(pq.read_schema(write_geometry(tmp_path, rows)).names)
+
+    source = inspect.getsource(blender_script.main)
+    asked = re.search(r"columns=\[([^\]]*)\]", source, re.S).group(1)
+    asked = set(re.findall(r'"([^"]+)"', asked))
+
+    assert asked, "main() names the columns it reads"
+    assert asked <= written, f"{sorted(asked - written)} is not written by a run"
+
+
+def test_a_payload_that_is_not_a_mesh_is_refused_rather_than_unpacked(blender_script):
+    """An ellipsoid is 60 bytes whose first eight read as nV = 1.09 billion.
+
+    numpy raised "buffer is smaller than requested size" from inside the merge, which is a
+    crash in the middle of an import that says nothing about why.
+    """
+    from label_anatomy.analysis.primitives import ellipsoid_payload
+
+    payload = ellipsoid_payload((5.0, 6.0, 7.0), (2.0, 4.0, 8.0),
+                                (1, 0, 0, 0, 1, 0, 0, 0, 1))
+
+    assert blender_script.decode_mesh(payload) == (None, None)
+
+
+def test_a_mesh_cut_short_is_refused_too(blender_script):
+    """The length follows from the header, so a truncated blob is not half a mesh."""
+    payload = generate_mesh(_ball(), (0, 0, 0), VOXEL)
+
+    assert blender_script.decode_mesh(payload[:-8]) == (None, None)
+    assert blender_script.decode_mesh(payload)[0] is not None
+
+
 def test_a_row_with_no_geometry_imports_nothing(blender_script):
     # Contact rows and unmeshed instances carry NULL, which pandas hands over as None.
     assert blender_script.decode_mesh(None) == (None, None)
