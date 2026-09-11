@@ -1,4 +1,4 @@
-"""organella: the spatial analysis of segmented objects.
+"""Organella: the spatial analysis of segmented objects.
 
 Five layers, each one only using the ones above it:
 
@@ -25,7 +25,7 @@ serve it beside a report so the 3D views reach the geometry.
 
 It started as a PixelPatrol flavour and no longer depends on it: the measuring was always
 its own, since an object cannot be split across chunks, and the report is written and read
-here too. Reports under the old footer keys still read; see :mod:`organella.report_io`.
+here too.
 """
 
 __version__ = "0.1.0"
