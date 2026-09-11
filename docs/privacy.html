@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy policy — Organella</title>
+<link rel="stylesheet" href="_legal.css">
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">← Organella</a>
+  <h1>Privacy policy</h1>
+  <p class="lede">Last updated: September 2026</p>
+
+  <h2>Who we are</h2>
+  <p>
+    Organella is developed by Helmholtz Imaging at the Max-Delbrueck-Centrum fuer Molekulare
+    Medizin in der Helmholtz-Gemeinschaft (MDC), Berlin. Contact:
+    <a href="mailto:deborah.schmidt@mdc-berlin.de">deborah.schmidt@mdc-berlin.de</a>.
+  </p>
+
+  <h2>Your data in the report page</h2>
+  <p>
+    The report page reads your files entirely in your browser. Nothing you drop on it - the
+    report, or the geometry beside it - is uploaded to any server. Your files never leave your
+    device, and the page works with no network connection at all once it has loaded.
+  </p>
+
+  <h2>Sharing an Organella report</h2>
+  <p>
+    A report is a parquet file holding what a run measured. Anyone you share it with can read
+    all of it:
+  </p>
+  <ul>
+    <li><strong>The base directory</strong> you processed is recorded in the report's footer
+      metadata by default.</li>
+    <li><strong>Object folder paths and volume names.</strong> Each row names the folder it was
+      measured from and the label and mask files read out of it. If your folders or files are
+      named after patients, samples or people, that is in the report.</li>
+    <li><strong>Measurements.</strong> Voxel size, extent, and every per-structure,
+      per-instance, distance and contact measurement the run took.</li>
+    <li><strong>No pixel data.</strong> No image data and no thumbnails are written into a
+      report. Surfaces and skeletons, when a run is asked for them, go into separate
+      <code>geometry.parquet</code> files beside it - those describe the shape of what was
+      segmented, not the image it came from.</li>
+  </ul>
+  <p>
+    If your data contains sensitive information, treat a report with the same care as the
+    original data.
+  </p>
+
+  <h2>GitHub Pages</h2>
+  <p>
+    This site is hosted on GitHub Pages (GitHub, Inc., a Microsoft subsidiary). GitHub
+    automatically collects server logs including your IP address when you visit. We have no
+    control over that data. See GitHub's privacy statement for details.
+  </p>
+
+  <h2>Content delivery networks</h2>
+  <p>
+    The report page loads Bootstrap, Plotly and three.js from
+    <a href="https://www.jsdelivr.com/">jsDelivr</a>, and the Helmholtz Imaging logo from
+    pixelpatrol.app. Requesting those files discloses your IP address to those services. They
+    are loaded because the page is one standalone file with no build step; nothing about your
+    data is sent with the requests.
+  </p>
+
+  <h2>No feedback form and no analytics</h2>
+  <p>
+    The report page has no feedback form, no analytics and no cookies. If you write to the
+    address above, we use your message only to reply to it.
+  </p>
+
+  <footer>
+    See also the <a href="impressum.html">imprint</a>.
+  </footer>
+</div>
+</body>
+</html>
