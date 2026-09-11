@@ -342,24 +342,11 @@ out.surfaceKinds = R.surfaceKinds;
 if (job.surfaceDetail) {
   out.surfaceDetail = job.surfaceDetail.map((n) => ({ ...R.setSurfaceDetail(n) }));
 }
-out.impostorKinds = R.impostorKinds;
-
-// What a stored surface becomes as impostor instances. The shaders need a GPU; the
-// arithmetic that feeds them does not, so that part is checked here.
-if (job.impostors) {
-  out.impostors = job.impostors.map((d) => {
-    const bytes = asArrowView(d.base64);
-    if (d.kind === 'ellipsoid') {
-      const f = R.ellipsoidOf(bytes);
-      return f && { centre: [...f.slice(0, 3)], radii: [...f.slice(3, 6)] };
-    }
-    const caps = R.capsulesOf(bytes);
-    return caps && {
-      capsules: caps.n,
-      firstA: [...caps.a.slice(0, 3)],
-      firstB: [...caps.b.slice(0, 3)],
-      radius: caps.r[0],
-    };
+// What a stored ellipsoid parses to, which is also where a collapsed one is refused.
+if (job.ellipsoids) {
+  out.ellipsoids = job.ellipsoids.map((d) => {
+    const f = R.ellipsoidOf(asArrowView(d.base64));
+    return f && { centre: [...f.slice(0, 3)], radii: [...f.slice(3, 6)] };
   });
 }
 

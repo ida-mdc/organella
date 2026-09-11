@@ -448,40 +448,15 @@ def test_the_writer_and_the_page_bound_a_collapse_at_the_same_stretch():
     assert page["constants"]["maxEllipsoidStretch"] == MAX_ELLIPSOID_STRETCH
 
 
-# ── impostors: what a payload becomes as instances ────────────────────────────
-
-def test_only_shapes_with_a_closed_form_can_be_ray_cast():
-    """An impostor solves the ray-surface intersection in the shader, so it needs a
-    quadric. A mesh has no closed form, which is why impostors are a second path rather
-    than a replacement for the first."""
-    page = run_page({"rows": [], "structure": "mito"})
-
-    assert sorted(page["impostorKinds"]) == ["ellipsoid", "tube"]
-    assert "mesh" not in page["impostorKinds"]
-
-
-def test_a_tube_becomes_one_capsule_per_segment():
-    payload = _straight_tube(n_nodes=20, radius=0.5)
-    out = run_page({"rows": [], "structure": "mito",
-                    "impostors": [{"base64": base64.b64encode(payload).decode(),
-                                   "kind": "tube"}]})["impostors"][0]
-
-    assert out["capsules"] == 19                      # nodes - 1
-    assert out["radius"] == pytest.approx(0.5, abs=1e-3)
-    # Payload vertices are XYZ; the synthetic line runs along x.
-    assert out["firstA"][0] == pytest.approx(0.0, abs=0.01)
-    assert out["firstB"][0] == pytest.approx(1.0, abs=0.01)
-
-
-def test_an_ellipsoid_needs_no_tessellation_at_all():
+def test_an_ellipsoid_parses_back_to_the_centre_and_radii_it_was_stored_with():
+    """Diameters go in; the page draws from radii, so it is the halving that is pinned."""
     payload = ellipsoid_payload((5.0, 6.0, 7.0), (2.0, 4.0, 8.0),
                                 (1, 0, 0, 0, 1, 0, 0, 0, 1))
     out = run_page({"rows": [], "structure": "mito",
-                    "impostors": [{"base64": base64.b64encode(payload).decode(),
-                                   "kind": "ellipsoid"}]})["impostors"][0]
+                    "ellipsoids": [{"base64": base64.b64encode(payload).decode()}]})
 
-    assert out["centre"] == pytest.approx([5.0, 6.0, 7.0])
-    assert out["radii"] == pytest.approx([1.0, 2.0, 4.0])
+    assert out["ellipsoids"][0]["centre"] == pytest.approx([5.0, 6.0, 7.0])
+    assert out["ellipsoids"][0]["radii"] == pytest.approx([1.0, 2.0, 4.0])
 
 
 # ── the centre line a tube follows ────────────────────────────────────────────
