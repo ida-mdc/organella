@@ -1,48 +1,58 @@
-# organella: spatial analysis of segmented objects
+# Organella: measuring label relationships in 3D
 
 <img src="docs/organella.png" alt="A figure drawn entirely out of organelles, holding a measuring tape" align="right" width="190">
 
-organella measures segmented objects - 2D or 3D, one or a batch of them - and produces a
+Organella measures segmented objects - 2D or 3D, one or a batch of them - and produces a
 single report you read in one standalone page: distributions, distances, contacts, and the
 objects themselves in 3D.
 
 An **object** is one segmented thing measured as a whole, given as a folder: a source image,
-one mask that bounds the object, and the label/mask volumes inside it. Here an object is a cell
-bounded by its plasma membrane, so `--object-mask pm`, but nothing in the tool assumes that -
-the mask is named explicitly and never guessed, and leaving it out measures the entities where
-they lie. Everything inside is clipped to it by default, because a field of view often holds
-neighbouring cells: on one real alpha cell, 3678 of 8800 granules lay entirely outside the
-plasma membrane. `--no-clip` measures them anyway.
-
-Planes and volumes are measured with their own formulas - area, perimeter and circularity
-against volume, surface area and sphericity - and no plane is padded into a volume one voxel
-deep.
+one mask that bounds the object, and the label/mask volumes inside it. For example, object can be a cell
+bounded by its plasma membrane (`--object-mask pm`). Specifying the object bound is optional. 
+Everything inside is clipped to it by default, because a field of view often holds
+neighbouring cells. `--no-clip` measures them anyway.
 
 ## Workflow
 
 1. Organise your images in one of the [input layouts](#your-input).
-2. `organella dry-run` to check what will be analysed, and what was ignored.
+2. `organella dry-run` to check what will be analysed.
 3. `organella process` to write `report.parquet` and, with `--with-mesh`, the geometry.
 4. `organella view` to open the report page on it.
 5. Optionally import an object's geometry into [Blender](#blender).
 
 ## Try it
 
-One command, no clone and no node:
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) (or install the package via pip without uv, but uv is cool).
+
+Next, install Organella:
 
 ```bash
-uv pip install "organella @ git+https://github.com/betaseg/cellsketch-v2.git@main"
+uv pip install "organella @ git+https://github.com/ida-mdc/organella.git@main"
 ```
+
+Then test, measure, and view your label dataset:
 
 ```bash
 organella dry-run experiment/
-organella process experiment/ -o report.parquet --object-mask pm \
-    -p control -p treated --skeletons mito --with-mesh
+organella process experiment/ -o report.parquet --with-mesh
 organella view report.parquet
 ```
 
-**Check the input first.** `dry-run` reads image headers only - no analysis, no output, seconds
-even for a large batch - and prints per object the source image, the label and mask entities
+The handful of arguments worth knowing from the start:
+
+| | |
+| --- | --- |
+| `--object-mask pm` | the mask that bounds each object. It decides the origin of every distance and polarity, and everything inside it is clipped to it, so it is never guessed - `dry-run` lists the masks each folder has |
+| `-p control -p treated` | subdirectories to import as groups. That grouping becomes the default comparison in every chart |
+| `--voxel-size-um 0.1,0.02,0.02` | needed when the images carry no calibration, since a size is never invented. `y,x` for a plane |
+| `--skeletons mito,ER` | branches, length and tortuosity for the structures worth it. Opt-in: it is the most expensive thing in a run |
+| `--entities mito,ER` | measure only these. Each entity is another full-size channel, so a subject carrying 117 structures needs this to fit in memory |
+| `--with-mesh` | also write the geometry the 3D sections and Blender read, to `<output>_meshes/` |
+
+Every argument is listed under [Parameters of `process`](#parameters-of-process).
+
+**Check the input first.** `dry-run` reads image headers only - no analysis, no output - 
+and prints per object the source image, the label and mask entities
 found (`*` marks the object mask), and anything that looks wrong. Then which entities are
 missing in which objects, and a suggested `--max-workers`. Exit code is `1` if any object
 cannot be analysed.
@@ -62,23 +72,12 @@ control/cell_b
 ## Reading the report
 
 `organella view report.parquet` serves the report, its geometry and the page from one
-localhost origin and opens it. Or open **<https://betaseg.github.io/cellsketch-v2/>** and drop
+localhost origin and opens it. Or open **<https://ida-mdc.github.io/organella/>** and drop
 `report.parquet` on it: the page parses the parquet in the browser, so nothing is uploaded and
-no server runs. `organella page` prints the copy that came with your install.
+no server runs.
 
-**The 3D sections need the geometry too**, and it never enters the report - a page cannot read
-a path on your disk. Press **Add geometry** and pick either the `report_meshes` folder or the
-`geometry.parquet` files themselves; `view` attaches them for you.
-
-**Sharing a report.** The geometry stays a folder of one file per object, so it travels with
-the report in one of two shapes:
-
-- hand over `report.parquet` and its `report_meshes/` folder, and the reader runs
-  `organella view report.parquet`
-- or upload the two together, unchanged, and open the page with `?data=<url of the parquet>`.
-  The geometry is looked for beside the parquet as `<name>_meshes/`, so there is nothing else
-  to pass. If the files sit on a different origin than the page, that server has to allow
-  cross-origin requests - GitHub Pages does, a bare `python -m http.server` does not.
+**The 3D sections need the geometry too**. Press **Add geometry** and pick either the `report_meshes` folder or the
+`geometry.parquet` files themselves; The `organelle view` command attaches them for you and you don't need to do anything else.
 
 In the page, **Charts** switches every panel between boxes and histograms, and
 **Significance** puts Mann-Whitney brackets between whatever the charts are faceted by. Every
@@ -104,19 +103,18 @@ An object folder can sit on its own, in a flat batch (`cells/cell_a/`, `cells/ce
 a grouped batch (`experiment/control/cell_a/`, `experiment/treated/cell_b/`), where the group
 folder is what `-p` imports.
 
-**Published data is read where it lies**, because a segmentation you downloaded is not going to
-be renamed to suit a reader. Three more layouts work as they come:
-
-- **Other formats.** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read through SimpleITK.
-  Their headers carry a reliable voxel size, which TIFF often does not; spacing is read as
-  millimetres, the convention every reader of these files uses.
-- **Entities in a subfolder** named by nothing but the structure - a `segmentations/`, `masks/`
-  or `labels/` folder beside the source image. There is no prefix to strip, and label-or-mask
-  is read off the content rather than guessed from the name.
-- **A remote store, read as a crop.** A folder holding one `source.json` and no images names a
-  chunked store (N5 or Zarr, local or on S3), the arrays in it, and the window to read. A 512³
-  crop of OpenOrganelle's 122-gigavoxel HeLa cell is 0.64% of it, in under five seconds, at
-  full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'`.
+**Other formats.** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read through SimpleITK.
+Their headers carry a reliable voxel size, which TIFF often does not; spacing is read as
+millimetres, the convention every reader of these files uses.
+ 
+**Entities in a subfolder** named by nothing but the structure - a `segmentations/`, `masks/`
+or `labels/` folder beside the source image. There is no prefix to strip, and label-or-mask
+is read off the content rather than guessed from the name.
+ 
+**A remote store, read as a crop.** A folder holding one `source.json` and no images names a
+chunked store (N5 or Zarr, local or on S3), the arrays in it, and the window to read. A 512³
+crop of OpenOrganelle's 122-gigavoxel HeLa cell is 0.64% of it, in under five seconds, at
+full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'`.
 
 ```json
 {
@@ -201,7 +199,6 @@ run parameters below and `--no-contacts`.
 | | |
 | --- | --- |
 | `--with-mesh` | also write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`, never into the parquet |
-| `--mesh-dir DIRECTORY` | where the geometry goes instead |
 | `--geometry-as NAME=KIND,...` | how a structure's surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`. Decided from the measured shape when unnamed - a round instance becomes a 60-byte ellipsoid, which is what makes tens of thousands drawable. No measurement changes; the surface is only ever drawn |
 | `--mesh-max-vertices N` | most vertices one surface keeps; 0 lifts the cap. Default 200000. A decimation *fraction* bounds nothing: at 0.5 one ER sheet was still 2.87 million vertices and 86 MB |
 | `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables |
@@ -220,6 +217,19 @@ run parameters below and `--no-contacts`.
 | `--num-threads N` | kimimaro worker count. Default 1, because objects already run in parallel |
 | `--resume` | skip objects an interrupted run already measured. Each object's rows go to `<output>_parts/` as it finishes and are removed once the report is written |
 
+## Sharing a report
+
+The geometry stays a folder of one file per object, so it travels with
+the report in one of two shapes:
+
+- hand over `report.parquet` and its `report_meshes/` folder, and the reader runs
+  `organella view report.parquet`
+- or upload the two together, unchanged, and open the page with `?data=<url of the parquet>`.
+  The geometry is looked for beside the parquet as `<name>_meshes/`, so there is nothing else
+  to pass. If the files sit on a different origin than the page, that server has to allow
+  cross-origin requests - GitHub Pages does, a bare `python -m http.server` does not.
+
+
 ## Development
 
 ```bash
@@ -229,11 +239,10 @@ uv pip install -e .
 .venv/bin/python -m pytest
 ```
 
-The report page is one file with no build step, so there is nothing to install and nothing to
-watch: edit
+The report page is one file with no build step, edit
 [`src/organella/report/organella_report.html`](src/organella/report/organella_report.html)
-and reload the browser. Nothing imports it and it has no compiler, so the suite runs it through
-node instead - how a report is read into it, the maths its panels draw, the queries its 3D
+and reload the browser. The test suite runs it through
+node - how a report is read into it, the maths its panels draw, the queries its 3D
 sections build, and every section drawn against a stub DOM:
 
 ```bash
