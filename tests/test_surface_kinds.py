@@ -21,6 +21,7 @@ from label_anatomy.analysis.meshes import MeshOptions, mesh_rows_for_object
 from label_anatomy.analysis.primitives import (
     ELLIPSOID_MAX_ASPECT,
     ELLIPSOID_MIN_SPHERICITY,
+    MAX_ELLIPSOID_STRETCH,
     SURFACE_KINDS,
     choose_surface,
     ellipsoid_payload,
@@ -369,6 +370,82 @@ def _decode_tube(payload):
     radii = np.frombuffer(payload, dtype="<f4", count=n_verts,
                           offset=len(payload) - n_verts * 4)
     return line, radii
+
+
+# ── an instance whose principal moments collapsed ─────────────────────────────
+#
+# Every number below is off one real batch of eight alpha cells. Six of its 47,414
+# ellipsoid instances came back with `aspect_ratio_major_minor` exactly 0 - ITK's
+# elongation times its flatness, each of which is a larger principal axis over a smaller
+# one and so never below 1. Zero is what a few voxels give: a principal moment is zero, the
+# ratio divides by it, and the shape has no second moments worth the name.
+#
+# Nothing then stopped it. Zero reads as "not elongated", so the picker chose an ellipsoid;
+# ITK's equivalent-ellipsoid diameters preserve the volume, so the two axes that survived
+# took all of it; and a four-voxel speck of a nucleus was stored as an ellipsoid 78 µm
+# across in a cell 10 µm wide. One of those sets the scene's bounding box and every real
+# structure in the object is drawn as a sub-pixel speck beside it.
+
+# The nucleus speck: 0.000152 µm³ of voxels, as ITK described it.
+COLLAPSED_CENTRE = (2.8459, 8.9588, 3.5500)
+COLLAPSED_DIAMETERS = (2.0099e-07, 18.478708, 78.341858)
+COLLAPSED_AXES = (-0.0, 0.0, 1.0, 0.5339, -0.8456, 0.0, 0.8456, 0.5339, -0.0)
+
+
+def test_an_aspect_ratio_below_one_is_not_a_shape():
+    """So the instance is meshed, which draws the voxels it actually has."""
+    assert choose_surface(sphericity=1.0587, aspect=0.0, branches=None) == "mesh"
+    # Not a blanket refusal of small or odd instances: 1 is a sphere's own ratio, and a
+    # round instance at the floor is still an ellipsoid.
+    assert choose_surface(sphericity=0.95, aspect=1.0, branches=None) == "ellipsoid"
+
+
+def test_a_collapsed_aspect_ratio_does_not_become_a_tube_either():
+    """0 is below TUBE_MIN_ASPECT, but it got there by collapsing, not by being round."""
+    assert choose_surface(sphericity=0.2, aspect=0.0, branches=3,
+                          has_skeleton=True) == "mesh"
+
+
+def test_an_ellipsoid_far_larger_than_its_own_volume_is_not_stored():
+    """The `min(radii) <= 0` check misses it: the collapsed axis is 1e-7, not 0.
+
+    Refusing the payload hands the instance back to the mesher, which draws its voxels.
+    """
+    assert ellipsoid_payload(COLLAPSED_CENTRE, COLLAPSED_DIAMETERS, COLLAPSED_AXES) == b""
+    # A real one is unaffected: across that batch the legitimate ellipsoids reached 1.95
+    # against the sphere of their own volume, and the median was 1.08.
+    assert len(ellipsoid_payload((5.0, 6.0, 7.0), (2.0, 4.0, 8.0),
+                                 (1, 0, 0, 0, 1, 0, 0, 0, 1))) == 60
+
+
+def test_the_page_refuses_to_draw_one_that_was_already_written():
+    """Geometry on disk cannot be un-written, and re-meshing a batch is an hour.
+
+    So the page applies the same bound. The instance drops out of the scene, which is the
+    smaller loss by far: one speck of a few voxels against every other structure in the
+    object being drawn too small to see.
+    """
+    collapsed = struct.pack("<15f", *COLLAPSED_CENTRE,
+                            *[d / 2 for d in COLLAPSED_DIAMETERS], *COLLAPSED_AXES)
+    honest = ellipsoid_payload((5.0, 6.0, 7.0), (2.0, 4.0, 8.0),
+                               (1, 0, 0, 0, 1, 0, 0, 0, 1))
+
+    drawn = run_page({"rows": [], "structure": "mito", "drawables": [
+        {"base64": base64.b64encode(collapsed).decode(), "kind": "ellipsoid"},
+        {"base64": base64.b64encode(honest).decode(), "kind": "ellipsoid"},
+    ]})["drawables"]
+
+    assert drawn[0] is None
+    # The one beside it still draws, at its own radii: 1, 2 and 4 about (5, 6, 7).
+    assert drawn[1]["bbox"]["x"]["max"] == pytest.approx(6.0, abs=0.01)
+    assert drawn[1]["bbox"]["z"]["max"] == pytest.approx(11.0, abs=0.01)
+
+
+def test_the_writer_and_the_page_bound_a_collapse_at_the_same_stretch():
+    """Two copies of one number, so a test rather than a comment keeps them together."""
+    page = run_page({"rows": [], "structure": "mito"})
+
+    assert page["constants"]["maxEllipsoidStretch"] == MAX_ELLIPSOID_STRETCH
 
 
 # ── impostors: what a payload becomes as instances ────────────────────────────

@@ -569,6 +569,7 @@ out.constants = {
   geometrySize: R.GEOMETRY_SIZE_SQL,
   metricLabels: R.geometryMetrics(),
   deepColumns: R.DEEP_COLUMNS,
+  maxEllipsoidStretch: R.MAX_ELLIPSOID_STRETCH,
 };
 
 process.stdout.write(JSON.stringify(out));

@@ -2685,10 +2685,11 @@ function setSurfaceDetail(count) {
  * needs to be.
  */
 function ellipsoidDrawable(payload) {
-  var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  if (payload.byteLength < 60) return null;
-  var f = [];
-  for (var i = 0; i < 15; i++) f.push(view.getFloat32(i * 4, true));
+  // Through ellipsoidOf, so a collapsed ellipsoid is refused once for both the impostor
+  // path and this one. Read inline here, a refusal reached only the impostors - and the
+  // tessellated path is the default, which is where the 78 µm lens was being drawn.
+  var f = ellipsoidOf(payload);
+  if (!f) return null;
   var cx = f[0], cy = f[1], cz = f[2];
   var rx = f[3], ry = f[4], rz = f[5];
   var axes = f.slice(6);            // rows: axis for rx, ry, rz
@@ -3373,11 +3374,26 @@ function capsulesOf(payload) {
 }
 
 /** The 15 floats of an ellipsoid: centre, radii, and the axes as rows. */
+// How far an ellipsoid's longest radius may stand out from the sphere of the same volume
+// before this page refuses to draw it. The writer refuses to store one past this
+// (analysis/primitives.py, MAX_ELLIPSOID_STRETCH), and the same number is here because
+// geometry already written cannot be un-written: an instance of a few voxels whose
+// principal moments collapsed arrives as radii of 1e-7, 9.2 and 39.2 µm - a speck drawn
+// 78 µm across in a cell 10 µm wide. One is enough to set the scene's bounding box, and
+// then the object it belongs to is a sub-pixel speck beside it. Refusing it drops that one
+// instance from the scene, which is the smaller loss by far.
+var MAX_ELLIPSOID_STRETCH = 100;
+
 function ellipsoidOf(payload) {
   if (!payload || payload.byteLength < 60) return null;
   var view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   var f = new Float32Array(15);
   for (var i = 0; i < 15; i++) f[i] = view.getFloat32(i * 4, true);
+  for (var j = 0; j < 15; j++) { if (!isFinite(f[j])) return null; }
+  var rx = f[3], ry = f[4], rz = f[5];
+  if (!(Math.min(rx, ry, rz) > 0)) return null;
+  var sphere = Math.cbrt(rx * ry * rz);
+  if (Math.max(rx, ry, rz) / sphere > MAX_ELLIPSOID_STRETCH) return null;
   return f;
 }
 
@@ -5773,6 +5789,7 @@ if (typeof globalThis !== 'undefined') {
     // GPU to test; what a payload turns into does not.
     impostorKinds: Object.keys(IMPOSTOR_KINDS),
     capsulesOf: capsulesOf, ellipsoidOf: ellipsoidOf,
+    MAX_ELLIPSOID_STRETCH: MAX_ELLIPSOID_STRETCH,
     setSurfaceDetail: setSurfaceDetail,
     decodeDrawable: decodeDrawable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,

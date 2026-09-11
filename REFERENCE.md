@@ -227,6 +227,38 @@ and indices the scene already merges, so there is no second render path - the te
 density is a viewer-side choice. A test compares the writer's kinds with the page's, so a
 kind nothing can draw fails the suite rather than vanishing silently in a browser.
 
+### When the moments are not a shape
+
+A surface kind is chosen from what ITK measured, so an instance small enough to have no
+second moments worth the name is where the picker goes wrong. `aspect_ratio_major_minor` is
+elongation times flatness, each a larger principal axis over a smaller one, so it is never
+below 1 - except that a few voxels give a principal moment of zero and the ratio comes back
+**0**. Nothing then stopped it: 0 reads as "not elongated", so the instance was drawn as an
+ellipsoid; ITK's equivalent-ellipsoid diameters preserve volume, so the axes that survived
+took the whole of it between them.
+
+In one real batch of eight alpha cells that was six instances of 47,414 - five granules and
+one stray nucleus component, each of a few voxels - stored as ellipsoids up to **78 µm
+across in a cell 10 µm wide**. One is enough to set the scene's bounding box, and then every
+real structure in the object is drawn as a sub-pixel speck beside a smooth orange lens.
+
+Two bounds, because the first is the cause and the second is what already happened:
+
+- an aspect ratio below 1 is no reading at all, so the instance is meshed, which draws the
+  voxels it actually has
+- an ellipsoid whose longest radius stands more than 100x out from the sphere of its own
+  volume is refused, by the writer *and* by the page - geometry already written cannot be
+  un-written, and re-meshing a batch is an hour. Measured across that batch, the legitimate
+  ellipsoids reach 1.95 and sit at a median of 1.08 against their own volume; the six were
+  338 to 1182. The page drops such an instance from the scene, which is the smaller loss.
+
+Deliberately not a bound on the radii *ratio*: a genuinely flat instance can be orders of
+magnitude across its thinnest axis and still be a shape somebody wants drawn. What is not a
+shape is one drawn far larger than the volume it is made of.
+
+Nothing here changes a measurement. The report still carries the 0 that ITK returned, which
+is what it measured; only the picture is guarded.
+
 ### What a mesh costs, once it is the only thing left
 
 The kinds above take care of the many small instances. What remains is a handful of large

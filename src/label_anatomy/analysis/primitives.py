@@ -50,6 +50,27 @@ ELLIPSOID_MAX_ASPECT = 3.0
 # diameter, which a tube would draw as a stubby cylinder for no gain.
 TUBE_MIN_ASPECT = 3.0
 
+# Below this an aspect ratio is not a flat shape, it is a collapsed measurement. ITK's
+# elongation and flatness are each a larger principal axis over a smaller one, so neither
+# is below 1 and nor is their product; 0 is what comes back when an instance is small
+# enough - a voxel, or a few in a line - that a principal moment is zero.
+ASPECT_FLOOR = 1.0
+
+# How far an ellipsoid's longest radius may stand out from the sphere of the same volume
+# before it is refused as collapsed. ITK's equivalent ellipsoid preserves volume, so a
+# principal moment that collapses does not shrink the shape - it pushes the volume into
+# whichever axes survived, and the longest one runs away.
+#
+# Measured across one real batch of 47,414 ellipsoids: the legitimate ones reach 1.95 and
+# sit at a median of 1.08, while the six with a collapsed moment are 338 to 1182. A hundred
+# is fifty times clear of anything real and three times under the mildest collapse.
+#
+# Against the radii ratio rather than this, because ratio alone calls a thin shape
+# collapsed: a genuinely flat instance can be four orders of magnitude across its thinnest
+# axis and still be a shape somebody wants drawn. What is not a shape is one drawn far
+# larger than the volume it is made of.
+MAX_ELLIPSOID_STRETCH = 100.0
+
 
 def choose_surface(
     sphericity: Optional[float],
@@ -65,6 +86,15 @@ def choose_surface(
     """
     def known(value: Optional[float]) -> bool:
         return value is not None and not (isinstance(value, float) and math.isnan(value))
+
+    # An aspect ratio below 1 is not a reading of a shape (see ASPECT_FLOOR), so it is
+    # treated as no reading at all and the instance falls through to a mesh - which draws
+    # the voxels it actually has. Left as it stands, 0 reads as "not elongated", which is
+    # the one thing such an instance is certainly not: the two principal axes that did not
+    # collapse take the whole volume between them, and the equivalent ellipsoid comes out
+    # tens of µm long for a speck of four voxels.
+    if known(aspect) and aspect < ASPECT_FLOOR:
+        aspect = None
 
     if (has_skeleton and known(aspect) and aspect >= TUBE_MIN_ASPECT
             and known(branches) and branches >= 1):
@@ -104,7 +134,16 @@ def ellipsoid_payload(
     # check above passed it, and one such instance is enough to set the scene's bounding
     # box - the camera then fits a million µm and every real structure is a sub-pixel
     # speck. Returning nothing hands it back to the mesher, which draws the voxels.
-    if not all(math.isfinite(v) for v in values) or min(values[3:6]) <= 0.0:
+    radii = values[3:6]
+    if not all(math.isfinite(v) for v in values) or min(radii) <= 0.0:
+        return b""
+    # And the same failure one step less extreme, which the check above lets through: a
+    # four-voxel nucleus speck of one real batch came back with radii of 1e-7, 9.2 and
+    # 39.2 µm - finite, all positive, and 78 µm across in a cell 10 µm wide. One of those
+    # is enough to set the scene's bounding box, and then every real structure in the
+    # object is a sub-pixel speck beside it.
+    equivalent_sphere = (radii[0] * radii[1] * radii[2]) ** (1.0 / 3.0)
+    if max(radii) / equivalent_sphere > MAX_ELLIPSOID_STRETCH:
         return b""
     return struct.pack("<15f", *values)
 
