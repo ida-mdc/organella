@@ -542,6 +542,8 @@ function settleNoun(given, bounded) {
 // `only` is one facet value to narrow to, read against whatever plotGroupBy is: a group
 // when grouping by group, an object when grouping by object. Empty means all of them.
 var st = { only: '', statsEntity: null };
+// Settled against the batch in initFilters, not fixed here: by group wherever there is
+// more than one, by object where there is not.
 var plotGroupBy = 'object';
 // How a population is drawn, everywhere one is: as a distribution (a box per facet, or a
 // bar where there is one value per facet) or as a histogram (a binned shape per facet, on
@@ -1599,9 +1601,16 @@ function fillFacetFilter() {
 
 function initFilters() {
   var gs = groupNames();
-  // Nothing to group by unless the batch has more than one experimental group.
+  // By group wherever a batch has groups. That is the comparison the run was set up to
+  // make - an object is one sample of a condition, not a thing to compare against another
+  // condition's - so it is what the report should open on. A reader who wants the objects
+  // can still say so, and with one group there is nothing to compare: the facets are the
+  // objects and the control is not offered at all.
+  plotGroupBy = gs.length > 1 ? 'group' : 'object';
   document.getElementById('plot-groupby-wrap').style.display = gs.length > 1 ? 'flex' : 'none';
-  if (gs.length < 2) plotGroupBy = 'object';
+  // The select is markup, so it opens on its first option unless it is told otherwise -
+  // and a control reading "object" over charts grouped by group is worse than either.
+  document.getElementById('plot-groupby').value = plotGroupBy;
   fillFacetFilter();
   document.getElementById('flt-only').onchange = function(){
     st.only = this.value;
@@ -5539,6 +5548,8 @@ if (typeof globalThis !== 'undefined') {
                                     bounded: NOUN.bounded, a: aNoun() }; },
     metricHelp: metricHelp,
     setPlotStyle: function(style){ plotStyle = style; },
+    initFilters: initFilters,
+    groupBy: function(){ return plotGroupBy; },
     setGroupBy: function(by){ plotGroupBy = by; },
     setSignificance: function(on){ showSignificance = on; },
     sourceOf: sourceOf, geometryFilesIn: geometryFilesIn,

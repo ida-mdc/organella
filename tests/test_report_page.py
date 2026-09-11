@@ -327,7 +327,7 @@ def test_every_metric_chart_carries_the_explanation_from_the_report(drawn):
     assert drawn["helps"], "no panel explained what it was showing"
     joined = " ".join(drawn["helps"])
     # The sphericity answer in particular: a value over 1 is the question everyone asks.
-    assert "1 is a perfect ball" in joined
+    assert "1 is a perfect sphere" in joined
     assert "equal-volume sphere" in joined
 
 
@@ -550,6 +550,37 @@ def test_a_report_with_no_rows_says_so(report_path):
     failure = run_page({"loadFailure": []})["loadFailure"]
 
     assert "no rows" in failure
+
+
+# ── what the report opens on ─────────────────────────────────────────────────
+
+
+def test_a_batch_with_groups_opens_grouped_by_group(report_path):
+    """That is the comparison the run was set up to make.
+
+    An object is one sample of a condition, not a thing to compare against another
+    condition's, so opening on the objects puts the reader one control away from the
+    question the batch was built to answer.
+    """
+    opened = run_page({"rows": rows_of(report_path), "structure": "mito",
+                       "render": True, "initFilters": True})["initFilters"]
+
+    assert opened["groupBy"] == "group"
+    assert opened["offered"] is True
+    # The select is markup and opens on its first option; a control reading "object" over
+    # charts grouped by group is worse than either.
+    assert opened["control"] == "group"
+
+
+def test_a_batch_of_one_group_opens_on_its_objects(report_path):
+    """With one group there is nothing to compare, and the control is not offered."""
+    rows = [{**row, "imported_path_short": "only"} for row in rows_of(report_path)]
+
+    opened = run_page({"rows": rows, "structure": "mito",
+                       "render": True, "initFilters": True})["initFilters"]
+
+    assert opened["groupBy"] == "object"
+    assert opened["offered"] is False
 
 
 # ── geometry this page cannot read ───────────────────────────────────────────

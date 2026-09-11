@@ -504,6 +504,18 @@ if (job.loadFailure !== undefined) {
     out.loadFailure = error.message;
   }
 }
+// What the report opens on. The faceting is settled against the batch rather than fixed,
+// so it is read back the way a reader meets it: the state, the control, and whether the
+// control is offered at all. Needs `render`, since it is the DOM it settles.
+if (job.initFilters) {
+  R.initFilters();
+  out.initFilters = {
+    groupBy: R.groupBy(),
+    offered: document.getElementById('plot-groupby-wrap').style.display !== 'none',
+    control: document.getElementById('plot-groupby').value,
+  };
+}
+
 if (job.noun !== undefined || job.rows) {
   out.noun = R.nounState();
 }
