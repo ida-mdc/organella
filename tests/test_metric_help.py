@@ -10,11 +10,10 @@ is what these tests are for.
 """
 
 import pyarrow.parquet as pq
-import pytest
 from conftest import report_column_help, run_report_page
 
 from organella import report_io
-from organella.column_schema import COLUMN_DESCRIPTIONS, describe
+from organella.column_schema import describe
 
 
 def test_every_column_of_a_real_report_is_described(report_path):

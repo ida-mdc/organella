@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push cancels the run it superseded: the suite is the slow part of a review.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions report, rather than the second being cancelled by the first's failure.
+      fail-fast: false
+      matrix:
+        # 3.11 is what pyproject asks for at the lowest; 3.12 is what it is developed on.
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # The report page is JavaScript, and parts of the suite run it through node: the way a
+      # report is read into the page, the geometry decoder, the merge arithmetic, the contact
+      # clustering, every query the geometry sections build, and every section drawn against a
+      # stub DOM. Without node those tests fail rather than skip.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # With the remote extra, so the manifest reader is installed rather than absent: a
+      # folder holding one source.json is an object too, and nothing else covers that path.
+      # pytest and duckdb are the dev group in pyproject, named again here because
+      # `uv pip install` has no --group flag yet; keep the two in step.
+      - name: Install
+        run: |
+          uv venv --python ${{ matrix.python }} .venv
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote]' pytest duckdb
+
+      - name: Test
+        run: .venv/bin/python -m pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Only the rules that catch a mistake rather than a preference: an undefined name, an
+      # unused import, a syntax error. The prose in this package is deliberate and the
+      # docstring and complexity rules would argue with it on every file.
+      - name: Ruff
+        run: uvx ruff check --select F,E9 src tests
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build
+        run: uv build
+
+      # The report page is a data file inside the package, and the suite reads it out of the
+      # source tree, so a wheel built without it would pass every test and still install a
+      # CLI whose `view` and `page` have nothing to open. Checked from a fresh environment,
+      # the way someone installing it gets it.
+      - name: The wheel carries the page, and the CLI can find it
+        run: |
+          unzip -l dist/*.whl | grep -q 'organella/report/organella_report.html'
+          uv venv --python 3.12 fresh
+          VIRTUAL_ENV=$PWD/fresh uv pip install dist/*.whl
+          page=$(fresh/bin/organella page)
+          test -f "$page"
+          echo "the installed CLI finds its page at $page"

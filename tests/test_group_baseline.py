@@ -12,7 +12,7 @@ properties worth pinning are that the share is the one brute force gives, and th
 """
 
 import itertools
-from math import comb, isclose, log
+from math import comb, log
 
 import pytest
 from conftest import run_report_page

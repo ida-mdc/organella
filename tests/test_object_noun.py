@@ -9,9 +9,8 @@ So a run can name it (``--object-noun cell``) and otherwise it follows the data.
 touches a column: two reports of the same kind stay joinable whatever they call themselves.
 """
 
-import pytest
 from conftest import report_column_help, report_rows, run_report_page
-from test_contacts_view import batch, entity_row, instance_row, object_row
+from test_contacts_view import batch
 
 from organella import report_io
 from organella.column_schema import describe, plural_of, with_noun

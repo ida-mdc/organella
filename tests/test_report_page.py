@@ -42,8 +42,10 @@ def test_the_columns_a_deep_row_is_asked_for_are_columns_a_run_writes(report_pat
     the file has, so a renamed one is quietly left out and the section it fed goes empty.
     """
     deep = run_page({})["constants"]["deepColumns"]
-    written = set(duckdb.connect().execute(
-        f"SELECT * FROM read_parquet('{report_path}') LIMIT 0").df().columns)
+    # Off the cursor's description rather than a frame: the names are all this wants, and
+    # .df() would make pandas a dependency of the suite for one line.
+    written = {column[0] for column in duckdb.connect().execute(
+        f"SELECT * FROM read_parquet('{report_path}') LIMIT 0").description}
 
     assert set(deep) == {"distance", "contact"}
     for row_type, columns in deep.items():
@@ -417,7 +419,6 @@ def test_both_chart_styles_draw_the_same_panels(drawn, as_histograms):
 
 
 def test_a_histogram_is_a_binned_shape_and_a_distribution_is_a_box(drawn, as_histograms):
-    boxes = drawn["traceTypes"].count("box")
     assert "box" in drawn["traceTypes"]
     assert "scatter" in as_histograms["traceTypes"]
     # A panel whose every value is identical has no shape to bin, and falls back to the box

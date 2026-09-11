@@ -88,7 +88,7 @@ def test_the_columns_it_reads_are_columns_a_run_writes(blender_script, tmp_path)
 
     import pyarrow.parquet as pq
 
-    from organella.analysis.meshes import GEOMETRY_FILENAME, mesh_rows_for_object, write_geometry
+    from organella.analysis.meshes import mesh_rows_for_object, write_geometry
 
     volume = np.zeros((12, 12, 12), dtype=np.uint8)
     volume[3:9, 3:9, 3:9] = 1

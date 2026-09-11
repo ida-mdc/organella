@@ -64,10 +64,16 @@ jobs:
       - name: Publish the imprint and the privacy policy
         run: cp docs/impressum.html docs/privacy.html docs/_legal.css _site/
 
+      # Skipped rather than fatal when the commit is not there: a repository the history
+      # was not carried into still deploys, just without the prototype's URLs.
       - name: Add the standalone prototype at its original URLs
         run: |
-          git show "$PROTOTYPE_REF:stats_viewer.html" > _site/stats_viewer.html
-          git show "$PROTOTYPE_REF:mesh_viewer.html"  > _site/mesh_viewer.html
+          if git cat-file -e "$PROTOTYPE_REF^{commit}" 2>/dev/null; then
+            git show "$PROTOTYPE_REF:stats_viewer.html" > _site/stats_viewer.html
+            git show "$PROTOTYPE_REF:mesh_viewer.html"  > _site/mesh_viewer.html
+          else
+            echo "::notice::$PROTOTYPE_REF is not in this repository; publishing without the prototype URLs"
+          fi
 
       - name: Show what will be published
         run: ls -lh _site

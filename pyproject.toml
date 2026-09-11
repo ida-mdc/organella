@@ -9,6 +9,9 @@ authors = [
 ]
 
 dependencies = [
+    # The command line itself. Installed today only because kimimaro happens to want it,
+    # which is not a dependency to rely on for the one entry point this package has.
+    "click>=8.1",
     "numpy>=2.0.0",
     "pyarrow",
     "polars>=1.0.0",
@@ -52,6 +55,10 @@ packages = ["src/organella"]
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
+    # The tests query a report the way the page does, in SQL, rather than trusting the
+    # frame the writer just handed them. Not a runtime dependency: the package writes
+    # reports with pyarrow and reads them with polars.
+    "duckdb>=1.0",
 ]
 
 [tool.pytest.ini_options]
