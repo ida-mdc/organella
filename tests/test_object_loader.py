@@ -1,6 +1,6 @@
 import pytest
 
-from label_anatomy.measure import find_object_dirs, is_object_dir, load_object
+from organella.measure import find_object_dirs, is_object_dir, load_object
 from synthetic import VOXEL_SIZE_UM, make_object, make_dataset
 
 
@@ -37,7 +37,7 @@ def test_voxel_size_read_from_tiff_metadata(object_dir):
 
 
 def test_voxel_size_override_from_env(object_dir, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_VOXEL_SIZE_UM", "0.5,0.25,0.25")
+    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.5,0.25,0.25")
     record = load_object(object_dir)
 
     assert record.meta["voxel_size_source"] == "config"
@@ -83,7 +83,7 @@ def test_folder_without_entity_volumes_is_not_an_object(tmp_path, object_dir):
 # ── which mask bounds the object ──────────────────────────────────────────────
 
 def test_the_named_mask_is_the_one_that_bounds_the_object(object_dir, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", "nucleus")
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "nucleus")
 
     record = load_object(object_dir)
 
@@ -94,7 +94,7 @@ def test_the_named_mask_is_the_one_that_bounds_the_object(object_dir, monkeypatc
 
 def test_cropping_follows_the_named_mask(object_dir, monkeypatch):
     to_membrane = load_object(object_dir).meta["object_shape"]
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", "nucleus")
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "nucleus")
 
     to_nucleus = load_object(object_dir).meta["object_shape"]
 
@@ -104,7 +104,7 @@ def test_cropping_follows_the_named_mask(object_dir, monkeypatch):
 
 
 def test_naming_a_mask_the_folder_does_not_have_is_an_error(object_dir, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", "cortex")
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "cortex")
 
     with pytest.raises(FileNotFoundError, match="No mask named 'cortex'"):
         load_object(object_dir)
@@ -113,7 +113,7 @@ def test_naming_a_mask_the_folder_does_not_have_is_an_error(object_dir, monkeypa
 def test_a_label_entity_cannot_be_the_object_mask(object_dir, monkeypatch):
     # mito is instance-segmented, so it is not a boundary: asking for it is the same
     # mistake as asking for a mask that is not there, and gets the same refusal.
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", "mito")
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "mito")
 
     with pytest.raises(FileNotFoundError, match="No mask named 'mito'"):
         load_object(object_dir)
@@ -126,7 +126,7 @@ def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir, monkeyp
     called "cortex" - so without a name nothing bounds the object, and the columns that need
     a boundary are simply not filled.
     """
-    monkeypatch.delenv("LABEL_ANATOMY_OBJECT_MASK", raising=False)
+    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
 
     record = load_object(object_dir)
 
@@ -147,7 +147,7 @@ def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_di
     """
     import numpy as np
 
-    monkeypatch.delenv("LABEL_ANATOMY_OBJECT_MASK", raising=False)
+    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
 
     record = load_object(object_dir)
 
@@ -169,11 +169,11 @@ def test_without_a_mask_nothing_is_cropped_or_clipped_away(tmp_path, monkeypatch
     import numpy as np
 
     folder = _object_with_something_outside(tmp_path)
-    monkeypatch.setenv("LABEL_ANATOMY_VOXEL_SIZE_UM", "0.1,0.02,0.02")
+    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.1,0.02,0.02")
 
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", "pm")
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "pm")
     bounded = load_object(folder)
-    monkeypatch.delenv("LABEL_ANATOMY_OBJECT_MASK", raising=False)
+    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
     whole = load_object(folder)
 
     # Cropped to the mask's bounding box when there is one, the full field when there is not.
@@ -215,11 +215,11 @@ def _object_with_something_outside(root):
 
 def _labels_seen(folder, no_clip):
     import os, numpy as np
-    os.environ["LABEL_ANATOMY_OBJECT_MASK"] = "pm"
-    os.environ["LABEL_ANATOMY_VOXEL_SIZE_UM"] = "0.1,0.02,0.02"
-    os.environ.pop("LABEL_ANATOMY_NO_CLIP", None)
+    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
+    os.environ["ORGANELLA_VOXEL_SIZE_UM"] = "0.1,0.02,0.02"
+    os.environ.pop("ORGANELLA_NO_CLIP", None)
     if no_clip:
-        os.environ["LABEL_ANATOMY_NO_CLIP"] = "1"
+        os.environ["ORGANELLA_NO_CLIP"] = "1"
     record = load_object(folder)
     c = record.dim_order.index("C")
     names = list(record.meta["channel_names"])

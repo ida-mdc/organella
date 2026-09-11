@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from label_anatomy.measure.contacts import ContactMeasurer
+from organella.measure.contacts import ContactMeasurer
 
 from conftest import object_stack
 
@@ -62,7 +62,7 @@ def test_the_step_size_follows_the_axis_of_approach():
 
 
 def test_pairs_beyond_the_threshold_are_not_recorded(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_CONTACT_MAX_UM", "0.05")
+    monkeypatch.setenv("ORGANELLA_CONTACT_MAX_UM", "0.05")
     mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 8), (3, 3, 3)))  # 3 empty = 0.08 µm
     row = _measure(_object(mito=(mito, "label")))
 

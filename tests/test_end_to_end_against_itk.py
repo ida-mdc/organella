@@ -15,8 +15,8 @@ import polars as pl
 import pytest
 import tifffile
 
-from label_anatomy import pipeline, report_io
-from label_anatomy.cli import FLAVOR, find_object_dirs
+from organella import pipeline, report_io
+from organella.cli import FLAVOR, find_object_dirs
 from synthetic import (
     PIXEL_SIZE_UM,
     VOXEL_SIZE_UM,

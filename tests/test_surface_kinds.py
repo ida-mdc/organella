@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 from conftest import run_report_page as run_page
 
-from label_anatomy.analysis.meshes import MeshOptions, mesh_rows_for_object
-from label_anatomy.analysis.primitives import (
+from organella.analysis.meshes import MeshOptions, mesh_rows_for_object
+from organella.analysis.primitives import (
     ELLIPSOID_MAX_ASPECT,
     ELLIPSOID_MIN_SPHERICITY,
     MAX_ELLIPSOID_STRETCH,
@@ -26,7 +26,7 @@ from label_anatomy.analysis.primitives import (
     choose_surface,
     ellipsoid_payload,
 )
-from label_anatomy.config import forced_surface, parse_geometry_as
+from organella.config import forced_surface, parse_geometry_as
 from synthetic import VOXEL_SIZE_UM
 
 SHAPE = (40, 48, 48)
@@ -35,7 +35,7 @@ SHAPE = (40, 48, 48)
 def _round_and_long():
     """Two physically round instances and one long rod, in anisotropic voxels.
 
-    Round *in µm*, not in indices: a voxel ball under 0.1 x 0.02 x 0.02 µm sampling is a
+    Round *in µm*, not in indices: a voxel sphere under 0.1 x 0.02 x 0.02 µm sampling is a
     flat disc in space, and the selector is right to refuse to call it an ellipsoid.
     """
     sz, sy, sx = VOXEL_SIZE_UM
@@ -65,7 +65,7 @@ def test_a_round_compact_shape_is_an_ellipsoid():
 
 
 def test_a_shape_that_is_round_but_long_is_not():
-    """Roundness alone cannot tell a ball from a smooth rod, and a rod drawn as the
+    """Roundness alone cannot tell a sphere from a smooth rod, and a rod drawn as the
     ellipsoid of its own moments is visibly too fat in the middle."""
     assert choose_surface(0.9, ELLIPSOID_MAX_ASPECT + 0.1, None) == "mesh"
 
@@ -250,7 +250,7 @@ def test_an_instance_cannot_be_asked_to_be_two_surfaces():
 def test_an_index_is_two_bytes_until_it_cannot_be():
     """A triangle mesh has about twice as many faces as vertices, so the index array is
     three quarters of a payload - measured at exactly 30 bytes per vertex before this."""
-    from label_anatomy.analysis.meshes import NARROW_INDEX_LIMIT, index_dtype
+    from organella.analysis.meshes import NARROW_INDEX_LIMIT, index_dtype
 
     assert index_dtype(NARROW_INDEX_LIMIT - 1) == np.uint16
     assert index_dtype(NARROW_INDEX_LIMIT) == np.uint32
@@ -259,7 +259,7 @@ def test_an_index_is_two_bytes_until_it_cannot_be():
 def test_a_narrow_mesh_round_trips_through_every_reader():
     """The width is derived from the vertex count, not recorded, so writer and reader agree
     by construction - and the page has to agree too."""
-    from label_anatomy.analysis.meshes import quantised_payload
+    from organella.analysis.meshes import quantised_payload
 
     verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], np.float32)
     faces = np.array([[0, 1, 2], [0, 2, 3]], np.uint32)
@@ -276,7 +276,7 @@ def test_a_narrow_mesh_round_trips_through_every_reader():
 def test_a_surface_is_decimated_to_its_budget():
     """A decimation *fraction* bounds nothing: one ER sheet came out at 2.87 million
     vertices where a vesicle came out at 57. A budget bounds the worst case."""
-    from label_anatomy.analysis.meshes import generate_mesh
+    from organella.analysis.meshes import generate_mesh
 
     zz, yy, xx = np.ogrid[:60, :60, :60]
     blob = ((zz - 30) ** 2 + (yy - 30) ** 2 + (xx - 30) ** 2) <= 26 ** 2
@@ -308,7 +308,7 @@ class _Line:
 def _straight_tube(n_nodes=20, radius=0.5):
     """A centre line with no branches, so ring count is the only thing being measured."""
     import numpy as np
-    from label_anatomy.analysis.primitives import tube_payload
+    from organella.analysis.primitives import tube_payload
 
     verts = np.stack([np.zeros(n_nodes), np.zeros(n_nodes),
                       np.arange(n_nodes, dtype=float)], axis=1)   # (z, y, x)
@@ -487,7 +487,7 @@ def test_the_lattice_comes_out_of_a_centre_line():
     """A skeleton steps from voxel to voxel and turns about 34° at each one on real data.
     That zig-zag is what a swept tube shows as blocky, and it is in the data - no renderer
     can smooth a centre line that is not smooth."""
-    from label_anatomy.analysis.primitives import smooth_centre_line
+    from organella.analysis.primitives import smooth_centre_line
     import numpy as np
 
     points, edges = _lattice_walk()
@@ -501,7 +501,7 @@ def test_the_lattice_comes_out_of_a_centre_line():
 def test_smoothing_does_not_move_an_end_or_a_junction():
     """A junction is where arms meet and an end is where the structure stops; moving either
     would pull the arms apart and shorten every filament."""
-    from label_anatomy.analysis.primitives import smooth_centre_line
+    from organella.analysis.primitives import smooth_centre_line
     import numpy as np
 
     points, edges = _lattice_walk(n=30)
@@ -530,9 +530,9 @@ def _sphere_field(radius=20, size=64):
     from scipy.ndimage import distance_transform_edt
 
     zz, yy, xx = np.ogrid[:size, :size, :size]
-    ball = ((zz - size // 2) ** 2 + (yy - size // 2) ** 2
+    sphere = ((zz - size // 2) ** 2 + (yy - size // 2) ** 2
             + (xx - size // 2) ** 2) <= radius ** 2
-    padded = np.pad(ball, 2)
+    padded = np.pad(sphere, 2)
     return (distance_transform_edt(padded)
             - distance_transform_edt(~padded)).astype("float32")
 
@@ -541,7 +541,7 @@ def test_surface_nets_closes_the_surface_it_builds():
     """Every edge shared by exactly two triangles, or the mesh has holes and nothing
     downstream - decimation, normals, a Blender import - behaves."""
     import collections
-    from label_anatomy.analysis.meshes import surface_nets
+    from organella.analysis.meshes import surface_nets
 
     _, faces = surface_nets(_sphere_field())
 
@@ -557,7 +557,7 @@ def test_surface_nets_is_smoother_than_marching_cubes():
     crossings, so a staircase boundary comes out less stepped."""
     import numpy as np
     from skimage.measure import marching_cubes
-    from label_anatomy.analysis.meshes import surface_nets
+    from organella.analysis.meshes import surface_nets
 
     field = _sphere_field(radius=20)
     centre = np.array(field.shape) / 2.0
@@ -571,7 +571,7 @@ def test_surface_nets_is_smoother_than_marching_cubes():
 def test_marching_cubes_stays_the_default():
     """On a real ER sheet the two came out 0.16% apart in vertices, and surface nets took
     66% longer - so it is offered, not imposed."""
-    from label_anatomy.analysis.meshes import MeshOptions
+    from organella.analysis.meshes import MeshOptions
 
     assert MeshOptions().surface_method == "marching-cubes"
 
@@ -581,7 +581,7 @@ def test_marching_cubes_stays_the_default():
 def test_the_scene_query_no_longer_caps_what_it_returns():
     """A cap left structures missing with nothing said. It is gone; the tessellation is
     what gives way instead."""
-    page = open("src/label_anatomy/report/anatomy_report.html", encoding="utf-8").read()
+    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
 
     assert "MAX_MESHES" not in page
     assert "SURFACE_VERTEX_BUDGET" in page

@@ -1,5 +1,5 @@
 """
-geometry_to_blender.py — Import a Anatomy geometry.parquet into a Blender scene.
+geometry_to_blender.py — Import an organella geometry.parquet into a Blender scene.
 
 Script editor: set GEOMETRY_PATH below, then run with Alt+P.
 
@@ -14,7 +14,7 @@ and a tube as its centre line, and turning either into triangles is the report p
 not this one. Re-run the batch with `--geometry-as NAME=mesh` to get meshes for a structure
 you want in Blender.
 
-Mesh encoding (from anatomy, stored as a BLOB — parquet does the compressing):
+Mesh encoding (from organella, stored as a BLOB — parquet does the compressing):
   [uint32 nV][uint32 nF]
   [float32×3 min_xyz][float32×3 scale_xyz]
   [uint16 × nV×3  quantised XYZ vertices (µm)]
@@ -248,7 +248,7 @@ def main():
     if "surface" not in written:
         print("[geometry_to_blender] This geometry was written before the surface kinds, "
               "so it holds a 'mesh' column where this reads a 'surface'. Mesh the batch "
-              "again: label-anatomy mesh <report>.")
+              "again: organella mesh <report>.")
         return
     df = pd.read_parquet(
         geometry_path,
@@ -267,7 +267,7 @@ def main():
     # centre line, neither of which holds triangles - the report page tessellates them as
     # it draws. Nothing here does, so they are counted and left out rather than fed to a
     # decoder that cannot read them. A run that is headed for Blender can ask for meshes:
-    # label-anatomy process --with-mesh --geometry-as NAME=mesh.
+    # organella process --with-mesh --geometry-as NAME=mesh.
     kinds = df["surface_kind"].fillna("mesh")
     parametric = kinds[kinds != "mesh"].value_counts().to_dict()
     df = df[kinds == "mesh"]

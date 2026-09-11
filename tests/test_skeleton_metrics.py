@@ -14,7 +14,7 @@ definition, and a quarter circle is π/2 ÷ √2 whatever produced it.
 import numpy as np
 import pytest
 
-from label_anatomy.analysis.shapes import skeleton_graph_metrics
+from organella.analysis.shapes import skeleton_graph_metrics
 
 
 class FakeSkeleton:

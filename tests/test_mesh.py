@@ -12,8 +12,8 @@ import polars as pl
 import pytest
 from click.testing import CliRunner
 
-from label_anatomy.cli import cli
-from label_anatomy.analysis.meshes import (
+from organella.cli import cli
+from organella.analysis.meshes import (
     NARROW_INDEX_LIMIT,
     GEOMETRY_COLUMNS,
     MeshOptions,
@@ -23,7 +23,7 @@ from label_anatomy.analysis.meshes import (
     sigma_for_shape,
     write_geometry,
 )
-from label_anatomy.measure.geometry import GeometryWriter
+from organella.measure.geometry import GeometryWriter
 
 from conftest import object_stack
 from synthetic import make_object, make_dataset
@@ -50,7 +50,7 @@ def decode_payload(raw: bytes, per_index: int = 3):
     return verts_q / 65535.0 * params[3:] + params[:3], indices
 
 
-def _ball(radius=4, centre=(6, 12, 12)) -> np.ndarray:
+def _sphere(radius=4, centre=(6, 12, 12)) -> np.ndarray:
     zz, yy, xx = np.ogrid[: SHAPE[0], : SHAPE[1], : SHAPE[2]]
     return (
         ((zz - centre[0]) / radius) ** 2 + ((yy - centre[1]) / radius) ** 2
@@ -61,7 +61,7 @@ def _ball(radius=4, centre=(6, 12, 12)) -> np.ndarray:
 # ── payloads ──────────────────────────────────────────────────────────────────
 
 def test_mesh_payload_decodes_to_vertices_in_micrometres():
-    verts, faces = decode_payload(generate_mesh(_ball(), (0, 0, 0), VOXEL))
+    verts, faces = decode_payload(generate_mesh(_sphere(), (0, 0, 0), VOXEL))
 
     assert len(verts) > 0 and len(faces) > 0
     assert faces.max() < len(verts)              # every face indexes a real vertex
@@ -71,8 +71,8 @@ def test_mesh_payload_decodes_to_vertices_in_micrometres():
 
 
 def test_mesh_vertices_are_offset_by_the_bounding_box_origin():
-    at_origin, _ = decode_payload(generate_mesh(_ball(), (0, 0, 0), VOXEL))
-    offset, _ = decode_payload(generate_mesh(_ball(), (2, 3, 4), VOXEL))
+    at_origin, _ = decode_payload(generate_mesh(_sphere(), (0, 0, 0), VOXEL))
+    offset, _ = decode_payload(generate_mesh(_sphere(), (2, 3, 4), VOXEL))
 
     # The origin is in voxels, the vertices in µm: an instance meshed from its own bbox
     # still lands in whole-volume coordinates, which is what aligns it with its skeleton.
@@ -101,9 +101,9 @@ def test_smoothing_sigma_follows_shape():
 
 def _object_volumes():
     mito = np.zeros(SHAPE, dtype=np.int32)
-    mito[_ball(3, (6, 6, 6))] = 1
-    mito[_ball(3, (6, 18, 18))] = 2
-    return {"pm": _ball(10).astype(np.int32), "mito": mito}, {"pm": "mask", "mito": "label"}
+    mito[_sphere(3, (6, 6, 6))] = 1
+    mito[_sphere(3, (6, 18, 18))] = 2
+    return {"pm": _sphere(10).astype(np.int32), "mito": mito}, {"pm": "mask", "mito": "label"}
 
 
 def test_rows_cover_label_instances_and_whole_masks():
@@ -165,13 +165,13 @@ def test_smoothing_is_the_same_blur_in_every_direction():
     The field and the kernel were both in samples, which on a stack with 5x coarser z
     smoothed five times as far in z as in x and flattened everything.
     """
-    ball = _ball(radius=4)
+    sphere = _sphere(radius=4)
     # step_size=1 in both: the stride is in samples, and a coarse axis limits it on its own.
     isotropic = decode_payload(
-        generate_mesh(ball, (0, 0, 0), (0.02, 0.02, 0.02), step_size=1))[0]
-    anisotropic = decode_payload(generate_mesh(ball, (0, 0, 0), VOXEL, step_size=1))[0]
+        generate_mesh(sphere, (0, 0, 0), (0.02, 0.02, 0.02), step_size=1))[0]
+    anisotropic = decode_payload(generate_mesh(sphere, (0, 0, 0), VOXEL, step_size=1))[0]
 
-    # The ball spans 5 times as much in z at VOXEL, and its z extent has to follow the
+    # The sphere spans 5 times as much in z at VOXEL, and its z extent has to follow the
     # sampling rather than the blur.
     span = lambda verts, axis: float(verts[:, axis].max() - verts[:, axis].min())
     z_ratio = span(anisotropic, 2) / span(isotropic, 2)
@@ -213,7 +213,7 @@ def test_nothing_is_skeletonised_unless_it_was_named():
 def test_contact_rows_ride_in_the_same_file():
     volumes, kinds = _object_volumes()
     mito = volumes["mito"]
-    mito[_ball(3, (6, 12, 12))] = 3            # between the other two, touching neither
+    mito[_sphere(3, (6, 12, 12))] = 3            # between the other two, touching neither
     rows = mesh_rows_for_object(volumes, kinds, VOXEL, object_id="object_a",
                               options=MeshOptions(contact_max_um=0.5))
 
@@ -276,7 +276,7 @@ def _record(volumes, kinds):
 
 
 def test_nothing_is_written_until_a_destination_is_configured(monkeypatch):
-    monkeypatch.delenv("LABEL_ANATOMY_MESH_DIR", raising=False)
+    monkeypatch.delenv("ORGANELLA_MESH_DIR", raising=False)
     volumes, kinds = _object_volumes()
 
     # The column is still declared, so a report written with the writer enabled but no
@@ -286,7 +286,7 @@ def test_nothing_is_written_until_a_destination_is_configured(monkeypatch):
 
 
 def test_one_file_is_written_and_the_object_row_says_where(tmp_path, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_MESH_DIR", str(tmp_path / "meshes"))
+    monkeypatch.setenv("ORGANELLA_MESH_DIR", str(tmp_path / "meshes"))
     volumes, kinds = _object_volumes()
 
     row = GeometryWriter().measure(_record(volumes, kinds)).columns
@@ -350,7 +350,7 @@ def test_a_small_instance_is_not_smoothed_away():
 
 def test_oversized_and_pooled_instances_come_back_in_order(monkeypatch):
     import numpy as np
-    from label_anatomy.analysis import meshes as mesh_mod
+    from organella.analysis import meshes as mesh_mod
 
     # Low enough that the sprawling instance is routed inline and the cubes are not.
     monkeypatch.setattr(mesh_mod, "_INLINE_INSTANCE_SAMPLES", 50_000)
@@ -375,6 +375,6 @@ def test_oversized_and_pooled_instances_come_back_in_order(monkeypatch):
 
 
 def test_the_mesh_pool_is_bounded_by_memory_not_just_cores():
-    from label_anatomy.analysis.parallel import mesh_worker_budget, _WORKER_CAP
+    from organella.analysis.parallel import mesh_worker_budget, _WORKER_CAP
     assert mesh_worker_budget(1000) <= _WORKER_CAP
     assert mesh_worker_budget(1) == 1

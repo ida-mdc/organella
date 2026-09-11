@@ -1,11 +1,11 @@
 // Run the report page's own code outside a browser, so the Python suite can check it.
 //
-//   node report_page_check.mjs <anatomy_report.html> <job.json>
+//   node report_page_check.mjs <organella_report.html> <job.json>
 //
 // The page is one standalone HTML file — that is the point of it, since it is opened by
 // dropping a report onto it — so there is no module to import. The <script> is lifted out
 // and imported as a data: URL instead, which runs exactly the code the browser runs. It
-// ends by assigning `globalThis.AnatomyReport`, and everything with a contract worth
+// ends by assigning `globalThis.OrganellaReport`, and everything with a contract worth
 // pinning is on there: the shape a report is read into, the maths the panels draw, the
 // binary container the meshes are in, and the SQL the geometry sections build.
 //
@@ -154,8 +154,8 @@ if (job.render) {
 await import('data:text/javascript;base64,'
   + Buffer.from(blocks[0][1], 'utf8').toString('base64'));
 
-const R = globalThis.AnatomyReport;
-if (!R) throw new Error('the page did not export AnatomyReport');
+const R = globalThis.OrganellaReport;
+if (!R) throw new Error('the page did not export OrganellaReport');
 
 const out = {};
 

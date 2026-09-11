@@ -8,14 +8,14 @@ measured through our own entry points, in µm with anisotropic sampling.
 import numpy as np
 import pytest
 
-from label_anatomy.analysis.distances import distance_transform_um
-from label_anatomy.analysis.shapes import label_metrics, region_metrics
+from organella.analysis.distances import distance_transform_um
+from organella.analysis.shapes import label_metrics, region_metrics
 
 VOXEL = (0.1, 0.05, 0.05)     # z, y, x, anisotropic as real data is
 PIXEL = (0.05, 0.05)          # y, x
 
 
-def ball(radius_um: float, shape=(41, 81, 81)) -> np.ndarray:
+def sphere(radius_um: float, shape=(41, 81, 81)) -> np.ndarray:
     grid = np.indices(shape) - (np.array(shape) // 2)[:, None, None, None]
     return ((grid * np.array(VOXEL)[:, None, None, None]) ** 2).sum(0) <= radius_um ** 2
 
@@ -26,7 +26,7 @@ def disc(radius_um: float, shape=(81, 81)) -> np.ndarray:
 
 
 def test_a_sphere_measures_like_a_sphere():
-    measured = region_metrics(ball(1.0), VOXEL)
+    measured = region_metrics(sphere(1.0), VOXEL)
 
     # 1% covers the sampling: a voxelised sphere is not a sphere.
     assert measured["volume_um3"] == pytest.approx(4 / 3 * np.pi, rel=0.01)
@@ -112,7 +112,7 @@ def test_the_instance_to_target_distance_matches_a_kd_tree():
     """
     from scipy.spatial import cKDTree
 
-    from label_anatomy.analysis.distances import distance_target
+    from organella.analysis.distances import distance_target
 
     target = np.zeros((30, 60, 60), dtype=np.int32)
     target[10:20, 10:20, 10:20] = 1
@@ -131,7 +131,7 @@ def test_the_instance_to_target_distance_matches_a_kd_tree():
 
 def test_two_spheres_are_their_gap_apart():
     """Surface to surface, in µm, against the arithmetic."""
-    from label_anatomy.analysis.distances import distance_target
+    from organella.analysis.distances import distance_target
 
     shape = (61, 61, 61)
     grid = np.indices(shape) * np.array(VOXEL)[:, None, None, None]
@@ -148,7 +148,7 @@ def test_two_spheres_are_their_gap_apart():
 
 def test_the_object_mask_target_is_the_distance_to_the_boundary():
     """For the object mask the target is inverted, so the distance is to the boundary."""
-    from label_anatomy.analysis.distances import distance_target
+    from organella.analysis.distances import distance_target
 
     mask = np.zeros((30, 60, 60), dtype=np.int32)
     mask[5:25, 10:50, 10:50] = 1

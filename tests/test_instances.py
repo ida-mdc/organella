@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from label_anatomy.measure.instances import InstanceMeasurer
+from organella.measure.instances import InstanceMeasurer
 
 from conftest import object_stack
 
@@ -178,7 +178,7 @@ def test_polarity_spread_is_off_unless_asked_for():
 
 
 def test_polarity_spread_grows_with_the_directions_an_instance_covers(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_POLARITY_SPREAD", "1")
+    monkeypatch.setenv("ORGANELLA_POLARITY_SPREAD", "1")
     pm = np.zeros(SHAPE, dtype=np.int32)
     pm[1:9, 1:19, 1:19] = 1
     compact = _blocks((1, (4, 9, 15), (2, 2, 2)))                 # a blob off to one side
@@ -204,7 +204,7 @@ def test_distance_histograms_are_off_unless_asked_for():
 def test_distance_histograms_share_their_bins_across_an_entity(monkeypatch):
     import json
 
-    monkeypatch.setenv("LABEL_ANATOMY_DISTANCE_HISTOGRAMS", "1")
+    monkeypatch.setenv("ORGANELLA_DISTANCE_HISTOGRAMS", "1")
     mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 14), (3, 3, 3)))
     nucleus = _blocks((1, (2, 2, 8), (3, 3, 3)))
     row = _measure(_object(mito=(mito, "label"), nucleus=(nucleus, "mask")))

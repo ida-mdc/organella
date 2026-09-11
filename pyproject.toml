@@ -1,7 +1,7 @@
 [project]
-name = "label-anatomy"
+name = "organella"
 version = "0.1.0"
-description = "The spatial anatomy of segmented objects: measure a batch of them, and read the result in one standalone page"
+description = "Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -37,7 +37,7 @@ remote = [
 ]
 
 [project.scripts]
-label-anatomy = "label_anatomy.cli:cli"
+organella = "organella.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
@@ -47,7 +47,7 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/label_anatomy"]
+packages = ["src/organella"]
 
 [dependency-groups]
 dev = [

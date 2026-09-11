@@ -2,14 +2,15 @@ name: Deploy the report page to GitHub Pages
 
 # The report is read by one standalone HTML page: it loads a report.parquet in the browser
 # and draws every chart from it, so publishing it is a copy, not a build. It is served at
-# / and at /anatomy_report.html, and the standalone prototype it grew out of keeps the URLs
-# it was published under (/stats_viewer.html, /mesh_viewer.html) so existing links work.
+# / and at /organella_report.html. The standalone prototype it grew out of keeps the URLs it
+# was published under (/stats_viewer.html, /mesh_viewer.html) so existing links work.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'src/label_anatomy/report/**'
+      - 'src/organella/report/**'
+      - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -56,9 +57,12 @@ jobs:
       - name: Publish the page
         run: |
           mkdir -p _site
-          page=$(.venv/bin/label-anatomy page)
-          cp "$page" _site/anatomy_report.html
+          page=$(.venv/bin/organella page)
+          cp "$page" _site/organella_report.html
           cp "$page" _site/index.html
+
+      - name: Publish the imprint and the privacy policy
+        run: cp docs/impressum.html docs/privacy.html docs/_legal.css _site/
 
       - name: Add the standalone prototype at its original URLs
         run: |

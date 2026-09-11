@@ -8,9 +8,9 @@ and nothing that describes a folder as if it were a file.
 import polars as pl
 import pytest
 
-from label_anatomy import pipeline, report_io
-from label_anatomy.cli import FLAVOR
-from label_anatomy.measure import find_object_dirs
+from organella import pipeline, report_io
+from organella.cli import FLAVOR
+from organella.measure import find_object_dirs
 from synthetic import make_object
 
 
@@ -67,11 +67,11 @@ def test_the_footer_carries_the_flavour_and_the_paths(batch, tmp_path):
                          flavor=FLAVOR)
 
     meta = {k.decode(): v.decode() for k, v in pq.read_metadata(out).metadata.items()
-            if k.startswith(b"anatomy_")}
+            if k.startswith(b"organella_")}
 
-    assert meta["anatomy_flavour"] == FLAVOR
-    assert meta["anatomy_loader"] == "anatomy"
-    assert '"control"' in meta["anatomy_paths"]
+    assert meta["organella_flavour"] == FLAVOR
+    assert meta["organella_loader"] == "organella"
+    assert '"control"' in meta["organella_paths"]
 
 
 def test_every_column_says_what_it_means(report_path):

@@ -13,8 +13,8 @@ import pyarrow.parquet as pq
 import pytest
 from conftest import report_column_help, run_report_page
 
-from label_anatomy import report_io
-from label_anatomy.column_schema import COLUMN_DESCRIPTIONS, describe
+from organella import report_io
+from organella.column_schema import COLUMN_DESCRIPTIONS, describe
 
 
 def test_every_column_of_a_real_report_is_described(report_path):
@@ -68,9 +68,9 @@ def test_the_footer_survives_a_recolour(report_path, tmp_path):
     _, after = report_io.read(copy)
 
     # The provenance is the only record of how the run was made; a rewrite keeps it.
-    assert after["anatomy_created_at"] == before["anatomy_created_at"]
-    assert after["anatomy_flavour"] == before["anatomy_flavour"]
-    assert after["anatomy_processing_stats"] == before["anatomy_processing_stats"]
+    assert after["organella_created_at"] == before["organella_created_at"]
+    assert after["organella_flavour"] == before["organella_flavour"]
+    assert after["organella_processing_stats"] == before["organella_processing_stats"]
 
 
 # ── what the page makes of them ──────────────────────────────────────────────
@@ -134,7 +134,7 @@ def test_sphericity_says_what_a_value_over_one_means(report_path):
     """The question every reader asks, so the answer travels with the number."""
     text = report_column_help(report_path)["instance_sphericity"]
 
-    assert "1 is a perfect ball" in text
+    assert "1 is a perfect sphere" in text
     assert "equal-volume sphere" in text
     # And it does not repeat the claim it used to make, which the code contradicts: the
     # boundary is ITK's Crofton estimator, not a count of voxel faces.

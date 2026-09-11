@@ -10,14 +10,14 @@ import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
-from label_anatomy.cli import (
+from organella.cli import (
     FLAVOR,
     _apply_analysis_env,
     cli,
     estimate_peak_gb,
     find_object_dirs,
 )
-from label_anatomy.config import AnatomyConfig
+from organella.config import RunConfig
 from synthetic import make_object, make_dataset
 
 
@@ -55,30 +55,30 @@ def test_a_folder_with_no_source_estimates_nothing(tmp_path):
 
 
 def test_analysis_flags_travel_as_environment_variables(monkeypatch):
-    # Writes land in a throwaway copy: a leaked LABEL_ANATOMY_* here would silently
+    # Writes land in a throwaway copy: a leaked ORGANELLA_* here would silently
     # reconfigure every later test, since that is exactly how plugins read their options.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("LABEL_ANATOMY_")}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ORGANELLA_")}
     monkeypatch.setattr(os, "environ", env)
 
     _apply_analysis_env("pm", "cell", "0.5,0.1,0.1", True, False, 0.25, None, None)
 
-    assert env["LABEL_ANATOMY_OBJECT_MASK"] == "pm"
-    assert env["LABEL_ANATOMY_OBJECT_NOUN"] == "cell"
-    assert env["LABEL_ANATOMY_VOXEL_SIZE_UM"] == "0.5,0.1,0.1"
-    assert env["LABEL_ANATOMY_NO_CLIP"] == "1"
-    assert env["LABEL_ANATOMY_CONTACT_MAX_UM"] == "0.25"
+    assert env["ORGANELLA_OBJECT_MASK"] == "pm"
+    assert env["ORGANELLA_OBJECT_NOUN"] == "cell"
+    assert env["ORGANELLA_VOXEL_SIZE_UM"] == "0.5,0.1,0.1"
+    assert env["ORGANELLA_NO_CLIP"] == "1"
+    assert env["ORGANELLA_CONTACT_MAX_UM"] == "0.25"
     # Flags left alone must not be forced to a default here - config.py owns those.
-    assert "LABEL_ANATOMY_AUTO_LABEL_MASKS" not in env
-    assert "LABEL_ANATOMY_MAX_SKELETON_VOXELS" not in env
+    assert "ORGANELLA_AUTO_LABEL_MASKS" not in env
+    assert "ORGANELLA_MAX_SKELETON_VOXELS" not in env
 
 
 def test_a_colour_settings_file_is_read_and_expanded(tmp_path, monkeypatch):
     """One file per study, hand-edited: short hex and any case have to work."""
     settings = tmp_path / "colours.json"
     settings.write_text(json.dumps({"mito": "#D62728", "er": "#2c3"}))
-    monkeypatch.setenv("LABEL_ANATOMY_ENTITY_COLOURS", str(settings))
+    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(settings))
 
-    assert AnatomyConfig.from_env().entity_colours == {"mito": "#d62728", "er": "#22cc33"}
+    assert RunConfig.from_env().entity_colours == {"mito": "#d62728", "er": "#22cc33"}
 
 
 @pytest.mark.parametrize("contents,complaint", [
@@ -90,18 +90,18 @@ def test_a_colour_settings_file_is_read_and_expanded(tmp_path, monkeypatch):
 def test_a_broken_colour_file_says_what_is_wrong(tmp_path, monkeypatch, contents, complaint):
     settings = tmp_path / "colours.json"
     settings.write_text(contents)
-    monkeypatch.setenv("LABEL_ANATOMY_ENTITY_COLOURS", str(settings))
+    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(settings))
 
     with pytest.raises(ValueError, match=complaint):
-        AnatomyConfig.from_env()
+        RunConfig.from_env()
 
 
 def test_a_missing_colour_file_is_an_error_not_a_default(tmp_path, monkeypatch):
     """Silently ignoring it would produce a report coloured nothing like the study asked."""
-    monkeypatch.setenv("LABEL_ANATOMY_ENTITY_COLOURS", str(tmp_path / "nope.json"))
+    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(tmp_path / "nope.json"))
 
     with pytest.raises(ValueError, match="no such file"):
-        AnatomyConfig.from_env()
+        RunConfig.from_env()
 
 
 def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path):
@@ -121,10 +121,10 @@ def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path
     assert result.exit_code == 0, result.output
     after = pq.read_table(coloured)
     assert after.num_rows == before.num_rows
-    assert (after.schema.metadata[b"anatomy_flavour"]
-            == before.schema.metadata[b"anatomy_flavour"])
-    assert (after.schema.metadata[b"anatomy_paths"]
-            == before.schema.metadata[b"anatomy_paths"])
+    assert (after.schema.metadata[b"organella_flavour"]
+            == before.schema.metadata[b"organella_flavour"])
+    assert (after.schema.metadata[b"organella_paths"]
+            == before.schema.metadata[b"organella_paths"])
     entities = pl.from_arrow(after).filter(pl.col("obs_level") == 1)
     by_name = dict(zip(entities["entity_name"], entities["entity_colour"]))
     # The new palette replaces the old one outright: it is the whole answer, not an addition.
@@ -213,7 +213,7 @@ def test_the_report_says_what_kind_of_analysis_it_is(dataset, tmp_path):
     # The viewer shows the flavour as a chip beside the title, so a report is recognisable
     # as this analysis before a widget is read.
     metadata = pq.read_metadata(out).metadata
-    assert metadata[b"anatomy_flavour"].decode() == FLAVOR == "object anatomy"
+    assert metadata[b"organella_flavour"].decode() == FLAVOR == "organella"
 
 
 def test_process_can_skip_the_expensive_processors(dataset, tmp_path):
@@ -249,7 +249,7 @@ def test_process_refuses_a_directory_with_no_objects(tmp_path):
 
 def test_page_prints_a_file_that_is_there():
     from click.testing import CliRunner
-    from label_anatomy import cli as cli_mod
+    from organella import cli as cli_mod
 
     result = CliRunner().invoke(cli_mod.cli, ["page"])
 
@@ -261,7 +261,7 @@ def test_page_prints_a_file_that_is_there():
 
 def test_the_page_is_self_contained():
     """It is copied around and opened from disk, so it may reference nothing beside it."""
-    from label_anatomy.report_page import report_page
+    from organella.report_page import report_page
 
     source = report_page().read_text()
 
@@ -278,7 +278,7 @@ def test_view_serves_the_report_and_points_the_page_at_it(tmp_path, report_path)
     import shutil
     import urllib.request
 
-    from label_anatomy import report_page as page_mod
+    from organella import report_page as page_mod
 
     served = tmp_path / "report.parquet"
     shutil.copy(report_path, served)
@@ -300,7 +300,7 @@ def test_view_serves_the_report_and_points_the_page_at_it(tmp_path, report_path)
     assert "data=report.parquet" in url
     page = urllib.request.urlopen(
         f"http://127.0.0.1:{port}/{page_mod.PAGE_FILENAME}").read().decode()
-    assert "Anatomy Report" in page
+    assert "Organella Report" in page
     assert urllib.request.urlopen(
         f"http://127.0.0.1:{port}/report.parquet").read(4) == b"PAR1"
 
@@ -316,7 +316,7 @@ def test_nothing_served_may_be_cached(tmp_path, report_path):
     import shutil
     import urllib.request
 
-    from label_anatomy import report_page as page_mod
+    from organella import report_page as page_mod
 
     served = tmp_path / "report.parquet"
     shutil.copy(report_path, served)
@@ -338,7 +338,7 @@ def test_nothing_served_may_be_cached(tmp_path, report_path):
 
 
 def test_a_report_with_geometry_is_opened_with_its_geometry_attached(report_path):
-    from label_anatomy import report_page as page_mod
+    from organella import report_page as page_mod
 
     # This report was written without --with-mesh, so there is nothing to attach and the
     # page is not told to look for any: an empty 3D section says so itself.
@@ -350,7 +350,7 @@ def test_the_geometry_root_is_read_off_the_report(tmp_path):
     """--mesh-dir can put it anywhere, so where it went is read rather than guessed."""
     import polars as pl
 
-    from label_anatomy import report_page as page_mod
+    from organella import report_page as page_mod
 
     geometry = tmp_path / "somewhere_else" / "object_a"
     geometry.mkdir(parents=True)
@@ -365,7 +365,7 @@ def test_the_geometry_root_is_read_off_the_report(tmp_path):
 
 
 def test_a_geometry_request_cannot_walk_out_of_the_geometry_root(tmp_path):
-    from label_anatomy.report_page import GEOMETRY_MOUNT, _Handler
+    from organella.report_page import GEOMETRY_MOUNT, _Handler
 
     _Handler.geometry = tmp_path / "geometry"
     _Handler.page = tmp_path / "page.html"

@@ -6,14 +6,15 @@ import numpy as np
 import pytest
 
 
-from label_anatomy.analysis import cache as skeletons
-from label_anatomy.analysis.meshes import MeshOptions, mesh_rows_for_object
+from organella.analysis import cache as skeletons
+from organella.analysis.meshes import MeshOptions, mesh_rows_for_object
 
-from label_anatomy.measure.instances import InstanceMeasurer
+from organella.measure.instances import InstanceMeasurer
 
 from conftest import object_stack
-from label_anatomy.analysis.cache import CACHE
-from label_anatomy.config import forced_surface, parse_geometry_as, wants_skeletons
+from organella.analysis.cache import CACHE
+from organella.config import (RunConfig, forced_surface, parse_entity_filter,
+                              parse_geometry_as, wants_skeletons)
 
 SHAPE = (10, 24, 24)
 VOXEL = (0.1, 0.02, 0.02)
@@ -69,8 +70,45 @@ def test_an_empty_filter_means_nothing_gets_skeletonised():
     assert forced_surface("mito", parse_geometry_as("mito=ellipsoid")) == "ellipsoid"
 
 
+def test_skeletons_names_the_structures_to_skeletonise():
+    """--skeletons is the whole question for most runs; --geometry-as is about surfaces."""
+    named = parse_entity_filter("mito, ER")
+    assert wants_skeletons("mito", {}, named)
+    assert wants_skeletons("er", {}, named)          # however it was capitalised
+    assert not wants_skeletons("granules", {}, named)
+    assert not wants_skeletons("mito", {}, None)
+
+
+def test_skeletons_and_geometry_as_are_two_questions_that_add_up():
+    """A structure can be drawn as one thing and skeletonised anyway, and either flag
+    alone is enough to ask for the centre line."""
+    ellipsoids = parse_geometry_as("mito=ellipsoid")
+    assert wants_skeletons("mito", ellipsoids, parse_entity_filter("mito"))
+    assert forced_surface("mito", ellipsoids) == "ellipsoid"
+    # +skeleton still means what it meant, and a tube still implies its own centre line.
+    assert wants_skeletons("mito", parse_geometry_as("mito=mesh+skeleton"), None)
+    assert wants_skeletons("mt", parse_geometry_as("mt=tube"), None)
+
+
+def test_skeletons_travels_as_an_env_var(monkeypatch):
+    monkeypatch.setenv("ORGANELLA_SKELETONS", "mito,ER")
+    cfg = RunConfig.from_env()
+    assert cfg.skeletons == frozenset({"mito", "ER"})
+    assert wants_skeletons("er", cfg.geometry_as, cfg.skeletons)
+    monkeypatch.delenv("ORGANELLA_SKELETONS")
+    assert RunConfig.from_env().skeletons is None
+
+
+def test_skeletons_changes_what_a_run_produces(monkeypatch):
+    """So --reuse-geometry and --resume do not hand back geometry with no skeletons in it."""
+    monkeypatch.delenv("ORGANELLA_SKELETONS", raising=False)
+    without = RunConfig.from_env().fingerprint()
+    monkeypatch.setenv("ORGANELLA_SKELETONS", "mito")
+    assert RunConfig.from_env().fingerprint() != without
+
+
 def test_excluded_entities_report_skeleton_metrics_as_not_measured(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
     instances = InstanceMeasurer().measure(record).tables["instance"]
@@ -81,7 +119,7 @@ def test_excluded_entities_report_skeleton_metrics_as_not_measured(monkeypatch):
 
 
 def test_nothing_is_skeletonised_unless_it_was_named(monkeypatch):
-    monkeypatch.delenv("LABEL_ANATOMY_GEOMETRY_AS", raising=False)
+    monkeypatch.delenv("ORGANELLA_GEOMETRY_AS", raising=False)
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
     instances = InstanceMeasurer().measure(record).tables["instance"]
@@ -92,7 +130,7 @@ def test_nothing_is_skeletonised_unless_it_was_named(monkeypatch):
 
 
 def test_the_entities_named_are_the_ones_measured(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
     instances = InstanceMeasurer().measure(record).tables["instance"]
@@ -113,7 +151,7 @@ def test_the_second_reader_of_an_object_gets_the_cached_skeletons(monkeypatch):
         return real(labels, voxel, **kwargs)
 
     monkeypatch.setattr(skeletons, "compute_skeletons", counting)
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     record = _object(mito=(_strand(), "label"))
     volumes = {"mito": record.data[0]}
 
@@ -133,7 +171,7 @@ def test_a_different_object_is_not_served_from_the_cache(monkeypatch):
         skeletons, "compute_skeletons",
         lambda labels, voxel, **kw: (calls.append(1), real(labels, voxel, **kw))[1],
     )
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
 
     InstanceMeasurer().measure(_object(mito=(_strand(), "label")))
     InstanceMeasurer().measure(_object(mito=(_strand(1, 12), "label")))
@@ -144,7 +182,7 @@ def test_a_different_object_is_not_served_from_the_cache(monkeypatch):
 
 
 def test_geometry_matches_whether_it_was_cached_or_not(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     volumes, kinds = {"mito": _strand()}, {"mito": "label"}
     options = MeshOptions(contact_max_um=None, geometry_as=SKELETONISE)
     fresh = mesh_rows_for_object(volumes, kinds, VOXEL, object_id="object_a",
@@ -159,8 +197,8 @@ def test_geometry_matches_whether_it_was_cached_or_not(monkeypatch):
 
 
 def test_contacts_are_found_once_however_many_readers_ask(monkeypatch):
-    import label_anatomy.analysis.gaps as contacts_module
-    from label_anatomy.measure.contacts import ContactMeasurer
+    import organella.analysis.gaps as contacts_module
+    from organella.measure.contacts import ContactMeasurer
 
     calls = []
     real = contacts_module.pairwise_instance_gaps

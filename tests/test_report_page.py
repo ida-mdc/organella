@@ -526,7 +526,7 @@ def test_the_measurement_is_explained_where_it_is_present(drawn):
 def test_a_report_from_before_the_typed_rows_is_named_as_that(report_path):
     """Its instances and contacts were list columns on the object row.
 
-    Told "this is not an Anatomy report", a reader goes looking for the wrong problem -
+    Told "this is not an Organella report", a reader goes looking for the wrong problem -
     they have a report, from a version this page predates.
     """
     older = [{"object_id": "object_a", "n_entities": 3}]
@@ -540,8 +540,8 @@ def test_a_report_from_before_the_typed_rows_is_named_as_that(report_path):
 def test_a_parquet_that_is_not_a_report_at_all_says_how_to_make_one(report_path):
     failure = run_page({"loadFailure": [{"something": 1, "else": 2}]})["loadFailure"]
 
-    assert "not an Anatomy report" in failure
-    assert "label-anatomy process" in failure
+    assert "not an Organella report" in failure
+    assert "organella process" in failure
 
 
 def test_a_report_with_no_rows_says_so(report_path):
@@ -602,13 +602,13 @@ def test_geometry_from_before_the_surface_kinds_says_to_mesh_it_again():
     told = run_page({"geometryFailure": [ALL_OLD]})["geometryFailure"][0]
 
     assert "before the surface kinds" in told
-    assert "label-anatomy mesh" in told
+    assert "organella mesh" in told
 
 
 def test_geometry_from_two_runs_at_once_says_to_reload_past_the_cache_first():
     """The likeliest cause is not on disk at all.
 
-    `label-anatomy view` serves every report on the same port at the same paths, so one
+    `organella view` serves every report on the same port at the same paths, so one
     object's geometry.parquet has the same URL whichever run wrote it, and a browser that
     kept the old body hands DuckDB a glob of two schemas. Told only "schema mismatch in
     glob", a reader goes looking through their folders for a file that is not there.

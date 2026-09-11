@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 from conftest import run_report_page
 
-from label_anatomy.analysis.meshes import (
+from organella.analysis.meshes import (
     GEOMETRY_FILENAME,
     MeshOptions,
     generate_mesh,
@@ -32,7 +32,7 @@ SHAPE = (12, 24, 24)
 VOXEL = (0.1, 0.02, 0.02)
 
 
-def _ball(radius=4, centre=(6, 12, 12)) -> np.ndarray:
+def _sphere(radius=4, centre=(6, 12, 12)) -> np.ndarray:
     zz, yy, xx = np.ogrid[: SHAPE[0], : SHAPE[1], : SHAPE[2]]
     return (
         ((zz - centre[0]) / radius) ** 2 + ((yy - centre[1]) / radius) ** 2
@@ -42,10 +42,10 @@ def _ball(radius=4, centre=(6, 12, 12)) -> np.ndarray:
 
 def _volumes():
     mito = np.zeros(SHAPE, dtype=np.int32)
-    mito[_ball(3, (6, 6, 6))] = 1
-    mito[_ball(3, (6, 18, 18))] = 2
-    mito[_ball(2, (6, 7, 7))] = 3            # overlapping 1, so there is a contact to find
-    return {"pm": _ball(10).astype(np.int32), "mito": mito}, {"pm": "mask", "mito": "label"}
+    mito[_sphere(3, (6, 6, 6))] = 1
+    mito[_sphere(3, (6, 18, 18))] = 2
+    mito[_sphere(2, (6, 7, 7))] = 3            # overlapping 1, so there is a contact to find
+    return {"pm": _sphere(10).astype(np.int32), "mito": mito}, {"pm": "mask", "mito": "label"}
 
 
 @pytest.fixture(scope="module")
@@ -88,14 +88,14 @@ def decode(payload: bytes, per_index: int = 3) -> dict:
 # ── the decoder, in the runtime the page actually runs in ─────────────────────
 
 def test_the_page_decodes_a_mesh_to_the_vertices_that_were_written():
-    payload = generate_mesh(_ball(), (0, 0, 0), VOXEL)
+    payload = generate_mesh(_sphere(), (0, 0, 0), VOXEL)
     n_verts, n_faces = struct.unpack_from("<II", payload, 0)
 
     decoded = decode(payload)
 
     assert (decoded["vertices"], decoded["elements"]) == (n_verts, n_faces)
     assert decoded["maxIndex"] < n_verts
-    # Vertices are µm in XYZ: the ball spans at most the volume it was meshed from,
+    # Vertices are µm in XYZ: the sphere spans at most the volume it was meshed from,
     # 24 voxels of 0.02 µm across X and Y, 12 of 0.1 µm through Z.
     assert 0 <= decoded["bbox"]["x"]["min"] and decoded["bbox"]["x"]["max"] <= 24 * VOXEL[2]
     assert decoded["bbox"]["z"]["max"] <= 12 * VOXEL[0]
@@ -116,8 +116,8 @@ def test_a_skeleton_decodes_as_line_segments():
 
 
 def test_merging_two_instances_keeps_every_face_on_its_own_vertices():
-    first = generate_mesh(_ball(4, (6, 6, 6)), (0, 0, 0), VOXEL)
-    second = generate_mesh(_ball(3, (6, 18, 18)), (0, 0, 0), VOXEL)
+    first = generate_mesh(_sphere(4, (6, 6, 6)), (0, 0, 0), VOXEL)
+    second = generate_mesh(_sphere(3, (6, 18, 18)), (0, 0, 0), VOXEL)
     apart = decode(first), decode(second)
 
     merged = run_report_page({"merge": {"items": [
@@ -137,7 +137,7 @@ def test_merging_two_instances_keeps_every_face_on_its_own_vertices():
 
 def test_a_merge_past_65535_vertices_gets_an_index_type_that_can_hold_it():
     """A Uint16 index silently wraps, and the object folds in on itself."""
-    one = generate_mesh(_ball(10), (0, 0, 0), VOXEL)
+    one = generate_mesh(_sphere(10), (0, 0, 0), VOXEL)
     small = decode(one)["vertices"]
     copies = 65535 // small + 2
     merged = run_report_page({"merge": {"items": [
@@ -150,7 +150,7 @@ def test_a_merge_past_65535_vertices_gets_an_index_type_that_can_hold_it():
 
 
 def test_exploding_moves_an_instance_without_reshaping_it():
-    payload = generate_mesh(_ball(4, (6, 6, 6)), (0, 0, 0), VOXEL)
+    payload = generate_mesh(_sphere(4, (6, 6, 6)), (0, 0, 0), VOXEL)
     alone = decode(payload)["bbox"]
 
     put = run_report_page({"merge": {"items": [
@@ -303,12 +303,12 @@ def test_a_run_writes_geometry_the_explode_slider_can_use(tmp_path):
     the mask branch overwrote them, so the slider had nothing to work with and quietly did
     nothing.
     """
-    from label_anatomy.measure import load_object
-    from label_anatomy.measure.instances import InstanceMeasurer
-    from label_anatomy.measure.geometry import GeometryWriter
+    from organella.measure import load_object
+    from organella.measure.instances import InstanceMeasurer
+    from organella.measure.geometry import GeometryWriter
     from synthetic import make_object
 
-    os.environ["LABEL_ANATOMY_MESH_DIR"] = str(tmp_path)
+    os.environ["ORGANELLA_MESH_DIR"] = str(tmp_path)
     folder = tmp_path / "src" / "object_a"
     make_object(folder, prefix="s", n_mito=3, mito_radii=(2.0, 3.0, 3.0))
     stack = load_object(folder)

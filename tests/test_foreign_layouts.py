@@ -12,10 +12,10 @@ import numpy as np
 import pytest
 import tifffile
 
-from label_anatomy.config import AnatomyConfig
-from label_anatomy.measure import load_object
-from label_anatomy.measure.discovery import inspect_object_dir
-from label_anatomy.measure.readers import image_stem, read_header, read_voxel_size_um
+from organella.config import RunConfig
+from organella.measure import load_object
+from organella.measure.discovery import inspect_object_dir
+from organella.measure.readers import image_stem, read_header, read_voxel_size_um
 
 sitk = pytest.importorskip("SimpleITK")
 
@@ -102,7 +102,7 @@ def test_an_object_of_nifti_files_loads(tmp_path):
     _write_nifti(d / "ct_body_mask.nii.gz", body.astype(np.uint8))
     _write_nifti(d / "ct_liver_mask.nii.gz", liver.astype(np.uint8))
 
-    record = load_object(d, AnatomyConfig(object_mask="body"))
+    record = load_object(d, RunConfig(object_mask="body"))
 
     assert record.dim_order == "CZYX"
     assert record.meta["channel_names"] == ["body", "liver"]
@@ -137,7 +137,7 @@ def test_a_segmentations_subfolder_is_discovered_without_a_prefix(tmp_path):
 
 
 def test_what_an_auto_entity_is_comes_from_its_content(tmp_path):
-    record = load_object(_subfolder_object(tmp_path), AnatomyConfig(object_mask="body"))
+    record = load_object(_subfolder_object(tmp_path), RunConfig(object_mask="body"))
 
     kinds = dict(zip(record.meta["channel_names"], record.meta["entity_kinds"]))
     assert kinds["liver"] == "mask"      # one non-zero value
@@ -146,7 +146,7 @@ def test_what_an_auto_entity_is_comes_from_its_content(tmp_path):
 
 
 def test_an_auto_entity_can_be_named_as_the_object_mask(tmp_path):
-    record = load_object(_subfolder_object(tmp_path), AnatomyConfig(object_mask="body"))
+    record = load_object(_subfolder_object(tmp_path), RunConfig(object_mask="body"))
 
     assert record.meta["object_mask_name"] == "body"
     assert record.meta["channel_names"][0] == "body"
@@ -157,7 +157,7 @@ def test_an_auto_entity_can_be_named_as_the_object_mask(tmp_path):
 def test_only_the_named_entities_are_stacked(tmp_path):
     record = load_object(
         _subfolder_object(tmp_path),
-        AnatomyConfig(object_mask="body", entities=frozenset({"liver"})),
+        RunConfig(object_mask="body", entities=frozenset({"liver"})),
     )
 
     # The object mask comes along whether or not it was named: everything is measured
@@ -168,7 +168,7 @@ def test_only_the_named_entities_are_stacked(tmp_path):
 def test_an_entity_that_is_not_there_is_an_error_naming_what_is(tmp_path):
     with pytest.raises(FileNotFoundError, match="pancreas"):
         load_object(_subfolder_object(tmp_path),
-                    AnatomyConfig(object_mask="body", entities=frozenset({"pancreas"})))
+                    RunConfig(object_mask="body", entities=frozenset({"pancreas"})))
 
 
 # ── One volume whose ids each mean a different structure ──────────────────────
@@ -190,7 +190,7 @@ def _labelmap_object(tmp_path: Path) -> Path:
 def test_a_label_map_splits_one_volume_into_an_entity_per_id(tmp_path):
     record = load_object(
         _labelmap_object(tmp_path),
-        AnatomyConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 2: "spleen", 5: "aorta"}),
+        RunConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 2: "spleen", 5: "aorta"}),
     )
 
     assert record.meta["channel_names"] == ["body", "aorta", "liver", "spleen"]
@@ -200,7 +200,7 @@ def test_a_label_map_splits_one_volume_into_an_entity_per_id(tmp_path):
 def test_a_label_map_ignores_ids_that_are_not_in_the_volume(tmp_path):
     record = load_object(
         _labelmap_object(tmp_path),
-        AnatomyConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 9: "pancreas"}),
+        RunConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 9: "pancreas"}),
     )
 
     assert "pancreas" not in record.meta["channel_names"]
@@ -210,7 +210,7 @@ def test_a_label_map_ignores_ids_that_are_not_in_the_volume(tmp_path):
 def test_a_label_map_and_an_entity_filter_only_materialise_what_was_asked_for(tmp_path):
     record = load_object(
         _labelmap_object(tmp_path),
-        AnatomyConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 2: "spleen", 5: "aorta"},
+        RunConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver", 2: "spleen", 5: "aorta"},
                       entities=frozenset({"spleen"})),
     )
 
@@ -223,7 +223,7 @@ def test_which_entity_to_split_is_an_error_rather_than_a_guess(tmp_path):
                      _blob(SHAPE, (6, 6, 6), 2).astype(np.uint8) * 3)
 
     with pytest.raises(ValueError, match="--label-map-entity"):
-        load_object(d, AnatomyConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver"}))
+        load_object(d, RunConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver"}))
 
 
 def test_naming_the_entity_to_split_resolves_it(tmp_path):
@@ -231,7 +231,7 @@ def test_naming_the_entity_to_split_resolves_it(tmp_path):
     tifffile.imwrite(d / "case_vessels_label.tif",
                      _blob(SHAPE, (6, 6, 6), 2).astype(np.uint8) * 3)
 
-    record = load_object(d, AnatomyConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver"},
+    record = load_object(d, RunConfig(voxel_size_um=(1.0, 1.0, 1.0), object_mask="body", label_map={1: "liver"},
                                           label_map_entity="organs"))
 
     assert "liver" in record.meta["channel_names"]
@@ -279,7 +279,7 @@ def _manifest(folder: Path, store: Path, **extra) -> Path:
 
 
 def test_a_folder_holding_only_a_manifest_is_an_object(tmp_path):
-    from label_anatomy.measure import is_object_dir
+    from organella.measure import is_object_dir
 
     folder = _manifest(tmp_path / "described", _local_n5(tmp_path))
 
@@ -294,7 +294,7 @@ def test_a_described_object_loads_and_says_where_its_pixels_came_from(tmp_path):
     store = _local_n5(tmp_path)
     folder = _manifest(tmp_path / "described", store)
 
-    record = load_object(folder, AnatomyConfig(object_mask="body"))
+    record = load_object(folder, RunConfig(object_mask="body"))
 
     # Two channels, cropped to the mask's bounding box like any other object.
     assert record.data.shape[0] == 2
@@ -309,9 +309,9 @@ def test_a_described_object_loads_and_says_where_its_pixels_came_from(tmp_path):
 def test_a_manifest_crop_reads_only_that_window(tmp_path):
     store = _local_n5(tmp_path)
     whole = load_object(_manifest(tmp_path / "whole", store),
-                        AnatomyConfig(object_mask="body", clip=False))
+                        RunConfig(object_mask="body", clip=False))
     cropped = load_object(_manifest(tmp_path / "part", store, crop="0:6,0:24,0:24"),
-                          AnatomyConfig(object_mask="body", clip=False))
+                          RunConfig(object_mask="body", clip=False))
 
     assert whole.data.shape[1] == SHAPE[0]
     assert cropped.data.shape[1] == 6, "the crop should halve the Z extent"
@@ -319,7 +319,7 @@ def test_a_manifest_crop_reads_only_that_window(tmp_path):
 
 def test_a_described_entity_still_learns_its_kind_from_content(tmp_path):
     record = load_object(_manifest(tmp_path / "described", _local_n5(tmp_path)),
-                         AnatomyConfig(object_mask="body"))
+                         RunConfig(object_mask="body"))
 
     kinds = dict(zip(record.meta["channel_names"], record.meta["entity_kinds"]))
     assert kinds["body"] == "mask"

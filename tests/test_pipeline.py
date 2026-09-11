@@ -10,8 +10,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from label_anatomy import pipeline
-from label_anatomy.pipeline import parts as parts_mod
+from organella import pipeline
+from organella.pipeline import parts as parts_mod
 
 from conftest import MITO_COLOUR
 
@@ -253,8 +253,8 @@ def test_an_object_that_always_kills_its_worker_is_reported_not_retried_forever(
 
 def _analysed(root, parts, resume):
     import os
-    from label_anatomy.cli import find_object_dirs
-    os.environ["LABEL_ANATOMY_OBJECT_MASK"] = "pm"
+    from organella.cli import find_object_dirs
+    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
     return pipeline.analyse(find_object_dirs(root), root, ["control", "treated"],
                             workers=1, parts_dir=parts, resume=resume)
 
@@ -310,11 +310,11 @@ def test_resume_will_not_reuse_rows_measured_under_other_settings(tmp_path, monk
     assert list(parts.glob("*.parquet"))
 
     # Same objects, different question: measure outside the object mask too.
-    os.environ["LABEL_ANATOMY_NO_CLIP"] = "1"
+    os.environ["ORGANELLA_NO_CLIP"] = "1"
     try:
         resumed = _analysed(root, parts, resume=True)
     finally:
-        os.environ.pop("LABEL_ANATOMY_NO_CLIP", None)
+        os.environ.pop("ORGANELLA_NO_CLIP", None)
 
     assert not resumed.failures, resumed.failures
     assert resumed.rows.shape[0] == fresh.rows.shape[0]
@@ -351,17 +351,17 @@ def test_a_part_carries_no_bookkeeping_into_the_report(tmp_path):
 
 def test_the_fingerprint_ignores_settings_that_change_nothing(tmp_path):
     import os
-    from label_anatomy import pipeline as pl_mod
-    os.environ["LABEL_ANATOMY_OBJECT_MASK"] = "pm"
-    os.environ.pop("LABEL_ANATOMY_MESH_WORKERS", None)
+    from organella import pipeline as pl_mod
+    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
+    os.environ.pop("ORGANELLA_MESH_WORKERS", None)
     before = pl_mod.settings_fingerprint(())
-    os.environ["LABEL_ANATOMY_MESH_WORKERS"] = "3"     # how fast, not what
+    os.environ["ORGANELLA_MESH_WORKERS"] = "3"     # how fast, not what
     try:
         assert pl_mod.settings_fingerprint(()) == before
     finally:
-        os.environ.pop("LABEL_ANATOMY_MESH_WORKERS", None)
+        os.environ.pop("ORGANELLA_MESH_WORKERS", None)
     # ...but excluding a processor changes which columns exist, so it must count.
-    assert pl_mod.settings_fingerprint(("anatomy-contacts",)) != before
+    assert pl_mod.settings_fingerprint(("organella-contacts",)) != before
 
 
 # ── saying what it is doing while it does it ─────────────────────────────────
@@ -373,13 +373,13 @@ def test_every_object_is_counted_off_against_the_size_of_the_batch(tmp_path, cap
     import logging
     import re
 
-    from label_anatomy.measure import find_object_dirs
+    from organella.measure import find_object_dirs
     from synthetic import make_dataset
 
     root = make_dataset(tmp_path / "objects")
     folders = list(find_object_dirs(root))
 
-    with caplog.at_level(logging.INFO, logger="label_anatomy"):
+    with caplog.at_level(logging.INFO, logger="organella"):
         pipeline.analyse(folders, root, paths=("control", "treated"))
 
     counted = [re.search(r"\[(\d+)/(\d+)\] (\S+) done", m) for m in caplog.messages]
@@ -400,9 +400,9 @@ def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
     """
     import logging
 
-    from label_anatomy.pipeline import pool
+    from organella.pipeline import pool
 
-    package = logging.getLogger("label_anatomy")
+    package = logging.getLogger("organella")
     before = (package.handlers[:], package.level, package.propagate)
     try:
         package.handlers[:] = []

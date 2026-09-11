@@ -8,12 +8,12 @@ sphericity or elevation; the 3D case is unchanged; and what means the same in bo
 import numpy as np
 import pytest
 
-from label_anatomy.analysis.shapes import region_metrics
-from label_anatomy.measure import load_object
-from label_anatomy.measure.contacts import ContactMeasurer
-from label_anatomy.measure.instances import InstanceMeasurer
-from label_anatomy.measure.morphology import MorphologyMeasurer
-from label_anatomy.analysis.meshes import MeshOptions, mesh_rows_for_object, payload_counts
+from organella.analysis.shapes import region_metrics
+from organella.measure import load_object
+from organella.measure.contacts import ContactMeasurer
+from organella.measure.instances import InstanceMeasurer
+from organella.measure.morphology import MorphologyMeasurer
+from organella.analysis.meshes import MeshOptions, mesh_rows_for_object, payload_counts
 from synthetic import PIXEL_SIZE_UM, make_object_2d
 
 from conftest import object_stack
@@ -66,14 +66,14 @@ def test_a_2d_object_has_no_z_pixel_size(object_2d):
 
 
 def test_a_voxel_size_with_three_values_is_refused_for_2d(object_2d, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_VOXEL_SIZE_UM", "0.1,0.02,0.02")
+    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.1,0.02,0.02")
 
     with pytest.raises(ValueError, match="images are 2D"):
         load_object(object_2d)
 
 
 def test_a_2d_pixel_size_can_be_given_as_two_values(object_2d, monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_VOXEL_SIZE_UM", "0.05,0.05")
+    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.05,0.05")
 
     record = load_object(object_2d)
 
@@ -200,7 +200,7 @@ def test_distances_and_contacts_work_in_a_plane():
 
 
 def test_a_2d_filament_gets_skeleton_metrics(monkeypatch):
-    monkeypatch.setenv("LABEL_ANATOMY_GEOMETRY_AS", "mito=skeleton")
+    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     filament = np.zeros((40, 40), np.int32)
     filament[20, 5:25] = 1
 
@@ -231,12 +231,12 @@ def test_2d_geometry_is_outlines_and_never_meshes():
 
 
 def test_3d_geometry_is_still_meshes_and_no_outlines():
-    ball = np.zeros((20, 20, 20), np.int32)
+    sphere = np.zeros((20, 20, 20), np.int32)
     zz, yy, xx = np.mgrid[:20, :20, :20]
-    ball[(zz - 10) ** 2 + (yy - 10) ** 2 + (xx - 10) ** 2 <= 36] = 1
+    sphere[(zz - 10) ** 2 + (yy - 10) ** 2 + (xx - 10) ** 2 <= 36] = 1
 
-    rows = mesh_rows_for_object({"mito": ball}, {"mito": "label"}, (0.1, 0.1, 0.1),
-                                object_id="ball", options=MeshOptions(contact_max_um=None))
+    rows = mesh_rows_for_object({"mito": sphere}, {"mito": "label"}, (0.1, 0.1, 0.1),
+                                object_id="sphere", options=MeshOptions(contact_max_um=None))
 
     assert rows[0]["outline"] == b""
     assert rows[0]["surface"] != b""
@@ -286,7 +286,7 @@ def test_the_pages_queries_find_2d_geometry(tmp_path, page_sql):
     """The SQL the 3D sections run must find outlines where a 3D batch has meshes."""
     import duckdb
 
-    from label_anatomy.analysis.meshes import GEOMETRY_FILENAME, write_geometry
+    from organella.analysis.meshes import GEOMETRY_FILENAME, write_geometry
 
     disc = np.zeros((40, 40), np.int32)
     yy, xx = np.mgrid[:40, :40]
@@ -350,8 +350,8 @@ def test_a_report_can_hold_both_dimensionalities(tmp_path):
     """One report, one 2D object and one 3D object: each fills only its own columns."""
     import polars as pl
 
-    from label_anatomy import pipeline, report_io
-    from label_anatomy.cli import FLAVOR, find_object_dirs
+    from organella import pipeline, report_io
+    from organella.cli import FLAVOR, find_object_dirs
     from synthetic import make_object, make_object_2d
 
     root = tmp_path / "mixed"
@@ -378,7 +378,7 @@ def test_the_3d_sections_list_structures_in_a_2d_report(tmp_path, page_sql):
     """The "has something to draw" test must accept an outline, or 2D looks empty."""
     import duckdb
 
-    from label_anatomy.analysis.meshes import write_geometry
+    from organella.analysis.meshes import write_geometry
 
     mito = _blocks((1, (10, 10), (4, 4)), (2, (24, 24), (4, 4)))
     pm = np.zeros((40, 40), np.int32)

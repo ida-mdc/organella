@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from label_anatomy.measure.morphology import MorphologyMeasurer
+from organella.measure.morphology import MorphologyMeasurer
 
 from conftest import object_stack
 

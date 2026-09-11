@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from label_anatomy.analysis.meshes import generate_mesh
+from organella.analysis.meshes import generate_mesh
 from test_mesh import decode_payload
 
 SCRIPT = Path(__file__).resolve().parents[1] / "geometry_to_blender.py"
@@ -88,7 +88,7 @@ def test_the_columns_it_reads_are_columns_a_run_writes(blender_script, tmp_path)
 
     import pyarrow.parquet as pq
 
-    from label_anatomy.analysis.meshes import GEOMETRY_FILENAME, mesh_rows_for_object, write_geometry
+    from organella.analysis.meshes import GEOMETRY_FILENAME, mesh_rows_for_object, write_geometry
 
     volume = np.zeros((12, 12, 12), dtype=np.uint8)
     volume[3:9, 3:9, 3:9] = 1
@@ -110,7 +110,7 @@ def test_a_payload_that_is_not_a_mesh_is_refused_rather_than_unpacked(blender_sc
     numpy raised "buffer is smaller than requested size" from inside the merge, which is a
     crash in the middle of an import that says nothing about why.
     """
-    from label_anatomy.analysis.primitives import ellipsoid_payload
+    from organella.analysis.primitives import ellipsoid_payload
 
     payload = ellipsoid_payload((5.0, 6.0, 7.0), (2.0, 4.0, 8.0),
                                 (1, 0, 0, 0, 1, 0, 0, 0, 1))
@@ -139,7 +139,7 @@ def test_a_row_with_no_geometry_imports_nothing(blender_script):
 # hazard is reusing a file the killed run left half-written, which would lose an object's
 # geometry with no error raised anywhere.
 
-from label_anatomy.measure.geometry import (
+from organella.measure.geometry import (
     _record_settings,
     _usable_geometry,
 )

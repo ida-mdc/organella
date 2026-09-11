@@ -13,8 +13,8 @@ import pytest
 from conftest import report_column_help, report_rows, run_report_page
 from test_contacts_view import batch, entity_row, instance_row, object_row
 
-from label_anatomy import report_io
-from label_anatomy.column_schema import describe, plural_of, with_noun
+from organella import report_io
+from organella.column_schema import describe, plural_of, with_noun
 
 
 def unbounded(rows):

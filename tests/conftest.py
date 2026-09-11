@@ -12,12 +12,12 @@ import numpy as np
 import polars as pl
 import pytest
 
-from label_anatomy import pipeline, report_io
-from label_anatomy.cli import FLAVOR
-from label_anatomy.measure import find_object_dirs
-from label_anatomy.model import ObjectStack
-from label_anatomy.analysis.cache import CACHE
-from label_anatomy.report_page import report_page
+from organella import pipeline, report_io
+from organella.cli import FLAVOR
+from organella.measure import find_object_dirs
+from organella.model import ObjectStack
+from organella.analysis.cache import CACHE
+from organella.report_page import report_page
 from synthetic import make_dataset, make_dataset_2d
 
 REPORT_PAGE_CHECKER = Path(__file__).parent / "report_page_check.mjs"
@@ -30,15 +30,15 @@ OBJECT_MASK = "pm"
 
 @pytest.fixture(autouse=True)
 def isolated_state(monkeypatch):
-    """No LABEL_ANATOMY_* setting and no cached per-object work crosses a test boundary.
+    """No ORGANELLA_* setting and no cached per-object work crosses a test boundary.
 
     Plugin options travel through the environment and the per-object cache is module-level,
     so without this the suite's result depends on the order it happens to run in. The object
     mask is then set back, because it is not a tuning knob: without it nothing loads at all.
     """
-    for key in [k for k in os.environ if k.startswith("LABEL_ANATOMY_")]:
+    for key in [k for k in os.environ if k.startswith("ORGANELLA_")]:
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("LABEL_ANATOMY_OBJECT_MASK", OBJECT_MASK)
+    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", OBJECT_MASK)
     CACHE.clear()
     yield
     CACHE.clear()
@@ -51,13 +51,13 @@ MITO_COLOUR = "#d62728"
 
 def _run(root: Path, out: Path) -> Path:
     """One batch through the real pipeline, exactly as `process` runs it."""
-    os.environ["LABEL_ANATOMY_OBJECT_MASK"] = OBJECT_MASK
+    os.environ["ORGANELLA_OBJECT_MASK"] = OBJECT_MASK
     # The per-voxel distance distributions, because one section of the report is about them
     # and without them the shared report cannot exercise it at all.
-    os.environ["LABEL_ANATOMY_DISTANCE_HISTOGRAMS"] = "1"
+    os.environ["ORGANELLA_DISTANCE_HISTOGRAMS"] = "1"
     # And skeletons for the filaments, which is what a real run names: skeletonising is
     # opt-in, so without this the report carries no branches, length or tortuosity.
-    os.environ["LABEL_ANATOMY_GEOMETRY_AS"] = "mito=skeleton"
+    os.environ["ORGANELLA_GEOMETRY_AS"] = "mito=skeleton"
     paths = ["control", "treated"]
     report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1)
     assert not report.failures, report.failures
