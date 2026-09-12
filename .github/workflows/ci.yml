@@ -36,12 +36,10 @@ jobs:
 
       # With the remote extra, so the manifest reader is installed rather than absent: a
       # folder holding one source.json is an object too, and nothing else covers that path.
-      # pytest and duckdb are the dev group in pyproject, named again here because
-      # `uv pip install` has no --group flag yet; keep the two in step.
       - name: Install
         run: |
           uv venv --python ${{ matrix.python }} .venv
-          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote]' pytest duckdb
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote,test]'
 
       - name: Test
         run: .venv/bin/python -m pytest -q
