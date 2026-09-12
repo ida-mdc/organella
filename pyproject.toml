@@ -39,6 +39,17 @@ remote = [
     "s3fs>=2023.6.0",
 ]
 
+# What the suite needs beyond the package. An extra rather than a dependency group because
+# `uv pip install` has no --group flag, and every workflow that runs tests installs this one
+# name: spelling the list out per workflow is how the page check went red with no duckdb.
+test = [
+    "pytest>=8.3.5",
+    # The tests query a report the way the page does, in SQL, rather than trusting the frame
+    # the writer just handed them. Not a runtime dependency: the package writes reports with
+    # pyarrow and reads them with polars.
+    "duckdb>=1.0",
+]
+
 [project.scripts]
 organella = "organella.cli:cli"
 
@@ -51,15 +62,6 @@ package = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/organella"]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.3.5",
-    # The tests query a report the way the page does, in SQL, rather than trusting the
-    # frame the writer just handed them. Not a runtime dependency: the package writes
-    # reports with pyarrow and reads them with polars.
-    "duckdb>=1.0",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

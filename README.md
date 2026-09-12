@@ -235,7 +235,7 @@ the report in one of two shapes:
 ```bash
 uv venv --python 3.12 .venv
 source .venv/bin/activate
-uv pip install -e .
+uv pip install -e '.[test]'      # the suite needs pytest and duckdb
 .venv/bin/python -m pytest
 ```
 
