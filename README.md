@@ -1,146 +1,61 @@
-# Anatomy: spatial analysis of segmented objects
+# Organella: measuring label relationships in 3D
 
-Anatomy analyses TIFF segmentations (labels + masks), 2D or 3D, for one object or many, and
-produces a single [PixelPatrol](https://pixelpatrol.app/) report you explore in an
-interactive viewer: distributions, distances, contacts, and the objects themselves in 3D.
+<img src="docs/organella.png" alt="A figure drawn entirely out of organelles, holding a measuring tape" align="right" width="190">
 
-An **object** is one segmented thing measured as a whole, given as a folder: a source
-image, one mask that bounds the object, and the label/mask volumes inside it. In this
-project an object is a cell and its bounding mask is the plasma membrane, so `--object-mask pm`.
-Nothing about the tool assumes that: the mask is always named explicitly, never guessed.
+Organella measures segmented objects - 2D or 3D, one or a batch of them - and produces a
+single report you read in one standalone page: distributions, distances, contacts, and the
+objects themselves in 3D.
 
-Objects can be volumes or planes. A 2D object is measured as a plane, so area, perimeter,
-circularity and one polarity angle; a 3D one as a volume, so volume, surface area,
-sphericity, azimuth and elevation. Nothing is measured with the wrong formula and no plane
-is padded into a volume one voxel deep; see the package README's
-[2D and 3D](packages/anatomy/README.md#2d-and-3d) for the full column split.
-
-It measures with its own loader and four processors, and ships seven viewer widgets as a
-PixelPatrol viewer extension, all in [`packages/anatomy`](packages/anatomy). That package's
-[README](packages/anatomy/README.md) is the reference for the data model, the widgets
-and every configuration knob; this page is the short path through a run.
+An **object** is one segmented thing measured as a whole, given as a folder: a source image,
+one mask that bounds the object, and the label/mask volumes inside it. For example, object can be a cell
+bounded by its plasma membrane (`--object-mask pm`). Specifying the object bound is optional. 
+Everything inside is clipped to it by default, because a field of view often holds
+neighbouring cells. `--no-clip` measures them anyway.
 
 ## Workflow
 
-1. Organise your TIFFs in one of the input layouts below.
-2. `pixel-patrol-anatomy dry-run` to check what will be analysed, and what was ignored.
-3. `pixel-patrol-anatomy process` to write `report.parquet` (and, with `--with-mesh`, the geometry).
-4. `pixel-patrol-anatomy view` to explore it, or hand the parquet to anyone with the hosted viewer.
-   `pixel-patrol-anatomy colours report.parquet palette.json` sets a colour per structure at any point.
-5. Optionally import an object's geometry into Blender.
+1. Organise your images in one of the [input layouts](#your-input).
+2. `organella dry-run` to check what will be analysed.
+3. `organella process` to write `report.parquet` and, with `--with-mesh`, the geometry.
+4. `organella view` to open the report page on it.
+5. Optionally import an object's geometry into [Blender](#blender).
 
 ## Try it
 
-One command, no clone and no node:
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) (or install the package via pip without uv, but uv is cool).
+
+Next, install Organella:
 
 ```bash
-uv pip install "pixel-patrol-anatomy @ git+https://github.com/betaseg/cellsketch-v2.git@main#subdirectory=packages/anatomy"
+uv pip install "organella @ git+https://github.com/ida-mdc/organella.git@main"
 ```
+
+Then test, measure, and view your label dataset:
 
 ```bash
-pixel-patrol-anatomy dry-run experiment/
-pixel-patrol-anatomy process experiment/ -o report.parquet --object-mask pm \
-    -p control -p treated --with-mesh
+organella dry-run experiment/
+organella process experiment/ -o report.parquet --with-mesh
+organella view report.parquet
 ```
 
-Then look at it. For everything except the 3D widgets, open
-**<https://betaseg.github.io/cellsketch-v2/pixelpatrol-anatomy.html>** and choose
-`report.parquet`: that page is the PixelPatrol viewer with this package's seven widgets built
-in, and it reads the file in the browser, so nothing is uploaded and no server runs.
+The handful of arguments worth knowing from the start:
 
-**The 3D widgets need a local viewer.** Geometry never enters the report - it is a separate
-`geometry.parquet` per object, beside it - so a page in a browser cannot reach it, and those
-two widgets stay empty. Fetch a prebuilt viewer once and serve the report yourself:
+| | |
+| --- | --- |
+| `--object-mask pm` | the mask that bounds each object. It decides the origin of every distance and polarity, and everything inside it is clipped to it, so it is never guessed - `dry-run` lists the masks each folder has |
+| `-p control -p treated` | subdirectories to import as groups. That grouping becomes the default comparison in every chart |
+| `--voxel-size-um 0.1,0.02,0.02` | needed when the images carry no calibration, since a size is never invented. `y,x` for a plane |
+| `--skeletons mito,ER` | branches, length and tortuosity for the structures worth it. Opt-in: it is the most expensive thing in a run |
+| `--entities mito,ER` | measure only these. Each entity is another full-size channel, so a subject carrying 117 structures needs this to fit in memory |
+| `--with-mesh` | also write the geometry the 3D sections and Blender read, to `<output>_meshes/` |
 
-```bash
-pixel-patrol-anatomy fetch-viewer            # ~11 MB, cached under ~/.cache
-pixel-patrol-anatomy view report.parquet
-```
+Every argument is listed under [Parameters of `process`](#parameters-of-process).
 
-That is still no node and no pixel-patrol checkout. The local server reads the geometry off
-disk, which is the whole reason the 3D widgets work there and not in a hosted page.
-
-`pixel-patrol-base` comes from git, pinned to a commit in this package's own dependencies,
-so the one command brings it along. Folder discovery for suffix-less directories is in no
-release yet.
-
-## Install for development
-
-The same install, editable, from a checkout:
-
-```bash
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install -e packages/anatomy
-```
-
-Every command below assumes that activated environment; without it, reach into the venv
-directly instead (`.venv/bin/pixel-patrol-anatomy …`).
-
-### Running the viewer locally
-
-`pixel-patrol view` serves the viewer itself, and the viewer is a JavaScript bundle that
-pixel-patrol builds rather than ships, so a plain install has none. `fetch-viewer` above is
-the way to get one without node; build it from source only if you are changing the viewer
-itself. Either way it is a one-off, not a step you repeat:
-
-```bash
-git clone https://github.com/ida-mdc/pixel-patrol.git
-git -C pixel-patrol checkout "$(grep -oE '[0-9a-f]{40}' packages/anatomy/pyproject.toml)"
-(cd pixel-patrol/viewer && npm ci && npm run build)
-uv pip install -e pixel-patrol/packages/pixel-patrol-base
-```
-
-Editing this package's own widgets needs none of that: the viewer serves them from the
-source tree on every request, so a browser refresh is enough.
-
-```bash
-pixel-patrol-anatomy view report.parquet --significance
-```
-
-`-p` names the subdirectories to import as groups; that grouping becomes the default
-comparison in every widget. `--with-mesh` is opt-in because meshing (and skeletonising
-again for the overlay) is the most expensive part of a run.
-
-Useful flags, see `pixel-patrol-anatomy process --help` for the rest:
-
-- `--voxel-size-um z,y,x`: manual voxel size, otherwise inferred from the source TIFF
-- `--object-mask NAME`: **required**, the mask that bounds each object, e.g. `pm`.
-  Everything is measured relative to it, so it is never inferred; `dry-run` lists the
-  masks each folder has
-- `--auto-clip`: clip the entities to the object mask first
-- `--colours palette.json`: a colour per structure, e.g. `{"mito": "#d62728"}`. It lands in
-  the report, so every widget draws that structure the same and a shared report arrives
-  coloured; unnamed structures keep the built-in palette. `pixel-patrol-anatomy colours
-  report.parquet palette.json` does it to a report you already have, in about a second
-- `--skeleton-entities mito,er`: only skeletonise the structures where branches, length
-  and tortuosity mean something; the single biggest saving on a long run
-- `--no-instances` / `--no-contacts`: skip the expensive per-instance work
-- `--contact-max-um T`: largest surface-to-surface gap recorded as a contact
-- `--mesh-smooth-sigma` / `--mesh-step-size` / `--mesh-target-reduction` / `--mesh-level`
-- `--mesh-workers N`: processes meshing one object's instances. The default divides the
-  machine between the two levels of parallelism, so objects and instances do not each
-  claim every core
-- `--reuse-geometry`: keep the `geometry.parquet` an object already has rather than meshing
-  it again. Meshing is most of a long run, so this is how a batch that died partway is
-  finished in minutes. A file that is missing, empty or truncated is written again
-- `--resume`: skip objects an interrupted run already measured. Each object's rows go to
-  `<output>_parts/` the moment it finishes and are removed once the report is written, so
-  a run that dies late no longer costs the objects it had already done
-
-## Checking your input first (`dry-run`)
-
-Before a long batch, check that every object has the files you expect:
-
-```bash
-pixel-patrol-anatomy dry-run experiment/
-```
-
-It reads TIFF headers only, so no analysis, no output, seconds even for a large batch. It
-prints, per object: the source image with its size, the label and mask entities found
-(`*` marks the object mask), and anything that looks wrong. Then a cross-object summary
-of which entities are **missing in which objects**, and a suggested `--max-workers` for the
-run. Exit code is `1` if any object cannot be analysed.
+**Check the input first.** `dry-run` reads image headers only - no analysis, no output - 
+and prints per object the source image, the label and mask entities
+found (`*` marks the object mask), and anything that looks wrong. Then which entities are
+missing in which objects, and a suggested `--max-workers`. Exit code is `1` if any object
+cannot be analysed.
 
 ```text
 control/cell_b
@@ -154,14 +69,27 @@ control/cell_b
   mask:pm                  3/3
 ```
 
-An uneven batch is worth catching here, and again in the viewer: the **Objects &
-Structures** widget shows the same thing for the report you actually produced, and warns
-when a structure is missing from some of them.
+## Reading the report
 
-## Input data layout
+`organella view report.parquet` serves the report, its geometry and the page from one
+localhost origin and opens it. Or open **<https://ida-mdc.github.io/organella/>** and drop
+`report.parquet` on it: the page parses the parquet in the browser, so nothing is uploaded and
+no server runs.
+
+**The 3D sections need the geometry too**. Press **Add geometry** and pick either the `report_meshes` folder or the
+`geometry.parquet` files themselves; The `organelle view` command attaches them for you and you don't need to do anything else.
+
+In the page, **Charts** switches every panel between boxes and histograms, and
+**Significance** puts Mann-Whitney brackets between whatever the charts are faceted by. Every
+column carries its own description in the report, so the page explains each metric under the
+chart of it.
+
+## Your input
 
 Entity files must match `<prefix>_<name>_label.tif` (or `_labels.tif`) and
-`<prefix>_<name>_mask.tif`, where `<prefix>` is the source image basename:
+`<prefix>_<name>_mask.tif`, where `<prefix>` is the source image basename. The prefix is taken
+off the front, so the entity name is whatever is left and may have underscores in it:
+`s0011_rib_left_11_mask.tif` is the entity `rib_left_11`.
 
 ```text
 my_cell/
@@ -171,50 +99,170 @@ my_cell/
   sample_membrane_mask.tif
 ```
 
-One of the masks bounds the object, and `--object-mask NAME` says which. Always, with no
-name-based guessing, because every distance and polarity in the report is measured against
-it. Naming a mask a folder does not have is an error rather than a silent fallback, and the
-message lists what that folder does have. An object folder can sit on its own, in a flat batch
-(`cells/cell_a/`, `cells/cell_b/`), or in a grouped batch (`experiment/control/cell_a/`,
-`experiment/treated/cell_b/`), where the group folder is what `-p` imports.
+An object folder can sit on its own, in a flat batch (`cells/cell_a/`, `cells/cell_b/`), or in
+a grouped batch (`experiment/control/cell_a/`, `experiment/treated/cell_b/`), where the group
+folder is what `-p` imports.
+
+**Other formats.** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read through SimpleITK.
+Their headers carry a reliable voxel size, which TIFF often does not; spacing is read as
+millimetres, the convention every reader of these files uses.
+ 
+**Entities in a subfolder** named by nothing but the structure - a `segmentations/`, `masks/`
+or `labels/` folder beside the source image. There is no prefix to strip, and label-or-mask
+is read off the content rather than guessed from the name.
+ 
+**A remote store, read as a crop.** A folder holding one `source.json` and no images names a
+chunked store (N5 or Zarr, local or on S3), the arrays in it, and the window to read. A 512³
+crop of OpenOrganelle's 122-gigavoxel HeLa cell is 0.64% of it, in under five seconds, at
+full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'`.
+
+```json
+{
+  "store": "s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.n5",
+  "scale": "s0",
+  "crop": "3712:4224,256:768,5760:6272",
+  "source": "em/fibsem-uint16",
+  "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" }
+}
+```
 
 ## Output
 
 ```text
-report.parquet                            # one row per object, one per structure
+report.parquet                            # rows per object, structure, instance and contact
 report_meshes/<object>/geometry.parquet   # only with --with-mesh
 ```
 
-Everything measured lands in `report.parquet`: per-structure rows (`obs_level = 1`) with
-volume, surface area, sphericity and instance counts, and per-object rows (`obs_level = 0`)
-carrying the per-instance, distance and contact tables as list columns the widgets unnest.
-See the [package README](packages/anatomy/README.md#data-model) for the full model.
+Everything measured lands in `report.parquet`, as rows at four depths told apart by `row_type`:
 
-Geometry never enters the report, because meshes would multiply the size of a table every
-query loads. It goes beside it, one `geometry.parquet` per object holding a mesh (or, for a
-2D object, an outline) and a skeleton per instance, plus the contact edge list. The object
-row records where, in `mesh_geometry_file`, which is how the 3D widgets find it.
+| `row_type` | `obs_level` | one row per |
+| --- | --- | --- |
+| `object` | 0 | object folder: extent, provenance, and the whole-object totals |
+| `entity` | 1 | structure, by name: volume, surface area, sphericity, instance counts |
+| `instance` | 2 | labelled instance: its own size, shape, polarity and nearest neighbour |
+| `distance` | 2 | instance × target structure: how far that instance is from it |
+| `contact` | 2 | touching pair of instances of one structure, with their gap |
+
+Geometry goes beside the report rather than in it, because meshes would multiply the size of a
+table every query loads. One `geometry.parquet` per object holds a surface per instance (an
+outline, for a 2D object), the skeletons, and the touching pairs, so it stands on its own for
+Blender and for a hosted copy. The object row records where, in `mesh_geometry_file`.
+
+## Commands
+
+| | |
+| --- | --- |
+| `organella dry-run DIR` | what would be analysed, from headers only |
+| `organella process DIR -o REPORT` | measure a batch, write the report |
+| `organella mesh DIR -o OUTDIR` | geometry only, for a report you already have |
+| `organella view REPORT` | serve the report, its geometry and the page, and open it |
+| `organella page` | print the path of the standalone page |
+| `organella colours REPORT PALETTE` | recolour a report in about a second |
+
+`dry-run` takes `--object-mask NAME`, to check every folder has it rather than only listing
+what they have. `view` takes `--port` (default 8052) and `--no-browser`. `mesh` takes
+`-o, --out-dir` for where to write `<object>/geometry.parquet`, plus the input, geometry and
+run parameters below and `--no-contacts`.
+
+## Parameters of `process`
+
+**Input**
+
+| | |
+| --- | --- |
+| `-o, --output FILE` | where to write the report. Required |
+| `-p, --paths TEXT` | subdirectory to import as its own group, repeatable. Becomes the default grouping in every chart |
+| `--object-mask NAME` | the mask that bounds each object. Never guessed: it decides the origin of every distance and polarity. Left out, entities are measured where they lie |
+| `--object-noun WORD` | what one measured thing is called in the report, e.g. `cell`, or `nucleus/nuclei` for an irregular plural. Presentation only |
+| `--voxel-size-um Z,Y,X` | voxel size in µm; `y,x` for a plane. Inferred from the source metadata when omitted, and refused rather than invented if there is none |
+| `--entities NAMES` | measure only these, plus the object mask. Each entity is another full-size channel, so a 117-structure subject needs selecting down before it fits in memory |
+| `--label-map FILE` | JSON of `{"1": "liver"}`, splitting one volume whose ids each mean a different structure into an entity per id. Only named ids become entities |
+| `--label-map-entity NAME` | which entity `--label-map` splits. Needed only when a folder has more than one label entity, where leaving it out is an error rather than a guess |
+| `--auto-label-masks` | promote masks with several connected components to label entities |
+
+**What gets measured**
+
+| | |
+| --- | --- |
+| `--no-clip` | measure outside the object mask too. Clipped to it by default, since that is what naming a bounding mask means |
+| `--no-instances` | entity-level morphology only: no per-instance rows |
+| `--no-contacts` | skip the contact rows |
+| `--contact-max-um T` | largest gap between two instances of one structure that still counts as a contact. Default 0.5 |
+| `--skeletons NAMES` | structures to skeletonise, for branches, length and tortuosity. Opt-in: it is the most expensive thing in a run, and a granule's skeleton is one branch the length of its diameter |
+| `--max-skeleton-voxels N` | skip skeletons for instances above this voxel count. Default 500000 |
+| `--polarity-spread` | also measure each instance's angular spread on the polarity sphere |
+| `--distance-histograms` | also measure per-instance distance distributions, not just the minimum |
+| `--colours FILE` | also `--colors`. JSON of `{"mito": "#d62728"}`. Lands in the report, so every chart draws that structure the same. Unnamed structures keep the built-in palette |
+
+**Geometry**, all of it only with `--with-mesh`
+
+| | |
+| --- | --- |
+| `--with-mesh` | also write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`, never into the parquet |
+| `--geometry-as NAME=KIND,...` | how a structure's surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`. Decided from the measured shape when unnamed - a round instance becomes a 60-byte ellipsoid, which is what makes tens of thousands drawable. No measurement changes; the surface is only ever drawn |
+| `--mesh-max-vertices N` | most vertices one surface keeps; 0 lifts the cap. Default 200000. A decimation *fraction* bounds nothing: at 0.5 one ER sheet was still 2.87 million vertices and 86 MB |
+| `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables |
+| `--mesh-step-size N` | marching-cubes step size; 1 is full resolution. Default 2 |
+| `--mesh-target-reduction F` | decimation fraction. Default 0.8, keeping ~20% of faces |
+| `--mesh-level L` | iso-surface level on the signed distance field. Default 0 |
+| `--mesh-surface-method` | `marching-cubes` or `surface-nets`. The dual method has ~30% less staircase noise, no fewer vertices, and is 66% slower |
+| `--mesh-workers N` | processes meshing one object's instances. Default: the cores the object pool is not using |
+| `--reuse-geometry` | keep any `geometry.parquet` an object already has. Meshing dominates a run, so a batch that died partway finishes in minutes |
+
+**The run**
+
+| | |
+| --- | --- |
+| `--max-workers N` | worker processes. Default: worked out from memory, since one object can need gigabytes |
+| `--num-threads N` | kimimaro worker count. Default 1, because objects already run in parallel |
+| `--resume` | skip objects an interrupted run already measured. Each object's rows go to `<output>_parts/` as it finishes and are removed once the report is written |
+
+## Sharing a report
+
+The geometry stays a folder of one file per object, so it travels with
+the report in one of two shapes:
+
+- hand over `report.parquet` and its `report_meshes/` folder, and the reader runs
+  `organella view report.parquet`
+- or upload the two together, unchanged, and open the page with `?data=<url of the parquet>`.
+  The geometry is looked for beside the parquet as `<name>_meshes/`, so there is nothing else
+  to pass. If the files sit on a different origin than the page, that server has to allow
+  cross-origin requests - GitHub Pages does, a bare `python -m http.server` does not.
+
+
+## Development
+
+```bash
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+uv pip install -e .
+.venv/bin/python -m pytest
+```
+
+The report page is one file with no build step, edit
+[`src/organella/report/organella_report.html`](src/organella/report/organella_report.html)
+and reload the browser. The test suite runs it through
+node - how a report is read into it, the maths its panels draw, the queries its 3D
+sections build, and every section drawn against a stub DOM:
+
+```bash
+.venv/bin/python -m pytest tests/test_report_page.py
+```
+
+That harness never runs the real load path - DuckDB-WASM, the parquet read, WebGL - so a
+change to how the page opens a report has to be checked in a browser.
 
 ## Blender
 
-Use `geometry_to_blender.py` to import an object's `geometry.parquet` into Blender.
-
-Requirements:
-
-- Blender with `pandas` and `pyarrow` available in Blender's Python
-  (`<blender>/python/bin/python3 -m pip install pandas pyarrow`)
-- `geometry.parquet` generated by `pixel-patrol-anatomy process --with-mesh` or
-  `pixel-patrol-anatomy mesh`, from **3D** objects. A 2D object carries outlines rather
-  than meshes, which the viewer's gallery draws and Blender has no use for
-
-Run headless:
+`geometry_to_blender.py` imports an object's `geometry.parquet`. It needs Blender with `pandas`
+and `pyarrow` in Blender's own Python
+(`<blender>/python/bin/python3 -m pip install pandas pyarrow`), and geometry from a **3D**
+object - a 2D object carries outlines, which the report's gallery draws and Blender has no use
+for.
 
 ```bash
-blender --background --python geometry_to_blender.py -- /path/to/geometry.parquet [out.blend] [out_render.png]
+blender --background --python geometry_to_blender.py -- geometry.parquet [out.blend] [out.png]
 ```
 
-Or run inside Blender Script Editor:
-
-1. Open `geometry_to_blender.py`.
-2. Set `GEOMETRY_PATH` (optionally `OUT_BLEND`, `OUT_RENDER`).
-3. Run script (`Alt+P`).
+Or open the script in Blender's Script Editor, set `GEOMETRY_PATH` (optionally `OUT_BLEND`,
+`OUT_RENDER`) and run it with `Alt+P`.

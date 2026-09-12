@@ -1,5 +1,5 @@
 """
-geometry_to_blender.py — Import a Anatomy geometry.parquet into a Blender scene.
+geometry_to_blender.py — Import an organella geometry.parquet into a Blender scene.
 
 Script editor: set GEOMETRY_PATH below, then run with Alt+P.
 
@@ -9,7 +9,12 @@ CLI (headless):
 Reading parquet needs pandas and pyarrow inside Blender's own Python:
     <blender>/python/bin/python3 -m pip install pandas pyarrow
 
-Mesh encoding (from anatomy, stored as a BLOB — parquet does the compressing):
+Only `surface_kind == "mesh"` rows are imported: an ellipsoid is stored as ten numbers
+and a tube as its centre line, and turning either into triangles is the report page's job,
+not this one. Re-run the batch with `--geometry-as NAME=mesh` to get meshes for a structure
+you want in Blender.
+
+Mesh encoding (from organella, stored as a BLOB — parquet does the compressing):
   [uint32 nV][uint32 nF]
   [float32×3 min_xyz][float32×3 scale_xyz]
   [uint16 × nV×3  quantised XYZ vertices (µm)]
@@ -68,11 +73,22 @@ def decode_mesh(payload):
     nV, nF = struct.unpack_from("<II", raw, 0)
     if nV == 0 or nF == 0:
         return None, None
+    # The length follows from the header, so a payload of another kind is caught here
+    # rather than in numpy. An ellipsoid is 60 bytes whose first eight read as nV = 1.09
+    # billion, which used to raise "buffer is smaller than requested size" from inside the
+    # merge - a crash, in the middle of an import, saying nothing about the cause.
+    index_bytes = 2 if nV < 65536 else 4
+    if len(raw) != 32 + nV * 6 + nF * 3 * index_bytes:
+        return None, None
 
     min_xyz   = np.frombuffer(raw, dtype=np.float32, count=3, offset=8)
     scale_xyz = np.frombuffer(raw, dtype=np.float32, count=3, offset=20)
     verts_q   = np.frombuffer(raw, dtype=np.uint16,  count=nV * 3, offset=32).reshape(nV, 3)
-    faces     = np.frombuffer(raw, dtype=np.uint32,  count=nF * 3, offset=32 + nV * 6).reshape(nF, 3)
+    # Indices are 2 bytes unless the surface has more vertices than that can address. The
+    # width follows from nV rather than being recorded, so every reader agrees by
+    # construction - see analysis/meshes.index_dtype.
+    index_dt  = np.uint16 if nV < 65536 else np.uint32
+    faces     = np.frombuffer(raw, dtype=index_dt, count=nF * 3, offset=32 + nV * 6).reshape(nF, 3)
 
     verts = min_xyz + verts_q.astype(np.float32) / 65535.0 * scale_xyz
     return verts, faces
@@ -133,7 +149,7 @@ def merge_meshes(rows_iter):
     all_faces = []
     vert_offset = 0
     for _, row in rows_iter:
-        verts, faces = decode_mesh(row["mesh"])
+        verts, faces = decode_mesh(row["surface"])
         if verts is None:
             continue
         all_verts.append(verts)
@@ -224,10 +240,19 @@ def main():
     geometry_path, out_blend, out_render = resolve_config()
 
     print(f"[geometry_to_blender] Reading {geometry_path}")
-    # Only the columns this needs: the metrics beside them are for the viewer, and the
-    # skeleton overlay has no Blender equivalent.
+    # Only the columns this needs: the metrics beside them are for the report page, and
+    # the skeleton overlay has no Blender equivalent.
+    import pyarrow.parquet as pq
+
+    written = set(pq.read_schema(geometry_path).names)
+    if "surface" not in written:
+        print("[geometry_to_blender] This geometry was written before the surface kinds, "
+              "so it holds a 'mesh' column where this reads a 'surface'. Mesh the batch "
+              "again: organella mesh <report>.")
+        return
     df = pd.read_parquet(
-        geometry_path, columns=["object_id", "entity_name", "row_type", "mesh"]
+        geometry_path,
+        columns=["object_id", "entity_name", "row_type", "surface_kind", "surface"],
     )
 
     if CELLS:
@@ -237,13 +262,24 @@ def main():
     if EXCL_ENTITIES:
         df = df[~df["entity_name"].isin(set(EXCL_ENTITIES))]
 
-    df = df[df["mesh"].notna()]
+    df = df[df["surface"].notna()]
+    # A round instance is stored as the ellipsoid of its own moments and a filament as its
+    # centre line, neither of which holds triangles - the report page tessellates them as
+    # it draws. Nothing here does, so they are counted and left out rather than fed to a
+    # decoder that cannot read them. A run that is headed for Blender can ask for meshes:
+    # organella process --with-mesh --geometry-as NAME=mesh.
+    kinds = df["surface_kind"].fillna("mesh")
+    parametric = kinds[kinds != "mesh"].value_counts().to_dict()
+    df = df[kinds == "mesh"]
     print(f"[geometry_to_blender] {len(df)} rows with meshes after filtering")
+    for kind, n in sorted(parametric.items()):
+        print(f"[geometry_to_blender]   {n} {kind} instance(s) left out: no triangles are "
+              f"stored for one. Re-run with --geometry-as NAME=mesh to import them.")
     if df.empty:
         # A 2D object has outlines rather than meshes: there is no surface to import, and
-        # a flat polygon in Blender would be a worse view of it than the viewer's own.
+        # a flat polygon in Blender would be a worse view of it than the report's own.
         print("[geometry_to_blender] Nothing to import. (2D objects carry outlines, not "
-              "meshes — look at those in the viewer's gallery instead.)")
+              "meshes — look at those in the report's instance gallery instead.)")
         return
 
     setup_scene()

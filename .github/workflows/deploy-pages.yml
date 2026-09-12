@@ -1,14 +1,16 @@
-name: Deploy viewers to GitHub Pages
+name: Deploy the report page to GitHub Pages
 
-# Two viewers share the site. The standalone one keeps the URLs it was published
-# under (/, /stats_viewer.html, /mesh_viewer.html) so existing links keep working;
-# the PixelPatrol-based one, which replaced it, is published beside it.
+# The report is read by one standalone HTML page: it loads a report.parquet in the browser
+# and draws every chart from it, so publishing it is a copy, not a build. It is served at
+# / and at /organella_report.html. The standalone prototype it grew out of keeps the URLs it
+# was published under (/stats_viewer.html, /mesh_viewer.html) so existing links work.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'packages/anatomy/**'
+      - 'src/organella/report/**'
+      - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -22,10 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The last commit that changed the standalone viewer, before the package
-  # replaced it. Those three files are frozen, so the site takes them straight
-  # out of history rather than keeping a copy in the tree.
-  STANDALONE_VIEWER_REF: 42c08030eca7b771844345c517d1e2cc904f4660
+  # The last commit that changed the standalone prototype, before the package replaced it.
+  # Those files are frozen, so the site takes them straight out of history rather than
+  # keeping a copy in the tree.
+  PROTOTYPE_REF: 42c08030eca7b771844345c517d1e2cc904f4660
 
 jobs:
   build:
@@ -33,82 +35,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # history back to STANDALONE_VIEWER_REF
+          fetch-depth: 0   # history back to PROTOTYPE_REF
 
-      # The viewer has to be built from source, so pixel-patrol is checked out at the
-      # very commit packages/anatomy/pyproject.toml pins its dependency to. Read from
-      # there rather than repeated here, so the pin has one home and the deploy cannot
-      # drift from what the tests ran against.
-      - id: pin
-        name: Read the pinned pixel-patrol commit
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import re, tomllib
-          deps = tomllib.load(open("packages/anatomy/pyproject.toml", "rb"))["project"]["dependencies"]
-          url = next(d for d in deps if d.startswith("pixel-patrol-base"))
-          print("sha=" + re.search(r"@([0-9a-f]{40})#", url).group(1))
-          PY
-          cat "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v4
-        with:
-          repository: ida-mdc/pixel-patrol
-          ref: ${{ steps.pin.outputs.sha }}
-          path: pixel-patrol
-
-      # The viewer bundle is a build product and is not committed, so installing
-      # pixel-patrol-base straight from git would carry no viewer at all. Vite syncs
-      # its output into the package's viewer_dist/, which is what the install below
-      # then picks up and what build-viewer-html reads.
+      # Node, because the page is checked before it is published: it is one file with no
+      # build step and nothing imports it, so this is the only thing standing between a
+      # typo in it and whoever opens the published copy.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: pixel-patrol/viewer/package-lock.json
-
-      - name: Build the viewer bundle
-        working-directory: pixel-patrol/viewer
-        run: |
-          npm ci
-          npm run build
+          node-version: '20'
 
       - uses: astral-sh/setup-uv@v5
 
-      # Installing the anatomy package is what puts its widgets in the viewer:
-      # the pixel_patrol.viewer_extensions entry point is how build-viewer-html
-      # discovers the extension directory and inlines its plugins.
-      #
-      # Base is installed second, on purpose. The first install pulls it from the
-      # pinned git URL, which carries no viewer; the checkout above is the same
-      # commit but with viewer_dist/ built into it, so it has to land last to win.
       - name: Install
         run: |
           uv venv --python 3.12 .venv
-          VIRTUAL_ENV=$PWD/.venv uv pip install -e packages/anatomy
-          VIRTUAL_ENV=$PWD/.venv uv pip install -e pixel-patrol/packages/pixel-patrol-base
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e . pytest
 
-      # One self-contained page: the app bundle and every installed extension are
-      # inlined, DuckDB WASM comes from a CDN. Open it with ?data=<url of a report>.
-      - name: Build the Anatomy viewer
+      - name: Check the page reads a report and draws every section
+        run: .venv/bin/python -m pytest -q tests/test_report_page.py
+
+      - name: Publish the page
         run: |
           mkdir -p _site
-          .venv/bin/pixel-patrol build-viewer-html -o _site/pixelpatrol-anatomy.html
+          page=$(.venv/bin/organella page)
+          cp "$page" _site/organella_report.html
+          cp "$page" _site/index.html
 
-      # The viewer bundle itself, so `pixel-patrol-anatomy fetch-viewer` can hand someone a
-      # working local viewer without a pixel-patrol checkout and an npm build. Serving the
-      # report locally is also the only way the 3D widgets see the geometry, which sits
-      # beside the report rather than inside it.
-      - name: Publish the viewer bundle for fetch-viewer
-        run: |
-          tar -czf _site/viewer-dist.tar.gz \
-            -C pixel-patrol/packages/pixel-patrol-base/src/pixel_patrol_base viewer_dist
-          ls -lh _site/viewer-dist.tar.gz
+      - name: Publish the imprint and the privacy policy
+        run: cp docs/impressum.html docs/privacy.html docs/_legal.css _site/
 
-      - name: Add the standalone viewer at its original URLs
+      # Skipped rather than fatal when the commit is not there: a repository the history
+      # was not carried into still deploys, just without the prototype's URLs.
+      - name: Add the standalone prototype at its original URLs
         run: |
-          git show "$STANDALONE_VIEWER_REF:index.html"        > _site/index.html
-          git show "$STANDALONE_VIEWER_REF:stats_viewer.html" > _site/stats_viewer.html
-          git show "$STANDALONE_VIEWER_REF:mesh_viewer.html"  > _site/mesh_viewer.html
+          if git cat-file -e "$PROTOTYPE_REF^{commit}" 2>/dev/null; then
+            git show "$PROTOTYPE_REF:stats_viewer.html" > _site/stats_viewer.html
+            git show "$PROTOTYPE_REF:mesh_viewer.html"  > _site/mesh_viewer.html
+          else
+            echo "::notice::$PROTOTYPE_REF is not in this repository; publishing without the prototype URLs"
+          fi
 
       - name: Show what will be published
         run: ls -lh _site

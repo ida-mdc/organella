@@ -12,3 +12,6 @@ __pycache__/
 # What a run writes: the report, and the geometry that goes beside it
 report.parquet
 *_meshes/
+
+# What `uv build` leaves behind
+dist/
