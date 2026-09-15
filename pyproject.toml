@@ -1,6 +1,6 @@
 [project]
 name = "organella"
-version = "0.1.0"
+version = "0.2.0"
 description = "Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
 requires-python = ">=3.11"
