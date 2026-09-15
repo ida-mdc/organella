@@ -304,10 +304,10 @@ def test_every_section_draws(drawn):
 
 
 def test_the_sections_draw_the_charts_they_promise(drawn):
-    """Boxes for distributions, bars for one-per-object values, curves for shares, and
-    one circle per object for where its structures sit around it."""
+    """Boxes for distributions, bars for one-per-object values, curves for shares, and for
+    direction a rose of wedges with an arrow over it."""
     assert drawn["plots"] > 10
-    assert set(drawn["traceTypes"]) == {"bar", "box", "scatter", "scatterpolar"}
+    assert set(drawn["traceTypes"]) == {"bar", "barpolar", "box", "scatter", "scatterpolar"}
 
 
 def test_the_question_headings_name_the_structure_they_are_about(drawn):

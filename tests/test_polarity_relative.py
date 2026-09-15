@@ -159,33 +159,42 @@ def drawn_polarity(report_path):
                      "groupBy": "group"})["render"]
 
 
-def test_the_section_draws_all_five_readings(drawn_polarity):
-    """The angle, both indices, the average direction as an arrow, the two together, and
-    one circle per object."""
+def test_the_section_draws_all_four_readings(drawn_polarity):
+    """Which way it points, both indices, the angle against the distance, and one circle
+    per object."""
     titles = drawn_polarity["titles"]
 
-    assert "mito angle to nucleus" in titles
+    assert "mito towards nucleus" in titles
     assert "mito V towards nucleus" in titles
     assert "mito R, agreement" in titles
-    assert "mito average direction" in titles
     assert "mito distance by angle" in titles
+    # The row of angle box plots is gone: the rose behind each arrow is that distribution,
+    # in the panel that also carries its summary.
+    assert "mito angle to nucleus" not in titles
     # One circular map per object, titled by the object it is of.
     assert len([t for t in titles if t.startswith("object_")]) == 4
     assert "s-polarity" in drawn_polarity["shown"]
     assert drawn_polarity["failed"] == []
 
 
-def test_the_isotropic_reference_is_drawn_on_every_angle_panel(drawn_polarity):
-    """90°: half of a direction-blind population sits beyond it, whatever the shape.
+def test_the_isotropic_shape_is_drawn_behind_each_rose(drawn_polarity):
+    """A population blind to the axis is not flat on a half disc: there is more room at 90°.
 
-    That is geometry rather than a measurement, which is why it needs no baseline measured
-    against the object - and why it is the one reference these panels can carry.
+    That is geometry rather than a measurement, so it needs no baseline measured against
+    the object - and reading a rose without it would find polarity in every structure.
     """
-    angle_panels = [r for r in drawn_polarity["references"] if "angle to" in r["title"]]
+    roses = [p for p in drawn_polarity["circles"] if "towards nucleus" in (p["title"] or "")]
 
-    assert angle_panels
-    for panel in angle_panels:
-        assert panel["at"] == [90] * len(panel["at"])
+    assert roses
+    for panel in roses:
+        # The wedges are bars; the isotropic outline is the line over them.
+        outline = [t for t in panel["drawn"]
+                   if t["type"] == "scatterpolar" and len(t["r"]) > 2]
+        assert outline, panel["title"]
+        # More room across the axis than along it, so the outline bulges at 90°.
+        radii = outline[0]["r"]
+        assert max(radii) == pytest.approx(radii[len(radii) // 2], rel=0.25)
+        assert radii[0] < max(radii)
 
 
 def test_the_reader_is_told_which_way_is_arbitrary(drawn_polarity):
@@ -194,29 +203,28 @@ def test_the_reader_is_told_which_way_is_arbitrary(drawn_polarity):
     assert "arbitrary" in said
 
 
-def test_a_single_value_panel_still_shows_its_reference(report_path):
-    """A structure only one object has is drawn as a bar, and the line has to be on it.
+def test_a_panel_whose_data_stops_short_of_its_line_is_widened_to_hold_it(report_path):
+    """A line nobody can see is worse than none, and it goes both ways.
 
-    The isotropic reference is at 90° whatever the data does, so on a bar reaching 20° it
-    sits off an autoranged panel entirely - and a reader sees a bar and a dotted line at the
-    very top edge, with nothing saying it is 90.
+    A reference below every box - the population sitting *further* than chance, which is
+    half of what the line is for - was being drawn off the bottom of an autoranged panel.
     """
     drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
                       "structure": "mito", "objectNoun": "cell", "render": True,
                       "groupBy": "group"})["render"]
-    referenced = [r for r in drawn["references"] if "angle to" in r["title"]]
+    referenced = [r for r in drawn["references"]
+                  if " to " in r["title"] and "towards" not in r["title"]]
 
     assert referenced
+    held = 0
     for panel in referenced:
-        assert panel["at"] == [90] * len(panel["at"])
-        # On a panel whose own values stop short of the line, the axis was widened to hold
-        # it; where the data already spans it, Plotly is left to range the panel itself.
-        if panel["yRange"]:
-            low, high = panel["yRange"]
-            assert low <= 90 <= high, panel["title"]
-    # And at least one panel in this batch is that case: mtoc_cilium is in one object of
-    # four, is drawn as a single bar, and reaches nowhere near 90°.
-    assert [p for p in referenced if p["yRange"] and p["yRange"][1] >= 90]
+        if not panel["yRange"]:
+            continue
+        low, high = panel["yRange"]
+        for at in panel["at"]:
+            assert low <= at <= high, panel["title"]
+            held += 1
+    assert held, "no panel in this batch had to be widened, so nothing was checked"
 
 
 # ── the radius, and which group an object is in ─────────────────────────────
@@ -268,15 +276,15 @@ def test_the_arrow_is_the_two_indices_as_one_picture(drawn_polarity):
     arrow, not two facts: a box of V beside a box of R can never show that a long arrow
     pointing sideways and a short arrow pointing at the reference are different situations.
     """
-    arrows = [p for p in drawn_polarity["circles"] if "average direction" in (p["title"] or "")]
+    roses = [p for p in drawn_polarity["circles"] if "towards nucleus" in (p["title"] or "")]
 
-    assert arrows, "the section should draw the arrows at all"
-    for panel in arrows:
-        assert panel["range"] == [0, 1], "R is a length from 0 to 1"
-        for trace in panel["drawn"]:
-            # Each arrow runs from the centre out to its own R.
-            assert len(trace["r"]) == 2 and trace["r"][0] == 0
-            assert 0 <= trace["r"][1] <= 1
+    assert roses, "the section should draw the arrows at all"
+    for panel in roses:
+        assert panel["range"] == [0, 1.02], "R is a length from 0 to 1"
+        arrows = [t for t in panel["drawn"] if len(t["r"]) == 2 and t["r"][0] == 0]
+        assert arrows, panel["title"]
+        for arrow in arrows:
+            assert 0 <= arrow["r"][1] <= 1
 
 
 def test_the_panels_name_the_structure_and_not_the_page_s_own_function(drawn_polarity):

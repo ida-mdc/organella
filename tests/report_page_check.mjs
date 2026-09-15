@@ -138,6 +138,7 @@ if (job.render) {
         barmode: layout?.barmode ?? null,
         series: (data || []).map((t) => ({
           name: t.name ?? null,
+          type: t.type ?? 'scatter',
           x: Array.isArray(t.x) ? t.x.map(Number) : null,
           // Polar traces carry a radius instead, and their markers say what they are.
           r: Array.isArray(t.r) ? t.r.map(Number) : null,
@@ -580,7 +581,7 @@ if (job.render) {
     circles: plotted.filter((p) => p.polarRange)
       .map((p) => ({ title: p.title, range: p.polarRange,
                      drawn: p.series.filter((t) => t.r).map(
-                       (t) => ({ symbol: t.symbol, r: t.r })) })),
+                       (t) => ({ type: t.type, symbol: t.symbol, r: t.r })) })),
     // The reference lines, by the panel they were drawn on: a chance median per facet,
     // dotted, and on the axis the distance is on.
     references: plotted.filter((p) => p.shapes.some((sh) => sh.dash === 'dot'))

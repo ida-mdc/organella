@@ -533,10 +533,6 @@ organella process experiment/ \
     <p class="subsection-desc" id="pol-index-desc"></p>
     <div class="chart-legend" id="pol-index-legend"></div>
     <div class="charts-row" id="pol-index-charts"></div>
-    <div class="subsection-label mt-4" id="pol-arrow-label"></div>
-    <p class="subsection-desc" id="pol-arrow-desc"></p>
-    <div class="chart-legend" id="pol-arrow-legend"></div>
-    <div class="charts-row" id="pol-arrow-charts"></div>
     <div class="subsection-label mt-4" id="pol-where-label"></div>
     <p class="subsection-desc" id="pol-where-desc"></p>
     <div class="chart-legend" id="pol-where-legend"></div>
@@ -3255,8 +3251,8 @@ function renderOverview() {
  */
 function renderPolarity() {
   var section = document.getElementById('s-polarity');
-  ['pol-angle-charts', 'pol-index-charts', 'pol-arrow-charts', 'pol-where-charts',
-   'pol-map-charts'].forEach(function(id){ document.getElementById(id).innerHTML = ''; });
+  ['pol-angle-charts', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts']
+    .forEach(function(id){ document.getElementById(id).innerHTML = ''; });
 
   var references = polarReferences();
   if (!references.length) {
@@ -3392,47 +3388,126 @@ function renderPolarity() {
 
   var facetsFor = function(name){ return facetsOf(relative[name]); };
   var legend = facetLegendHtml(facetsFor(structures[0]));
-  ['pol-legend', 'pol-index-legend', 'pol-arrow-legend', 'pol-where-legend']
+  ['pol-legend', 'pol-index-legend', 'pol-where-legend']
     .forEach(function(id){ setHtml(id, legend); });
 
-  // ── how far round each structure sits ──────────────────────────────────────
-  setHtml('pol-angle-label', 'How far round from ' + dataName(ref)
-    + ' does each structure sit?');
-  setHtml('pol-angle-desc', 'The angle between the direction to each instance and the'
-    + ' direction to ' + dataName(ref) + ', both from the ' + noun() + ' centre. <b>0°</b>'
-    + ' is on the same side as ' + dataName(ref) + ', <b>180°</b> is straight across the '
-    + noun() + ' from it, and 90° is at right angles to that axis. A whole-structure mask'
-    + ' has one centre and no more, so it brings one reading per ' + noun()
-    + ' where an instance-segmented structure brings all of them.'
-    + ' <b>This row is the shape</b>: every instance, so a population spread evenly round'
-    + ' the axis can be told from one gathered in two clumps on opposite sides. The row'
-    + ' below is the same thing as one number per ' + noun() + ', which is what can be'
-    + ' compared between groups - so read the brackets here as description, not as a test:'
-    + ' one ' + noun() + ' holds thousands of these and they are not independent of each'
-    + ' other.');
+  // ── which way it points: the spread and the average in one picture ────────
+  //
+  // Polarity-JaM's plot (their Fig 2C): the distribution of angles as a rose, with the
+  // mean direction over it as an arrow whose *length* is the polarity index. Both readings
+  // in one panel, because they are readings of one thing - and a box of angles beside two
+  // boxes of indices said the same thing three times, with the box's brackets inviting a
+  // test over instances that are not independent of each other.
+  //
+  // Half a disc: the angle to the axis runs 0° to 180° and the rotation about it is
+  // arbitrary (see the maps below), so the missing half is not data. Their hemirose plots
+  // are half for the same reason.
+  setHtml('pol-angle-label', 'Which way does each structure point, relative to '
+    + dataName(ref) + '?');
+  setHtml('pol-angle-desc', '<b>0° is towards ' + dataName(ref) + '</b>, 180° is straight'
+    + ' across the ' + noun() + ' from it. The <b>wedges</b> are how many instances sit at'
+    + ' each angle, scaled so the fullest wedge reaches the rim, and the <b>dashed outline</b>'
+    + ' is the shape a population that cared nothing for the axis would have - not a flat'
+    + ' one, since there is more room at 90° to the axis than along it, which is geometry'
+    + ' rather than a measurement. The <b>arrow</b> is the average of those directions and'
+    + ' its <b>length is R</b>: out to the rim is 1, every instance agreeing; nothing at the'
+    + ' centre is 0, directions cancelling out. How far along the 0° axis the arrow reaches'
+    + ' <i>is</i> V, which the next row plots. A whole-structure mask has one centre and no'
+    + ' more, so it is a dot on the rim at its own angle rather than an arrow - there is'
+    + ' nothing for it to agree or disagree with.');
   var angleHost = document.getElementById('pol-angle-charts');
+  var ANGLE_BINS = 12;
   structures.forEach(function(name) {
     var facets = facetsFor(name);
-    var series = facets.valuesOf(relative[name], 'angle_deg',
-                                 { name: name, color: entColor(name) });
-    var isotropic = {};
-    series.forEach(function(f){ isotropic[f.name] = 90; });
-    distributionPanel(angleHost, {
-      series: series, title: panelTitle(name, 'angle to ' + ref), unit: '°',
-      noun: name, showFacetTicks: !facets.many, chanceBy: isotropic,
-      footnote: 'Dotted: 90°. Half of a population that cared nothing for the axis would'
-        + ' sit beyond it, whichever way the ' + noun() + ' is shaped - that much is'
-        + ' geometry, not a measurement. Below the line leans towards ' + dataName(ref)
-        + ', above it leans away.'
+    var fallback = { name: name, color: entColor(name) };
+    var isMask = kinds[name] === 'mask';
+    var el = document.createElement('div');
+    el.className = 'chart-cell';
+    el.style.width = '300px';
+    var traces = [];
+    // The spread, as a share of each facet's own population per 15° bin, and the share an
+    // isotropic population would have in the same bin. Both scaled by the same number, so
+    // the two shapes can be read against each other.
+    var width = 180 / ANGLE_BINS, centres = [], expected = [];
+    for (var b = 0; b < ANGLE_BINS; b++) {
+      var lo = b * width, hi = lo + width;
+      centres.push(lo + width / 2);
+      // In a plane every direction is one angle; in a volume a cone of them, and the solid
+      // angle of that cone is what an isotropic population fills.
+      expected.push(PLANAR ? width / 180
+        : (Math.cos(lo * Math.PI / 180) - Math.cos(hi * Math.PI / 180)) / 2);
+    }
+    var shares = facets.split(relative[name], fallback).map(function(f) {
+      var counts = new Array(ANGLE_BINS).fill(0);
+      f.rows.forEach(function(r) {
+        var at = Math.min(ANGLE_BINS - 1, Math.floor(r.angle_deg / width));
+        if (at >= 0) counts[at]++;
+      });
+      return { facet: f, share: counts.map(function(c){ return c / (f.rows.length || 1); }) };
     });
+    var top = Math.max.apply(null, [Math.max.apply(null, expected)].concat(
+      shares.map(function(x){ return Math.max.apply(null, x.share); })));
+    if (!isMask) {
+      shares.forEach(function(x) {
+        traces.push({ type: 'barpolar', name: x.facet.label,
+          r: x.share.map(function(v){ return v / top; }), theta: centres, width: width,
+          marker: { color: withAlpha(x.facet.color, 0.35),
+                    line: { color: x.facet.color, width: 1 } },
+          showlegend: false,
+          hovertemplate: '%{theta:.0f}°: %{customdata:.1f}% of ' + x.facet.name
+            + '<extra></extra>',
+          customdata: x.share.map(function(v){ return 100 * v; }) });
+      });
+      traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false,
+        r: expected.map(function(v){ return v / top; }).concat([expected[0] / top]),
+        theta: centres.concat([centres[0]]),
+        line: { color: CS.ink3, width: 1, dash: 'dot', shape: 'spline' },
+        hoverinfo: 'skip' });
+    }
+    // The average, one per object: length R, angle to the axis.
+    mapObjects.forEach(function(id) {
+      var axis = polarOffset(id, ref);
+      var units = relative[name].filter(function(r){ return r.object_id === id; })
+                                .map(function(r){ return r.unit; });
+      if (!axis || !units.length) return;
+      var found = polarityIndices(units, axis.unit);
+      if (!found || !found.mean) return;
+      var at = polarConeDeg(found.mean, axis.unit);
+      var group = groupOfObject[String(id)];
+      var colour = group ? gColor(group) : entColor(name);
+      traces.push(isMask
+        ? { type: 'scatterpolar', mode: 'markers', name: String(id), r: [1], theta: [at],
+            marker: { size: 9, color: colour, line: { color: '#fff', width: 1 } },
+            showlegend: false,
+            hovertemplate: String(id) + ': ' + escName(name) + ' at %{theta:.0f}°'
+              + '<extra></extra>' }
+        : { type: 'scatterpolar', mode: 'lines+markers', name: String(id),
+            r: [0, found.R], theta: [at, at],
+            line: { color: colour, width: 2 },
+            marker: { size: [0, 8], color: colour }, showlegend: false,
+            hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
+              + found.V.toFixed(2) + '<extra></extra>' });
+    });
+    if (!traces.length) return;
+    angleHost.appendChild(el);
+    Plotly.newPlot(el, traces, {
+      margin: { l: 44, r: 44, t: 30, b: 10 }, height: 230,
+      title: { text: panelTitle(name, 'towards ' + ref) }, showlegend: false,
+      polar: {
+        sector: [0, 180], barmode: 'overlay',
+        radialaxis: { range: [0, 1.02], angle: 90, nticks: 3, tickfont: { size: 9 } },
+        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
+                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
+                       tickfont: { size: 9 } }
+      }
+    }, { responsive: true, displayModeBar: false });
   });
 
   // ── the two collective measures, one per object ────────────────────────────
   setHtml('pol-index-label', 'How strongly does each structure lean towards '
     + dataName(ref) + '?');
-  setHtml('pol-index-desc', '<b>The row above as one number per ' + noun() + '.</b>'
-    + ' Every instance points somewhere; average those directions and you get one arrow'
-    + ' per structure per ' + noun() + '. Two numbers describe that arrow.'
+  setHtml('pol-index-desc', '<b>The arrows above as numbers, one per ' + noun() + '.</b>'
+    + ' Two of them describe each arrow.'
     + ' <b>V</b> is the one plotted: how far it points towards ' + dataName(ref)
     + ', from <b>+1</b> (every instance on ' + dataName(ref) + '’s side) through <b>0</b>'
     + ' to <b>-1</b> (every instance on the far side). <b>R</b> is its length: how much the'
@@ -3474,7 +3549,10 @@ function renderPolarity() {
         + ' <b>-1</b> every one of them away from it. One point per ' + noun() + '.'
     });
     // R beside V rather than under it in words: it is the other half of the same arrow,
-    // and a number in a caption with no axis and no spread cannot be read at all.
+    // and a number in a caption with no axis and no spread cannot be read at all. Not for
+    // a mask, though: one centre is one direction, so its R is 1 whatever it does, and a
+    // panel of flat ones reads as a measurement.
+    if (kinds[name] === 'mask') return;
     distributionPanel(indexHost, {
       series: facets.valuesOf(rows, 'R', fallback),
       title: panelTitle(name, 'R, agreement'), unit: 'R',
@@ -3486,66 +3564,6 @@ function renderPolarity() {
         + '. A high R with a V near 0 is a structure gathered on one side of the '
         + noun() + ' that is not ' + dataName(ref) + '\u2019s side.'
     });
-  });
-
-  // ── the same two numbers as one arrow, which is how they are drawn ────────
-  //
-  // Polarity-JaM's own picture (their Fig 2C): the mean direction as an arrow whose
-  // *length* is the polarity index. It is worth having because R and V are not two facts
-  // about a structure but two readings of one arrow - R is how long it is, V is how much
-  // of it points at the reference - and a pair of box plots can never show that.
-  //
-  // Half a disc, not a whole one: the angle to the axis runs 0° to 180° and the rotation
-  // about it is arbitrary (see the maps below), so the missing half is not data. That is
-  // the same shape their hemirose plots use, for the same reason - an angle with no
-  // meaningful other side.
-  setHtml('pol-arrow-label', 'The average direction, one arrow per ' + noun());
-  setHtml('pol-arrow-desc', 'One arrow per ' + noun() + ' per structure: it points at the'
-    + ' average of that structure\u2019s directions, and its <b>length is R</b> - out to'
-    + ' the rim is 1, every instance agreeing, and nothing at the centre is 0, directions'
-    + ' cancelling out. <b>0° is towards ' + dataName(ref) + '</b> and 180° is away, so how'
-    + ' far along that axis an arrow reaches <i>is</i> V: a long arrow pointing right is a'
-    + ' structure gathered on ' + dataName(ref) + '\u2019s side, a long arrow pointing up'
-    + ' is one gathered somewhere else, and a short arrow is one that is not gathered at'
-    + ' all. Drawn the way Polarity-JaM draws it (Giese et al., <i>Nat Commun</i> 2025,'
-    + ' Fig 2C).');
-  var arrowHost = document.getElementById('pol-arrow-charts');
-  structures.forEach(function(name) {
-    var traces = [];
-    mapObjects.forEach(function(id) {
-      var axis = polarOffset(id, ref);
-      var units = relative[name].filter(function(r){ return r.object_id === id; })
-                                .map(function(r){ return r.unit; });
-      if (!axis || !units.length) return;
-      var found = polarityIndices(units, axis.unit);
-      if (!found || !found.mean) return;
-      var at = polarConeDeg(found.mean, axis.unit);
-      var group = groupOfObject[String(id)];
-      traces.push({ type: 'scatterpolar', mode: 'lines+markers', name: String(id),
-        r: [0, found.R], theta: [at, at],
-        line: { color: group ? gColor(group) : entColor(name), width: 2 },
-        marker: { size: [0, 8], color: group ? gColor(group) : entColor(name) },
-        hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
-          + found.V.toFixed(2) + '<extra></extra>' });
-    });
-    if (!traces.length) return;
-    var el = document.createElement('div');
-    el.className = 'chart-cell';
-    el.style.width = '300px';
-    arrowHost.appendChild(el);
-    Plotly.newPlot(el, traces, {
-      margin: { l: 44, r: 44, t: 30, b: 10 }, height: 220,
-      title: { text: panelTitle(name, 'average direction') }, showlegend: false,
-      polar: {
-        // Half the disc: 0° towards the reference, 180° away, and nothing below - the
-        // rotation about that axis is not in the data.
-        sector: [0, 180],
-        radialaxis: { range: [0, 1], angle: 90, nticks: 3, tickfont: { size: 9 } },
-        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
-                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
-                       tickfont: { size: 9 } }
-      }
-    }, { responsive: true, displayModeBar: false });
   });
 
   // ── angle against distance ─────────────────────────────────────────────────
