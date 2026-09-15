@@ -98,9 +98,17 @@ no server runs.
 `geometry.parquet` files themselves; The `organelle view` command attaches them for you and you don't need to do anything else.
 
 In the page, **Charts** switches every panel between boxes and histograms, and
-**Significance** puts Mann-Whitney brackets between whatever the charts are faceted by. Every
-column carries its own description in the report, so the page explains each metric under the
-chart of it.
+**Significance** puts Mann-Whitney brackets between the facets. Every column carries its own
+description in the report, so the page explains each metric under the chart of it.
+
+**A test compares objects, never instances.** A box holds every instance of a facet - forty
+thousand granules across four cells - but the test behind its bracket is handed one number
+per object, the median of that object's instances, so the n it reports is a count of cells.
+Tested on the instances, any difference at all comes back as p < 0.001, because the test is
+told it has forty thousand independent samples when it has four: granules inside one cell
+share that cell's size, its fixation, its condition. Grouping the charts by object therefore
+leaves nothing to test - one cell per box - and no bracket is drawn, which the bar above the
+charts says while that grouping is on.
 
 **Every distance panel is drawn against chance.** A run measures, per object and structure,
 the distance to that structure from everywhere in the object, and the panels put it beside

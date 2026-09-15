@@ -569,7 +569,10 @@ if (job.render) {
     // holds; a gap in coverage is said by the section it is a gap in.
     caveats: Object.fromEntries(
       ['overview-warnings', 'entity-coverage', 'ct-coverage'].map(
-        (id) => [id, globalThis.document.getElementById(id)?.innerHTML ?? null])),
+        (id) => [id, globalThis.document.getElementById(id)?.innerHTML ?? null])
+      // What the brackets are on, or why there are none: set as text, beside the switch.
+      .concat([['sig-hint',
+                globalThis.document.getElementById('sig-hint')?.textContent ?? null]])),
     plots: plotted.length,
     traceTypes: [...new Set(plotted.flatMap((p) => p.traces))].sort(),
     titles: plotted.map((p) => p.title).filter(Boolean),

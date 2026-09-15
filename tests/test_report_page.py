@@ -403,18 +403,27 @@ def test_a_bracket_carries_the_p_value_and_the_n_it_used(by_group):
     assert "n = " in detail
 
 
-def test_the_comparison_is_offered_whatever_the_facets_are(drawn):
-    """On or off with the checkbox and nothing else.
+def test_one_object_per_box_leaves_nothing_to_test(drawn):
+    """Faceted by object, a box is one object: a test between two of them has n = 1 vs 1.
 
-    Faceted by object the facets are two samples of one condition rather than two
-    conditions, which is worth knowing and is not a result - so the comparison is still
-    shown when asked for, and it names the facets it compared so it reads as what it is.
+    It used to run anyway, on the instances inside each - which is a p-value between two
+    cells' internal spreads, and reads as a result. No bracket is drawn now, and the reason
+    is said once beside the switch that asks for them rather than under every panel.
     """
-    assert drawn["bracketedPanels"] > 0
-    named = {tuple(sorted(b["detail"].split(":")[0].split(" vs "))) for b in drawn["brackets"]}
-    assert named, "a bracket says which two facets it compared"
-    for pair in named:
-        assert all(name.startswith("object_") for name in pair), pair
+    assert drawn["bracketedPanels"] == 0
+    assert drawn["brackets"] == []
+    assert "nothing to test" in (drawn["caveats"].get("sig-hint") or "")
+
+
+def test_a_comparison_between_groups_counts_objects_not_instances(by_group):
+    """The n a bracket reports is a count of objects, because that is what it compared."""
+    detail = by_group["brackets"][0]["detail"]
+
+    assert "cells" in detail or "objects" in detail
+    # Four objects in this batch, two per group: nothing bigger than that can be the n.
+    numbers = [int(part) for part in detail.replace(",", " ").split()
+               if part.isdigit()]
+    assert max(numbers) <= 4, detail
 
 
 def test_turning_significance_off_removes_them(report_path):
@@ -1046,3 +1055,14 @@ def test_no_line_is_drawn_where_the_allowance_swallows_the_distance(report_path)
         if "angle to" in panel["title"]:
             continue
         assert all(at > 0 for at in panel["at"]), panel["title"]
+
+
+def test_every_test_on_the_page_counts_objects(by_group):
+    """Including the share curves, which carry their comparison as a note rather than a
+    bracket - they were the one row still testing forty thousand instances.
+    """
+    notes = by_group["notes"]
+
+    assert notes, "the share curves should carry their comparison as text"
+    for note in notes:
+        assert "objects)" in note or "cells)" in note, note

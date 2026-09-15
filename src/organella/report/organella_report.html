@@ -336,6 +336,9 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
            style="gap:.35rem;color:var(--ink-3);white-space:nowrap">
       <input type="checkbox" id="show-significance" checked> Significance
     </label>
+    <!-- Why the brackets are missing, where they are: said once, beside the switch that
+         asks for them, rather than under every panel of every row. -->
+    <span id="sig-hint" class="small" style="color:var(--ink-3)"></span>
   </div>
 </div>
 
@@ -732,10 +735,9 @@ var plotGroupBy = 'object';
 // depends on the structure, so it is one choice for the whole report rather than a control
 // on every panel.
 var plotStyle = 'distribution';
-// Mann-Whitney between facets, on or off and nothing else: whichever the facets are, the
-// comparison is shown when it is asked for. What the facets *mean* is the reader's to know
-// - between conditions it is a result, between two objects of one condition it is two
-// samples of the same thing - and the panel says which it is either way.
+// Mann-Whitney between facets, on or off and nothing else. What it is handed is not the
+// reader's choice, though: see pairwiseSignificance - the objects behind a facet, never the
+// instances inside them.
 var showSignificance = true;
 
 // ══════════════════════════════════════════════════════════════
@@ -2096,6 +2098,23 @@ function fillFacetFilter() {
   document.getElementById('flt-only').value = st.only;
 }
 
+/**
+ * What a bracket is comparing, or why there is none.
+ *
+ * A test is run on the objects behind a facet (see pairwiseSignificance), so grouping the
+ * charts by object leaves one object per box and nothing to compare. That is a property of
+ * the grouping rather than of any panel, so it is said here, once, beside the switch.
+ */
+function sayWhatIsTested() {
+  var hint = document.getElementById('sig-hint');
+  if (!hint) return;
+  var objects = uniq(OBJECTS.map(function(r){ return r.object_id; })).length;
+  hint.textContent = !showSignificance ? ''
+    : (plotGroupBy === 'object' && objects > 1
+        ? 'one ' + noun() + ' per box: nothing to test'
+        : 'per ' + noun() + ', not per instance');
+}
+
 function initFilters() {
   var gs = groupNames();
   // By group wherever a batch has groups. That is the comparison the run was set up to
@@ -2116,6 +2135,7 @@ function initFilters() {
   document.getElementById('plot-groupby').onchange = function(){
     plotGroupBy = this.value;
     fillFacetFilter();
+    sayWhatIsTested();
     renderAll();
   };
   var style = document.getElementById('plot-style');
@@ -2132,8 +2152,10 @@ function initFilters() {
   sigBox.checked = showSignificance;
   sigBox.onchange = function(){
     showSignificance = this.checked;
+    sayWhatIsTested();
     renderAll();
   };
+  sayWhatIsTested();
 }
 
 /**
@@ -2144,6 +2166,9 @@ function initFilters() {
  * on its own so the others survive, and what went wrong is said where it happened.
  */
 function renderAll() {
+  // Kept in step with the grouping rather than set when the control changes: every path
+  // that redraws the report - a load, a filter, the switch itself - comes through here.
+  sayWhatIsTested();
   var sections = [
     ['overview', renderOverview], ['3d', renderScene], ['entities', renderEntityStats],
     ['groups', renderContacts], ['polarity', renderPolarity], ['structure', renderStructure]
@@ -2720,25 +2745,35 @@ function formatP(p) {
 var MAX_BRACKETS = 6;
 
 /**
- * Every pair of facets, tested.
+ * Every pair of facets, tested - on the objects behind them, not on their instances.
  *
- * On or off with the checkbox and nothing else. It is deliberately not tied to what the
- * facets are: between conditions the comparison is a result, between two objects of one
- * condition it is two samples of the same thing, and hiding the second case would be this
- * page deciding which question the reader is allowed to ask. Both are shown when asked
- * for, and both say what they compared - the hover and the note name the facets, so a
- * p-value between two objects is legible as exactly that.
+ * A facet of a real batch is four cells holding forty thousand granules. Tested on the
+ * granules, any difference at all comes back as p < 0.001, because the test is told it has
+ * forty thousand independent samples when it has four: granules inside one cell share that
+ * cell's size, its fixation, its glucose. So where the caller knows which object each row
+ * came from (`units`, one median per object), that is what is compared, and the n the panel
+ * reports is a count of objects.
+ *
+ * With fewer than two objects in a facet there is nothing to compare and no bracket is
+ * drawn - which is what grouping the charts by object comes down to: one cell per box. The
+ * panel says so rather than falling back to the instances, because a p-value between two
+ * single cells reads as a result and is not one.
  */
 function pairwiseSignificance(series) {
   if (!showSignificance || series.length < 2) return [];
   var out = [];
   for (var i = 0; i < series.length; i++) {
     for (var j = i + 1; j < series.length; j++) {
-      var test = mannWhitney(series[i].values, series[j].values);
+      var a = series[i], b = series[j];
+      // A caller that cannot say which object a row came from - a hand-built series - is
+      // tested on what it has, and says so.
+      var known = a.units != null && b.units != null;
+      if (known && (a.units.length < 2 || b.units.length < 2)) continue;
+      var test = mannWhitney(known ? a.units : a.values, known ? b.units : b.values);
       if (test) {
-        out.push({ a: i, b: j, test: test,
-                   aName: series[i].name, bName: series[j].name,
-                   aLabel: series[i].label, bLabel: series[j].label });
+        out.push({ a: i, b: j, test: test, perObject: known,
+                   aName: a.name, bName: b.name,
+                   aLabel: a.label, bLabel: b.label });
       }
     }
   }
@@ -2771,7 +2806,8 @@ function bracketLayout(layout, comparisons, span) {
       xref: 'x', yref: 'y', x: (c.a + c.b) / 2, y: y, yanchor: 'bottom',
       showarrow: false, text: significanceStars(c.test.p),
       hovertext: c.aName + ' vs ' + c.bName + ': ' + formatP(c.test.p)
-        + ' (Mann-Whitney U = ' + c.test.u + ', n = ' + c.test.n1 + ' vs ' + c.test.n2 + ')',
+        + ' (Mann-Whitney U = ' + c.test.u + ', n = ' + c.test.n1 + ' vs ' + c.test.n2
+        + (c.perObject ? ' ' + noun(true) + ', each one median' : '') + ')',
       font: { family: CS.sans, size: c.test.p <= 0.05 ? 13 : 9.5, color: CS.ink2 }
     });
   });
@@ -2800,7 +2836,7 @@ function significanceNote(container, comparisons) {
     return '<div class="sig-note-row" title="' + escHtml(c.aName + ' vs ' + c.bName) + '">'
       + '<span class="sig-note-stars">' + significanceStars(c.test.p) + '</span> ' + pair
       + ' <span class="sig-note-p">(' + formatP(c.test.p) + ', n = ' + c.test.n1 + ' vs '
-      + c.test.n2 + ')</span></div>';
+      + c.test.n2 + (c.perObject ? ' ' + noun(true) : '') + ')</span></div>';
   }).join('');
   container.appendChild(note);
 }
@@ -3219,8 +3255,12 @@ function renderOverview() {
     if (!forStructure.length) return;
     var series = extentFacets.split(forStructure, { name: e, color: entColor(e) })
       .map(function(f) {
+        // One row per object here, so the values *are* the units a test compares - said
+        // rather than left to be guessed, which is how a panel of one bar per object came
+        // to carry a p-value between two single numbers.
+        var values = f.rows.map(totalExtent);
         return { name: f.name, label: f.label, color: f.color,
-                 values: f.rows.map(totalExtent) };
+                 values: values, units: values };
       }).filter(function(f){ return f.values.length; });
     distributionPanel(row, {
       series: series, unit: terms.unit, noun: noun(), width: 232, height: 196,
@@ -5746,7 +5786,21 @@ function pairPanels(host, opts) {
       var reach = reachOf(f.rows, pair[0], pair[1]);
       if (!reach.length) return;
       var curve = ecdfCurve(reach);
-      comparisons.push({ name:f.name, label:f.label, color:f.color, values:reach });
+      // The curve is every member; the test is one median per object, the same rule the
+      // box panels follow - a facet of four cells is four samples however many thousand
+      // members they hold between them.
+      var byObject = {};
+      f.rows.forEach(function(r) {
+        var pairAt = finitePairs([r[pair[0]]], [r[pair[1]]]);
+        if (!pairAt.length) return;
+        var id = String(r.object_id == null ? '' : r.object_id);
+        (byObject[id] = byObject[id] || []).push(Math.max(pairAt[0][0], pairAt[0][1]));
+      });
+      comparisons.push({ name:f.name, label:f.label, color:f.color, values:reach,
+        units: Object.keys(byObject).map(function(id) {
+          return quantileSorted(
+            byObject[id].slice().sort(function(a, b){ return a - b; }), 0.5);
+        }) });
       traces.push({ type:'scatter', name:f.label + ' (n=' + curve.n + ')',
         x:curve.x, y:curve.y,
         line:{ color:f.color, width: series.length > 4 ? 1.5 : 2, shape:'hv' },
@@ -5830,12 +5884,30 @@ function facetsOf(rows, opts) {
                  rows: subset.filter(function(r){ return r[key] === v; }) };
       }).filter(function(f){ return f.rows.length; });
     },
-    /** The same, with one metric read off each row: what distributionPanel wants. */
+    /**
+     * The same, with one metric read off each row: what distributionPanel wants.
+     *
+     * Two populations come back per facet. `values` is every row, which is what the boxes
+     * and the histograms draw. `units` is one number per object - the median of that
+     * object's rows - which is what a test between facets has to use: eight thousand
+     * granules inside one cell are eight thousand readings of one cell, not eight thousand
+     * samples, and a rank test handed them answers a question nobody asked.
+     */
     valuesOf: function(subset, column, fallback) {
       return this.split(subset, fallback).map(function(f) {
-        return { name: f.name, label: f.label, color: f.color,
-                 values: f.rows.map(function(r){ return r[column]; })
-                                .filter(function(v){ return v != null && isFinite(v); }) };
+        var values = [], byObject = {};
+        f.rows.forEach(function(r) {
+          var value = r[column];
+          if (value == null || !isFinite(value)) return;
+          values.push(value);
+          var id = String(r.object_id == null ? '' : r.object_id);
+          (byObject[id] = byObject[id] || []).push(value);
+        });
+        return { name: f.name, label: f.label, color: f.color, values: values,
+                 units: Object.keys(byObject).map(function(id) {
+                   return quantileSorted(
+                     byObject[id].slice().sort(function(a, b){ return a - b; }), 0.5);
+                 }) };
       }).filter(function(f){ return f.values.length; });
     }
   };
@@ -6705,10 +6777,9 @@ function renderGroupSizes(scope, entity, thr, named) {
     '<b>Left:</b> how many instances chain together into one group. <b>Right:</b> the share'
     + ' of ' + named + ' instances that reach another, out of <em>every</em> instance of it -'
     + ' including the ones touching nothing, which is what makes it a share rather than a'
-    + ' count. The share is one number per ' + noun() + ', so it is the block a difference'
-    + ' between conditions can be tested on; group sizes within one ' + noun() + ' are not'
-    + ' independent of'
-    + ' each other, so that panel is drawn without a bracket.');
+    + ' count. Both panels are tested on one number per ' + noun() + ' - the share itself,'
+    + ' and the median group size - since group sizes within one ' + noun() + ' are not'
+    + ' independent of each other.');
   setHtml('ct-legend', !facets.many ? '' : facets.values.map(function(v) {
     return '<span class="d-inline-flex align-items-center gap-1">'
       + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'
@@ -6716,17 +6787,23 @@ function renderGroupSizes(scope, entity, thr, named) {
   }).join(''));
 
   chartsEl.innerHTML = '';
-  // Group sizes, pooled per facet: descriptive, and deliberately untested.
+  // Group sizes, pooled per facet to draw, and one median per object to test on - the same
+  // rule every other panel follows.
   var sizeSeries = facets.split(perObject, { name: entity, color: entColor(entity) })
     .map(function(f) {
+      var medians = f.rows.map(function(r) {
+        return r.sizes.length
+          ? quantileSorted(r.sizes.slice().sort(function(a, b){ return a - b; }), 0.5) : null;
+      }).filter(function(v){ return v != null; });
       return { name: f.name, label: f.label, color: f.color,
-               values: f.rows.reduce(function(all, r){ return all.concat(r.sizes); }, []) };
+               values: f.rows.reduce(function(all, r){ return all.concat(r.sizes); }, []),
+               units: medians };
     }).filter(function(f){ return f.values.length; });
   if (sizeSeries.length) {
     distributionPanel(chartsEl, {
       series: sizeSeries, title: entity + ' per group (groups of 2+)',
       unit: 'instances', noun: 'group', width: 340, height: 268,
-      showFacetTicks: !facets.many, noSignificance: true,
+      showFacetTicks: !facets.many,
       help: 'How many instances chained together into one group at the current gap.'
     });
   } else {
