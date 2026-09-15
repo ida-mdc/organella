@@ -417,9 +417,8 @@ organella process experiment/ \
 
   <!-- 02 The thing itself, in 3D -->
   <div class="section" id="s-3d">
-    <div class="section-title">Looking at a single <span data-noun></span>..</div>
-    <p class="section-subtitle">.. before we dive deeper into statistics.
-      Drag to orbit, scroll to zoom, shift-drag to pan. Colour
+    <div class="section-title">Looking at a single <span data-noun></span></div>
+    <p class="section-subtitle">Drag to orbit, scroll to zoom, shift-drag to pan. Colour
       by structure to read the layout, by a metric to see where the extremes sit,
       or by contact group to see which instances chain together at a given gap.
       Explode pushes every instance out along its own direction from the
@@ -2576,7 +2575,7 @@ function renderOverview() {
   if (DROPPED) {
     warnings.push('<b>' + DROPPED + '</b> row' + (DROPPED === 1 ? '' : 's')
       + ' of this report name no structure and could not be placed. They are left out of '
-      + 'everything below; the report was probably written by a different version.');
+      + 'everything below.');
   }
   setHtml('overview-warnings', warnings.map(function(w) {
     return '<p class="callout callout-warn">' + w + '</p>';
@@ -4926,9 +4925,7 @@ function renderEntityStats() {
       + '<div class="charts-row" data-slot="mask"></div>'
       + '<div class="subsection-label">What does each ' + named + ' look like?</div>'
       + '<p class="subsection-desc">The shape behind each measurement above, one card per '
-        + noun() + '. Numbers say a mask is bigger or rounder than another; this is where'
-        + ' you see what it actually is, and whether a reading is telling you about the'
-        + ' structure or about a segmentation that leaked.</p>'
+        + noun() + ', with the value under it. Click one to look at it properly.</p>'
       + '<div data-slot="mask-gallery"></div>';
     container.appendChild(block);
     renderGallery(block.querySelector('[data-slot="mask-gallery"]'), ent, 'file');
@@ -5502,9 +5499,8 @@ function renderGroupReach(scope, entity, thr, named) {
       'One panel per pair. For each group we take the <b>larger</b> of its two closest'
       + ' approaches - the distance at which it reaches <b>both</b> structures - and the curve'
       + ' shows the share of groups at or below it. A curve that <b>rises early and steeply</b>'
-      + ' means most groups bridge the two. This is the same reading as for single instances'
-      + ' above, which is the comparison worth making: a network can span what one instance'
-      + ' cannot.');
+      + ' means most groups bridge the two. The panels above read the same way for single'
+      + ' instances.');
     pairPanels(bothEl, {
       series: facets.split(rows, fallback), dims: orderDistDims(targets), noun: 'group'
     });

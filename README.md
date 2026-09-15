@@ -11,6 +11,9 @@ objects themselves in 3D.
 Drop a `report.parquet` on it and every chart is drawn in your browser. Nothing is uploaded
 and no server runs, so a report can be mailed to a collaborator with a link to that page.
 
+Or read one that is already up: **[seven mouse β cells, from Müller et al.](https://ida-mdc.github.io/organella/?data=https%3A%2F%2Fdcache-doma-door01.desy.de%2FHelmholtz%2FHIP%2Fcollaborations%2FOrganella%2Freports%2Fmueller-betacells.parquet)** - FIB-SEM,
+eight structures, with its geometry beside it so the 3D sections draw.
+
 An **object** is one segmented thing measured as a whole, given as a folder: a source image,
 one mask that bounds the object, and the label/mask volumes inside it. For example, object can be a cell
 bounded by its plasma membrane (`--object-mask pm`). Specifying the object bound is optional. 
