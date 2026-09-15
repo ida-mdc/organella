@@ -76,6 +76,8 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .topbar { background: var(--surface); color: var(--ink); padding: .55rem 1.6rem;
   display: flex; flex-wrap: wrap; gap: .7rem; align-items: center;
   position: sticky; top: 0; z-index: 300; border-bottom: 1px solid var(--rule-2); }
+.geom-note { max-width: 19rem; font-size: .74rem; line-height: 1.5; color: var(--ink-3);
+  white-space: normal; }
 .report-description { font-family: var(--serif); font-size: .95rem; line-height: 1.6;
   color: var(--ink-2); border-left: 2px solid var(--rule-2); padding: .1rem 0 .1rem 1rem;
   margin: 0 0 2rem; max-width: 46rem; white-space: pre-wrap; }
@@ -129,6 +131,10 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .card-metric-last { border-right: none; }
 .card-metric .big { font-family: var(--sans); font-size: 2.5rem; font-weight: 300;
   color: var(--ink); line-height: 1; letter-spacing: -.03em; }
+/* The structures are a list of names, so they are set as text: at the size of the counts
+   beside them, eight of them wrapped over two lines and read as the headline of the page. */
+.card-metric .names { font-family: var(--sans); font-size: 1.02rem; font-weight: 400;
+  color: var(--ink); line-height: 1.45; max-width: 44rem; }
 .card-metric .lbl { font-size: .68rem; text-transform: uppercase;
   letter-spacing: .14em; color: var(--ink-3); margin-top: .25rem; }
 
@@ -283,6 +289,13 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
         <code>report_meshes</code> folder</button></li>
       <li><button type="button" class="dropdown-item" id="geom-pick-files">Pick
         <code>.parquet</code> files</button></li>
+      <li><hr class="dropdown-divider"></li>
+      <!-- A browser's own word for handing a folder to a page is "upload", and its
+           confirmation dialogue says so - which reads alarmingly two inches from a note
+           promising that nothing is uploaded. Said here, where that dialogue appears. -->
+      <li><div class="dropdown-item-text geom-note">Your browser may ask to
+        &ldquo;upload&rdquo; the folder. That is its word for handing the files to this page:
+        they are read here, in your browser, and nothing is sent anywhere.</div></li>
     </ul>
   </div>
   <input type="file" id="geom-input" webkitdirectory directory multiple class="d-none">
@@ -368,7 +381,9 @@ organella process experiment/ \
         Ran with <code>--with-mesh</code>? Once the report is open, press
         <strong>Add geometry</strong> and pick either the <code>report_meshes</code> folder or
         the <code>geometry.parquet</code> files themselves, and the
-        <span data-noun>object</span> is drawn in 3D.
+        <span data-noun>object</span> is drawn in 3D. A browser asks to
+        &ldquo;upload&rdquo; a folder you hand it; that is its wording for reading the files,
+        which happens here and goes nowhere.
       </p>
     </div>
 
@@ -2570,7 +2585,8 @@ function renderOverview() {
       + summary.missing.map(function(m) {
           return escHtml(m.object) + ' has no ' + m.structures.map(escHtml).join(', ');
         }).join('; ')
-      + '. A distribution drawn across objects hides that, so read the table first.');
+      + '. A distribution drawn across ' + noun(true) + ' hides that, so read the table'
+      + ' first.');
   }
   if (DROPPED) {
     warnings.push('<b>' + DROPPED + '</b> row' + (DROPPED === 1 ? '' : 's')
@@ -2587,10 +2603,10 @@ function renderOverview() {
   }).join(', ');
   setHtml('overview-cards',
     '<div class="card-metric"><div class="big">' + (summary.objects || 1) + '</div>'
-    + '<div class="lbl">Object' + (summary.objects === 1 ? '' : 's') + '</div></div>'
+    + '<div class="lbl">' + Noun(summary.objects !== 1) + '</div></div>'
     + (summary.instances ? '<div class="card-metric"><div class="big">'
         + summary.instances.toLocaleString() + '</div><div class="lbl">Instances</div></div>' : '')
-    + '<div class="card-metric card-metric-last"><div class="big">' + badges + '</div><div class="lbl">Structure' + (cols.length === 1 ? '' : 's') + '</div></div>');
+    + '<div class="card-metric card-metric-last"><div class="names">' + badges + '</div><div class="lbl">Structure' + (cols.length === 1 ? '' : 's') + '</div></div>');
 
   // ── presence / instance-count table ───────────────────────────────────────
   var groupOf = {};
@@ -3891,7 +3907,7 @@ async function renderScene() {
       var shortOf = new Map(objects.map(function(o) {
         return [o.id, o.id.length > 34 ? '…' + o.id.slice(-32) : o.id];
       }));
-      controls.appendChild(selector('Object', objects.map(function(o){ return o.id; }),
+      controls.appendChild(selector(Noun(), objects.map(function(o){ return o.id; }),
         current.id, function(value) {
           sceneState.objectId = value;
           sceneState.entities = null;
@@ -4747,7 +4763,7 @@ function renderEntityStats() {
         + ' the share of them at or below it. A curve that <b>climbs early and steeply</b>'
         + ' means most instances sit against both; one pushed to the right means few do.'
         + ' Every panel shares the same axes, so they can be compared straight across the'
-        + ' row, and the reading is the same whether an object holds one ' + named
+        + ' row, and the reading is the same whether a ' + noun() + ' holds one ' + named
         + ' or ten thousand.</p>'
       + '<div data-slot="both"></div>'
       + '<div class="subsection-label mt-3" data-slot="hist-label" style="display:none">How much'
@@ -4939,7 +4955,7 @@ function renderEntityStats() {
         unit:terms.boundaryUnit },
       { col:terms.round, label:terms.roundLabel, unit:'' },
       { col:'aspect_ratio_major_minor', label:'Aspect ratio', unit:'' },
-      { col:'polar_dist_um', label:'Distance from object centre', unit:'µm' }
+      { col:'polar_dist_um', label:'Distance from ' + noun() + ' centre', unit:'µm' }
     ].forEach(function(m) {
       if (!hasValue(mRows, m.col)) return;
       distributionPanel(mkEl, {
@@ -5380,8 +5396,9 @@ function renderGroupSizes(scope, entity, thr, named) {
     '<b>Left:</b> how many instances chain together into one group. <b>Right:</b> the share'
     + ' of ' + named + ' instances that reach another, out of <em>every</em> instance of it -'
     + ' including the ones touching nothing, which is what makes it a share rather than a'
-    + ' count. The share is one number per object, so it is the block a difference between'
-    + ' conditions can be tested on; group sizes within one object are not independent of'
+    + ' count. The share is one number per ' + noun() + ', so it is the block a difference'
+    + ' between conditions can be tested on; group sizes within one ' + noun() + ' are not'
+    + ' independent of'
     + ' each other, so that panel is drawn without a bracket.');
   setHtml('ct-legend', !facets.many ? '' : facets.values.map(function(v) {
     return '<span class="d-inline-flex align-items-center gap-1">'
@@ -5544,10 +5561,12 @@ function renderGroupBaseline(scope, entity, thr, named) {
     'The distances above are confounded by construction: <b>a group of ten reaches closer to'
     + ' anything than a group of two</b>, whatever either is made of, because the closest of'
     + ' ten draws is closer than the closest of two. So each group is scored against the'
-    + ' groups of <b>its own size</b> that the same ' + named + ' instances in the same object'
+    + ' groups of <b>its own size</b> that the same ' + named + ' instances in the same '
+    + noun()
     + ' could have formed - the share of them it beats by reaching closer. <b>50%</b> is what'
     + ' chance gives at any size, at the dotted line; above it the group reaches closer than'
-    + ' its size explains, below it further. Exact over the object\u2019s own distances, with'
+    + ' its size explains, below it further. Exact over the ' + noun() + '\u2019s own'
+    + ' distances, with'
     + ' ties split evenly. The median distance behind each box is under it, because a score'
     + ' does not say how close "closer" is.');
 
