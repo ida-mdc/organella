@@ -22,23 +22,12 @@ neighbouring cells. `--no-clip` measures them anyway.
 
 <br clear="right">
 
-## What the report looks like
+## Screenshots from the reports
 
-![The 3D view: a cell drawn from its geometry, with its structures toggled on and off](docs/report-3d.png)
-
-*The object itself, from the geometry a `--with-mesh` run wrote. Structures switch on and off,
-colour by a metric to see where the extremes sit, and explode pushes every instance out along
-its own direction from the centre.*
-
-![Composition per object and per group, with boxes and significance brackets](docs/report-distributions.png)
-
-*How much of each structure there is, per object and per group, with Mann-Whitney brackets
-between whatever the charts are faceted by.*
-
-![The instance gallery: individual microtubules sorted by skeleton length](docs/report-instances.png)
-
-*The instances behind a distribution - the highest, the lowest, or a fair sample of any metric -
-so an outlier can be looked at rather than guessed at.*
+|  |  |
+| --- | --- |
+| [![The 3D view of a cell drawn from its geometry](docs/report-3d.png)](docs/report-3d.png)<br>**The object in 3D,** from the geometry a `--with-mesh` run wrote. Structures switch on and off, colour by a metric, and explode pushes every instance out along its own direction from the centre. | [![Composition per object and boxes per group](docs/report-distributions.png)](docs/report-distributions.png)<br>**Composition, and groups compared.** How much of each structure there is in each object, and a box per group with Mann-Whitney brackets between whatever the charts are faceted by. |
+| [![The instance gallery, microtubules sorted by skeleton length](docs/report-instances.png)](docs/report-instances.png)<br>**The instances behind a distribution:** the highest, the lowest, or a fair sample of any metric. Click one to look at it properly. | [![Voxel-distance histograms, one panel per target structure](docs/report-voxel-distances.png)](docs/report-voxel-distances.png)<br>**Every voxel, by distance.** A structure's voxels binned by how far each one is from another structure, one panel per target. |
 
 ## Workflow
 
