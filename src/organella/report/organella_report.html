@@ -1956,6 +1956,8 @@ function isParquetName(name) {
 }
 
 function showLoadError(err) {
+  // Nothing is loading any more, so how to make one is worth saying again.
+  showMakeAReport(true);
   document.getElementById('landing-loading').classList.add('d-none');
   document.getElementById('landing-error').classList.remove('d-none');
   var msg = err && err.message ? err.message : String(err);
@@ -1963,7 +1965,23 @@ function showLoadError(err) {
   setText('landing-error-msg', msg);
 }
 
+/**
+ * Show or hide how a report is made at all.
+ *
+ * It is the first thing somebody with no report needs and the last thing somebody opening
+ * one wants: a link with `?data=`, or `organella view`, says a report is already on its way,
+ * and a column of install instructions beside the spinner is answering a question nobody
+ * asked. It comes back if the load fails, because then the question is live again.
+ */
+function showMakeAReport(show) {
+  var commands = document.getElementById('landing-commands');
+  if (!commands) return;
+  if (show) commands.classList.remove('d-none');
+  else commands.classList.add('d-none');
+}
+
 function showLandingForm() {
+  showMakeAReport(true);
   document.getElementById('landing-form').classList.remove('d-none');
   document.getElementById('landing-loading').classList.add('d-none');
   document.getElementById('topbar').classList.add('d-none');
@@ -6775,6 +6793,7 @@ function boot() {
   // ?data=<url of a report> opens straight into it, which is what a link to a report is.
   var dataUrl = new URLSearchParams(window.location.search).get('data');
   if (dataUrl) {
+    showMakeAReport(false);
     document.getElementById('url-input').value = dataUrl;
     loadFromUrl(dataUrl);
   }
@@ -6805,6 +6824,7 @@ if (typeof globalThis !== 'undefined') {
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,
                                 PLANAR:PLANAR, MIXED_DIMS:MIXED_DIMS, CHANCE:CHANCE }; },
+    showMakeAReport: showMakeAReport, showLandingForm: showLandingForm,
     distColumnsFor: distColumnsFor,
     distCols: distCols, scatterDistCols: scatterDistCols, histTargets: histTargets,
     endDistCols: endDistCols, extentGapUm: extentGapUm,

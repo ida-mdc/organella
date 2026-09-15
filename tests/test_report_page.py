@@ -991,3 +991,28 @@ def test_the_scale_is_shown_in_the_colours_it_labels(coloured):
         int(hex_colour[1:], 16)
     # Viridis: dark blue-purple at the bottom, yellow at the top.
     assert ramp[0] < ramp[-1]
+
+
+# ── the landing, when the report is already on its way ──────────────────────
+
+
+def test_how_to_make_a_report_is_not_shown_while_one_is_loading(report_path):
+    """A link with `?data=`, or `organella view`, says a report is already coming.
+
+    Install instructions beside the spinner answer a question nobody asked - and the page
+    opens on them for seconds, since a real report is a million rows.
+    """
+    named = run_page({"rows": rows_of(report_path), "structure": "mito", "render": True,
+                      "search": "?data=https://example.com/report.parquet"})["landing"]
+
+    assert named["afterBoot"] is False
+    # Back again once nothing is loading: the question is live for whoever is looking at it.
+    assert named["afterTryAgain"] is True
+
+
+def test_how_to_make_a_report_is_shown_when_the_page_is_opened_bare(report_path):
+    """No report named anywhere: this is the page's front door, and that is the first need."""
+    bare = run_page({"rows": rows_of(report_path), "structure": "mito",
+                     "render": True})["landing"]
+
+    assert bare["afterBoot"] is True

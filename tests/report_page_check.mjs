@@ -121,7 +121,9 @@ if (job.render) {
     },
     body: node('body'),
   };
-  globalThis.window = { location: { search: '', pathname: '/', href: 'http://x/' },
+  // `?data=` is what a link to a report, and `organella view`, put in the URL.
+  globalThis.window = { location: { search: job.search || '', pathname: '/',
+                                    href: 'http://x/' + (job.search || '') },
                         addEventListener: () => {}, devicePixelRatio: 1 };
   globalThis.history = { replaceState: () => {} };
   globalThis.getComputedStyle = () => ({ gridTemplateColumns: '1fr 1fr 1fr 1fr' });
@@ -168,6 +170,16 @@ const R = globalThis.OrganellaReport;
 if (!R) throw new Error('the page did not export OrganellaReport');
 
 const out = {};
+
+// What the landing shows, read the moment the page has booted: with a report named in the
+// URL, "Make a report" is not what the reader is waiting for. Taken synchronously, before
+// the load it started can fail and put it back.
+if (job.render) {
+  const commands = globalThis.document.getElementById('landing-commands');
+  out.landing = { afterBoot: commands?._shown !== false };
+  R.showLandingForm();
+  out.landing.afterTryAgain = commands?._shown !== false;
+}
 
 // The series palette past its hand-picked entries: a report with a dozen structures must
 // not run out and start drawing the rest in grey.
