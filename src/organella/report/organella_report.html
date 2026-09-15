@@ -5821,7 +5821,14 @@ function renderEntityStats() {
         + ' each ' + named + ' from other structures?</div>'
       + '<p class="subsection-desc" data-slot="dist-desc" style="display:none">Distance from'
         + ' the closest point of each ' + named + ' to the nearest instance of each structure.'
-        + ' Near 0 means that ' + named + ' sits right against it.</p>'
+        + ' Near 0 means that ' + named + ' sits right against it.'
+        + ' <b>The dotted line on each panel is chance</b>: the distance half the ' + noun()
+        + ' lies within of that structure, less what an instance\u2019s own extent gives it'
+        + ' - its body average sits that much further out than its closest point, because it'
+        + ' reaches a structure from its surface where a sample of the ' + noun()
+        + ' has none. A population below its line sits closer to that structure than the '
+        + noun() + '\u2019s own shape puts anything; one on the line sits exactly as close'
+        + ' as anything would. The numbers under each panel are that panel\u2019s.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="dist"></div>'
       + '<div class="subsection-label mt-3" data-slot="end-label" style="display:none">How far'
@@ -5833,7 +5840,8 @@ function renderEntityStats() {
         + ' that apart from being anchored to it by the tip. The share underneath is how many'
         + ' end within one voxel of the structure, which is as close as two things can be'
         + ' measured to be without overlapping - what "connected to it" comes down to at this'
-        + ' voxel size.</p>'
+        + ' voxel size. The dotted line is chance again, and needs no allowance for extent'
+        + ' here: a tip is a point, like the samples it comes from.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
@@ -5906,47 +5914,53 @@ function renderEntityStats() {
      * correcting there would move the line for nothing.
      */
     var chanceFor = function(target, allowExtent) {
-      var by = {}, said = [];
+      var by = {}, drawn = [], collapsed = [], measured = 0;
       Object.keys(objectsOf).forEach(function(name) {
         var stats = chanceStats(objectsOf[name], target);
         if (!stats || stats.median == null || !isFinite(stats.median)) return;
-        // Null means there was nothing to measure it from; zero is a measurement - two
-        // structures that overlap leave an instance's body average at its closest point -
-        // and the two must not read the same.
+        // Null means there was nothing to measure the allowance from; zero is a
+        // measurement - two structures that overlap leave an instance's body average at
+        // its closest point - and the two must not read the same.
         var gap = allowExtent ? extentGapUm(rowsOf[name], target) : null;
-        by[name] = Math.max(0, stats.median - (gap == null ? 0 : gap));
-        said.push({ name: name, at: by[name], gap: gap, excluded: stats.excluded });
+        if (gap != null) measured++;
+        var at = stats.median - (gap == null ? 0 : gap);
+        var entry = { name: name, at: at, median: stats.median, gap: gap };
+        // An allowance larger than the distance itself leaves nothing to read against: a
+        // randomly placed instance of this size would already be touching. Better no line
+        // than one pinned at zero, which reads as a measurement.
+        if (at > 0) { by[name] = at; drawn.push(entry); } else collapsed.push(entry);
       });
-      if (!said.length) return null;
-      var per = function(pick) {
-        return said.map(function(x) {
-          return (said.length > 1 ? escHtml(facets.labelOf(x.name)) + ' ' : '')
-            + fmtGap(pick(x));
+      if (!drawn.length && !collapsed.length) return null;
+      var per = function(entries, pick) {
+        return entries.map(function(x) {
+          return (Object.keys(objectsOf).length > 1
+            ? escHtml(facets.labelOf(x.name)) + ' ' : '') + fmtGap(pick(x));
         }).join(', ');
       };
-      var corrected = !allowExtent || said.every(function(x){ return x.gap != null; });
-      // An allowance of zero is still an allowance; there is just nothing to say about it.
-      var worthSaying = corrected && allowExtent
-        && said.some(function(x){ return x.gap > 0; });
-      return { by: by,
-        note: 'Dotted: ' + per(function(x){ return x.at; }) + ' µm - half of the ' + noun()
-          + ' lies within that of ' + dataName(target)
-          + (worthSaying
-              ? ', less the ' + per(function(x){ return x.gap; }) + ' µm that each '
-                + named + '\u2019s own extent buys it: its body average sits that much'
-                + ' further out than its closest point, so a ' + named + ' reaches a'
-                + ' structure from its surface where a sample of the ' + noun()
-                + ' has none'
-              : '')
-          + '. Below the line is closer than the ' + noun()
-          + '\u2019s own shape puts anything'
-          + (said[0].excluded
-              ? ', with ' + dataName(said[0].excluded) + ' left out of that region' : '')
-          + '.'
-          + (corrected ? ''
-              : ' Not corrected for the extent of a ' + named + ': re-run with'
-                + ' <code>--distance-histograms</code> to measure how much of its'
-                + ' closeness is its own size.') };
+      var sentences = [];
+      if (drawn.length) {
+        sentences.push('Dotted: ' + per(drawn, function(x){ return x.at; }) + ' µm.');
+        // An allowance of zero is still an allowance - two structures that overlap leave
+        // one - but there is nothing to say about it, and saying it anyway is a number per
+        // facet that only reads as noise.
+        var anyAllowance = drawn.some(function(x){ return x.gap > 0; });
+        sentences.push('Half the ' + noun() + ' lies within '
+          + per(drawn, function(x){ return x.median; }) + ' µm of ' + dataName(target)
+          + (allowExtent && anyAllowance
+              ? '; the extent allowance is '
+                + per(drawn, function(x){ return x.gap; }) + ' µm.'
+              : '.'));
+      }
+      collapsed.forEach(function(x) {
+        sentences.push('No line for '
+          + escHtml(facets.labelOf(x.name)) + ': the allowance, ' + fmtGap(x.gap)
+          + ' µm, is larger than the ' + fmtGap(x.median) + ' µm distance.');
+      });
+      if (allowExtent && !measured) {
+        sentences.push('No extent allowance was measured: re-run with'
+          + ' <code>--distance-histograms</code> for it.');
+      }
+      return { by: by, note: sentences.join(' ') };
     };
 
     // ── how far from other structures ─────────────────────────────────────────
@@ -6099,12 +6113,9 @@ function renderEntityStats() {
       if (drewChance) {
         var reference = document.createElement('div');
         reference.className = 'chart-note';
-        reference.innerHTML = 'Dotted: the same distances taken over every sample of the '
-          + noun() + ' instead of over the ' + named + ' - what this curve would look like'
-          + ' if ' + named + ' sat wherever there was room. The measured curve peaking'
-          + ' nearer 0 than the dotted one is the whole of "closer than chance"; the two'
-          + ' lying on top of each other says the ' + named + ' population is placed no'
-          + ' differently from anything else in the ' + noun() + '.';
+        reference.innerHTML = 'Dotted: the same distances over every sample of the '
+          + noun() + ', instead of over the ' + named + ' - the shape a population placed'
+          + ' without regard to that structure would have.';
         dhEl.appendChild(reference);
       }
       if (unbinnable.length) {

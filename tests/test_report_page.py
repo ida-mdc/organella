@@ -797,11 +797,17 @@ def test_the_per_voxel_panels_draw_the_chance_distribution_beside_the_measured_o
 
 
 def test_the_reader_is_told_what_the_dotted_line_is(drawn):
-    """A line nobody can name is noise; every panel that draws one says what it is."""
-    said = " ".join(drawn["footnotes"])
+    """A line nobody can name is noise - but a panel's own note is numbers, not prose.
 
-    assert "Dotted" in said
-    assert "lies within that of" in said
+    What the line *means* is said once, in the row's description; under each panel are that
+    panel's numbers, and every number in them is labelled.
+    """
+    said = " ".join(drawn["footnotes"])
+    prose = " ".join(drawn["prose"])
+
+    assert "Dotted:" in said and "µm." in said
+    assert "lies within" in said, "a panel says the distance its line came from"
+    assert "The dotted line on each panel is chance" in prose
 
 
 # ── the ends of a filament, as against the whole of it ──────────────────────
@@ -869,8 +875,7 @@ def test_a_tip_is_a_point_so_its_reference_is_left_alone(report_path):
         # The same structure, the same objects: the tip reference is the uncorrected one,
         # so it sits further out than the one the whole instance is read against.
         assert min(tips) > min(whole)
-    said = " ".join(drawn["footnotes"])
-    assert "own extent buys it" in said
+    assert "needs no allowance for extent" in " ".join(drawn["prose"])
 
 
 def test_a_sparse_target_is_not_flagged_for_the_reader(drawn):
@@ -898,9 +903,9 @@ def test_without_body_averages_the_reference_says_it_is_uncorrected(report_path)
                       "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
     said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
 
-    assert "Not corrected for the extent" in said
+    assert "No extent allowance was measured" in said
     assert "--distance-histograms" in said
-    assert "own extent buys it" not in said
+    assert "the extent allowance is" not in said
 
 
 def test_an_overlapping_structure_is_an_allowance_of_zero_and_not_a_missing_one(report_path):
@@ -916,8 +921,8 @@ def test_an_overlapping_structure_is_an_allowance_of_zero_and_not_a_missing_one(
                       "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
     said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
 
-    assert "Not corrected for the extent" not in said
-    assert "own extent buys it" not in said
+    assert "No extent allowance was measured" not in said
+    assert "the extent allowance is" not in said
 
 
 # ── what a metric colours ───────────────────────────────────────────────────
@@ -1016,3 +1021,28 @@ def test_how_to_make_a_report_is_shown_when_the_page_is_opened_bare(report_path)
                      "render": True})["landing"]
 
     assert bare["afterBoot"] is True
+
+
+def test_no_line_is_drawn_where_the_allowance_swallows_the_distance(report_path):
+    """An allowance larger than the distance itself leaves nothing to read against.
+
+    A structure whose own body reaches further than the typical distance to the target
+    would be touching wherever it was put, so "closer than chance" has no content - and a
+    line pinned at zero reads as a measurement of something. The panel says why instead.
+    """
+    rows = [dict(row) for row in rows_of(report_path)]
+    # Make every instance's body average sit a long way outside its closest point, which is
+    # what a large, spread-out structure does.
+    for row in rows:
+        if row.get("row_type") == "distance" and row.get("distance_um") is not None:
+            row["distance_mean_um"] = row["distance_um"] + 50.0
+    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
+                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
+
+    notes = " ".join(f for f in drawn["footnotes"] if "No line for" in f)
+    assert "is larger than the" in notes
+    # And nothing was drawn at zero on those panels.
+    for panel in drawn["references"]:
+        if "angle to" in panel["title"]:
+            continue
+        assert all(at > 0 for at in panel["at"]), panel["title"]
