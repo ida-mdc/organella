@@ -40,11 +40,15 @@ def test_the_description_is_put_on_the_page_as_text_and_not_as_markup():
     is guarding is that nobody later reaches for innerHTML to get a link in the credits.
     """
     page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
-    described = [line for line in page.splitlines() if "report-description" in line]
+    body = page.split("function renderDescription")[1].split("\n}")[0]
 
-    assert described, "the page has somewhere to put a description"
-    assert any(".textContent = REPORT_DESCRIPTION" in line for line in page.splitlines())
-    assert not any("report-description" in line and "innerHTML" in line for line in described)
+    assert "report-description" in page, "the page has somewhere to put a description"
+    assert "renderDescription(described, REPORT_DESCRIPTION)" in page
+    # Nodes, not a string of markup, and only http(s) can become an href - so a description
+    # holding `javascript:` or a `<script>` stays the inert words it looks like.
+    assert "createTextNode" in body and "createElement('a')" in body
+    assert "innerHTML" not in body
+    assert "https?" in body
 
 
 def test_the_columns_a_deep_row_is_asked_for_are_columns_a_run_writes(report_path):

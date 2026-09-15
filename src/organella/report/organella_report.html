@@ -591,6 +591,37 @@ function pluralise(word) {
   return /s$/i.test(text) ? text : text + 's';
 }
 
+/**
+ * The report's description, as text, with any URL in it made clickable.
+ *
+ * Built from text nodes and anchors, never from a string of HTML: the description comes out
+ * of a file the reader was handed, and nothing in it is markup this page will run. Only
+ * http and https match, so an href can only ever be a URL the text also shows - a
+ * `javascript:` credit line stays the inert words it looks like.
+ */
+function renderDescription(into, description) {
+  into.textContent = '';
+  var urls = /https?:\/\/[^\s<>"')\]]+/g;
+  var at = 0, found;
+  while ((found = urls.exec(description)) !== null) {
+    if (found.index > at) {
+      into.appendChild(document.createTextNode(description.slice(at, found.index)));
+    }
+    // A sentence's punctuation is not part of its URL.
+    var url = found[0].replace(/[.,;:]+$/, '');
+    var link = document.createElement('a');
+    link.href = url;
+    link.textContent = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    into.appendChild(link);
+    at = found.index + url.length;
+  }
+  if (at < description.length) {
+    into.appendChild(document.createTextNode(description.slice(at)));
+  }
+}
+
 /** "a cell", "an object" - the article has to follow a word this page did not choose. */
 function aNoun() {
   return ('aeiou'.indexOf(NOUN.one.charAt(0).toLowerCase()) >= 0 ? 'an ' : 'a ') + NOUN.one;
@@ -904,10 +935,8 @@ async function loadParquetBuffer(buffer, label) {
   adapt(rows);
   resetLoadState();
   setText('report-source', 'Read from ' + label);
-  // textContent, not innerHTML: the string comes out of a file the reader was sent, and a
-  // report is not a thing this page will run markup from.
   var described = document.getElementById('report-description');
-  described.textContent = REPORT_DESCRIPTION;
+  renderDescription(described, REPORT_DESCRIPTION);
   described.classList.toggle('d-none', !REPORT_DESCRIPTION);
   await loadingStep('drawing…');
   onLoaded();
