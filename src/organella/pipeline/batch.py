@@ -91,11 +91,18 @@ def _plan_the_two_pools(requested: Optional[int], n_objects: int, peak_gb: float
     # This pool is sized by memory rather than cores, so on big objects most of the machine
     # would sit idle; each object gets the share left over. setdefault, so an explicit
     # --mesh-workers is left alone.
-    os.environ.setdefault(
-        "ORGANELLA_MESH_WORKERS",
-        str(mesh_worker_budget(max(1, (os.cpu_count() or 1) // n_workers))))
-    logger.info("organella: %d object(s), %d worker(s), %s mesh process(es) each",
-                n_objects, n_workers, os.environ["ORGANELLA_MESH_WORKERS"])
+    share = max(1, (os.cpu_count() or 1) // n_workers)
+    os.environ.setdefault("ORGANELLA_MESH_WORKERS", str(mesh_worker_budget(share)))
+    # The same share for the distance transforms, which are the other thing in a run that
+    # can use a whole machine: one per object at a time, threaded inside. Left at one core
+    # they were most of a large object's wall time - the contact gaps alone walk every
+    # instance - and given every core in every worker they would oversubscribe as soon as
+    # the pool is wider than one.
+    os.environ.setdefault("ORGANELLA_EDT_THREADS", str(share))
+    logger.info("organella: %d object(s), %d worker(s), %s mesh process(es) and "
+                "%s transform thread(s) each",
+                n_objects, n_workers, os.environ["ORGANELLA_MESH_WORKERS"],
+                os.environ["ORGANELLA_EDT_THREADS"])
     return n_workers
 
 

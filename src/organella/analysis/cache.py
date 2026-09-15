@@ -147,16 +147,22 @@ def regions_for(object_id: str, entity: str, labels: np.ndarray):
     )
 
 
-def contacts_for(object_id: str, volumes, kinds, voxel_size_zyx, max_gap_um: float):
+def contacts_for(object_id: str, volumes, kinds, voxel_size_zyx, max_gap_um: float,
+                 num_threads: int = 0):
     """This object's contacts, computed once whether the report or the geometry file asks.
 
     Both want the same pairs at the same threshold, and finding them is seconds to minutes
     depending on the instance count.
+
+    ``num_threads`` is not part of the key: it decides how fast the pairs are found and
+    nothing about which pairs they are, so a cached answer is as good whatever it was found
+    with.
     """
     from organella.analysis.gaps import pairwise_instance_gaps
 
     any_view = next(iter(volumes.values()))
     return CACHE.get_or_compute(
         object_id, ("contacts", round(float(max_gap_um), 6)), any_view,
-        lambda: pairwise_instance_gaps(volumes, kinds, voxel_size_zyx, max_gap_um),
+        lambda: pairwise_instance_gaps(volumes, kinds, voxel_size_zyx, max_gap_um,
+                                       num_threads),
     )

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pytest
 
@@ -100,3 +101,48 @@ def test_an_object_with_one_instance_has_no_pairs():
     row = _measure(_object(mito=(_blocks((1, (2, 2, 2), (3, 3, 3))), "label")))
 
     assert row["contact_count"] == 0
+
+
+# ── how long it takes, and what that must not change ─────────────────────────
+
+
+def test_threads_change_how_fast_the_pairs_are_found_and_nothing_else():
+    """The one place in a run that walks every instance, so it is the one to thread.
+
+    A local transform per instance, and edt holds the GIL - so the threading is inside each
+    transform rather than across them, and what comes out has to be the same pairs at the
+    same gaps whatever it was found with.
+    """
+    from organella.analysis.gaps import pairwise_instance_gaps
+
+    labels = np.zeros((12, 40, 40), dtype=np.int32)
+    for i in range(6):
+        labels[4:8, 6:10, 4 + i * 6:8 + i * 6] = i + 1
+    volumes, kinds = {"mito": labels}, {"mito": "label"}
+
+    serial = pairwise_instance_gaps(volumes, kinds, VOXEL, 0.5, num_threads=1)
+    threaded = pairwise_instance_gaps(volumes, kinds, VOXEL, 0.5, num_threads=4)
+
+    assert serial, "the fixture should hold some touching pairs"
+    assert serial == threaded
+
+
+def test_the_two_pools_share_the_machine_between_them(monkeypatch):
+    """Cores are shared out per object, for meshing and for the transforms alike.
+
+    The object pool is sized by memory, so on objects of tens of gigabytes it is one at a
+    time and the rest of the machine is free - which is why each object's own work is
+    given a share rather than a single core. An explicit setting is left alone.
+    """
+    from organella.pipeline.batch import _plan_the_two_pools
+
+    for key in ("ORGANELLA_MESH_WORKERS", "ORGANELLA_EDT_THREADS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 16)
+
+    assert _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0) == 1
+    assert os.environ["ORGANELLA_EDT_THREADS"] == "16"
+
+    monkeypatch.setenv("ORGANELLA_EDT_THREADS", "3")
+    _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0)
+    assert os.environ["ORGANELLA_EDT_THREADS"] == "3"

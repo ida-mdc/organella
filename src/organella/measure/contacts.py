@@ -75,7 +75,7 @@ class ContactMeasurer:
         # Views, not copies: a real entity volume is hundreds of megabytes.
         contacts = contacts_for(
             stack.object_id, stack.volumes(), stack.kinds, stack.sample_size,
-            self._config.contact_max_um,
+            self._config.contact_max_um, self._config.edt_threads,
         )
         logger.info(
             "organella: %s: %d instance pairs within %.3g µm",
