@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Helmholtz Imaging Engineering & Support Unit MDC" },
 ]
