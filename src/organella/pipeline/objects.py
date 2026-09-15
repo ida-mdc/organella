@@ -75,7 +75,8 @@ def measure_object(folder: Path, group: str, excluded: Sequence[str] = ()) -> Ob
 
         morphology = MorphologyMeasurer()
         entity_rows = _entity_rows(stack, morphology, about_the_object, group)
-        whole_object_columns, deep_rows = _measure_the_whole_object(stack, excluded)
+        whole_object_columns, deep_rows, per_entity = _measure_the_whole_object(stack, excluded)
+        _add_to_entity_rows(entity_rows, per_entity)
         object_row = _object_row(about_the_object, group,
                                  _rolled_up(morphology, entity_rows), whole_object_columns)
 
@@ -111,20 +112,34 @@ def _entity_rows(stack: ObjectStack, morphology: MorphologyMeasurer,
 
 def _measure_the_whole_object(
     stack: ObjectStack, excluded: Sequence[str],
-) -> Tuple[Dict[str, Any], List[pl.DataFrame]]:
+) -> Tuple[Dict[str, Any], List[pl.DataFrame], Dict[str, Dict[str, Any]]]:
     """What the measurers that see every entity at once produce.
 
-    Both halves of it: the values that belong on the object row, and the frames of rows that
-    sit below the object. A measurer named in ``excluded`` is not run at all - that is what
-    ``--no-instances`` / ``--no-contacts`` and a run without ``--with-mesh`` come down to.
+    Three parts of it: the values that belong on the object row, the frames of rows that sit
+    below the object, and the few values that belong on a *structure's* row but need the
+    whole object to measure. A measurer named in ``excluded`` is not run at all - that is
+    what ``--no-instances`` / ``--no-contacts`` and a run without ``--with-mesh`` come down
+    to.
     """
     columns: Dict[str, Any] = {}
     frames: List[pl.DataFrame] = []
+    per_entity: Dict[str, Dict[str, Any]] = {}
     for measurer in _measurers_of_whole_objects(excluded):
         measured = measurer.measure(stack)
         columns.update(measured.columns)
+        for name, values in measured.entity_columns.items():
+            per_entity.setdefault(name, {}).update(values)
         frames.extend(table.deep_row_frames(measured, measurer.ROW_SCHEMAS, stack.object_id))
-    return columns, frames
+    return columns, frames, per_entity
+
+
+def _add_to_entity_rows(rows: List[Dict[str, Any]],
+                        per_entity: Mapping[str, Mapping[str, Any]]) -> None:
+    """Put what was measured against the whole object onto the structure it is about."""
+    for row in rows:
+        extra = per_entity.get(row.get("entity_name"))
+        if extra:
+            row.update(extra)
 
 
 def _object_row(about_the_object: Mapping[str, Any], group: str,

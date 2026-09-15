@@ -57,6 +57,7 @@ from organella.analysis.distances import (
 from organella.analysis.shapes import (
     METRICS_2D,
     METRICS_3D,
+    foreground_centroid,
     skeleton_endpoints_um,
     skeleton_graph_metrics,
 )
@@ -196,6 +197,7 @@ _DESCRIPTIONS: Dict[str, str] = {
     "baseline_hist_min_um": "Lower bound of the chance histogram's range.",
     "baseline_hist_max_um": "Upper bound of the chance histogram's range.",
     "baseline_hist_counts": "Sample counts over that range, as a JSON array of fixed-width bins: the shape of the chance distribution, to draw a measured distribution against.",
+    "polar_depth_um": "How deep inside the object mask this structure's centre sits, in µm: the distance from its centroid to the boundary. The comparable way to say where a structure sits, since objects differ in size - where polar_dist_um says how far from the centre it is, which is only readable against that object's own extent. 0 where the centroid falls outside the mask, which a horseshoe-shaped structure's can; null without a bounding mask.",
     "object_volume_um3": "Volume in µm³ enclosed by the object mask.",
     "object_area_um2": "Area in µm² enclosed by the object mask.",
 }
@@ -300,7 +302,7 @@ class InstanceMeasurer:
                 name, volumes[name], sample_size, center, inst, object_id=stack.object_id,
             )
 
-        dist, baseline = self._measure_distances(
+        dist, baseline, depths = self._measure_distances(
             volumes, stack.kinds, label_names, ids_by_entity, sample_size,
             object_mask_name, object_id=stack.object_id,
         )
@@ -319,6 +321,8 @@ class InstanceMeasurer:
         )
         return ObjectMeasurement(
             columns=out,
+            entity_columns={name: {"polar_depth_um": null_if_not_finite(depth)}
+                            for name, depth in depths.items()},
             tables={INSTANCE_ROW: _nulled(inst), DISTANCE_ROW: _nulled(dist),
                     BASELINE_ROW: _nulled(baseline)},
         )
@@ -412,8 +416,8 @@ class InstanceMeasurer:
         sample_size: Sequence[float],
         object_mask_name: str | None = None,
         object_id: str = "object",
-    ) -> Tuple[Dict[str, List[Any]], Dict[str, List[Any]]]:
-        """One row per (instance, target), and one per target, from the same transforms.
+    ) -> Tuple[Dict[str, List[Any]], Dict[str, List[Any]], Dict[str, float]]:
+        """One row per (instance, target), one per target, and one depth per structure.
 
         Targets are the outer loop so only one distance transform exists at a time. Each
         entity's foreground is indexed once, after which measuring it against a transform
@@ -421,9 +425,13 @@ class InstanceMeasurer:
         ndimage.minimum, whose cost follows the volume and label count instead, took 54 s
         on a 197-megavoxel object with 10k instances.
 
-        The transform is already built, so two more readings come almost free off it: the
-        distance at each instance's skeleton tips, and the distance from everywhere in the
-        object - the chance distribution a measured distance has to be read against.
+        The transform is already built, so more readings come almost free off it: the
+        distance at each instance's skeleton tips, the distance from everywhere in the
+        object - the chance distribution a measured distance has to be read against - and,
+        off the bounding mask's own transform, how deep each structure's centre sits inside
+        it. That last one is the only thing here that lands on a *structure's* row: a mask
+        was measured as one whole thing, so it has no instance to carry a distance, and
+        without this there is nothing comparable to say about where it sits.
         """
         cfg = self._config
         # Only the columns that get filled: the histogram ones are dropped from the report
@@ -437,6 +445,7 @@ class InstanceMeasurer:
             columns += list(_END_COLUMNS)
         dist: Dict[str, List[Any]] = {col: [] for col in columns}
         baseline: Dict[str, List[Any]] = {col: [] for col in _BASELINE_COLUMNS}
+        depths: Dict[str, float] = {}
         region = _ReferenceRegion.of(views, object_mask_name, cfg.baseline_exclude)
         indexes = {
             name: _foreground_index(views[name])
@@ -452,6 +461,10 @@ class InstanceMeasurer:
                 sample_size, cfg.edt_threads,
             )
             flat = transform.reshape(-1)
+            if target == object_mask_name:
+                # This transform is the depth inside the object, measured from the
+                # boundary: every structure's centre can be read straight off it.
+                depths = _centre_depths(views, transform)
             chance = region.distribution(transform)
             if chance is not None:
                 baseline["baseline_target"].append(target)
@@ -484,7 +497,7 @@ class InstanceMeasurer:
                         dist["distance_end_min_um"].append(near)
                         dist["distance_end_max_um"].append(far)
             del transform, flat
-        return dist, baseline
+        return dist, baseline, depths
 
     def _endpoint_indexes(
         self,
@@ -573,6 +586,27 @@ def _endpoint_index(
         starts=np.concatenate([[0], np.cumsum(counts)[:-1]]).astype(np.int64),
         ids=np.array([label_id for label_id, _ in groups], dtype=np.int64),
     )
+
+
+def _centre_depths(
+    views: Dict[str, np.ndarray], depth: np.ndarray,
+) -> Dict[str, float]:
+    """How deep inside the object each structure's centre sits, off the boundary transform.
+
+    The centroid of the structure, rounded to the sample it falls in. A structure whose
+    centroid falls outside itself - a horseshoe, a shell - still has a centre, and the depth
+    of that centre is what this is; where it falls outside the *object* the transform reads
+    zero, which is the honest answer rather than an extrapolation.
+    """
+    out: Dict[str, float] = {}
+    shape = np.asarray(depth.shape)
+    for name, volume in views.items():
+        centroid = foreground_centroid(volume > 0)
+        if centroid is None:
+            continue
+        at = np.clip(np.rint(centroid).astype(np.int64), 0, shape - 1)
+        out[name] = float(depth[tuple(at)])
+    return out
 
 
 def _end_distances(

@@ -523,10 +523,6 @@ organella process experiment/ \
         <label class="form-label small mb-1 text-muted">Measured towards</label><br>
         <select id="pol-reference" class="form-select form-select-sm" style="width:auto"></select>
       </div>
-      <div id="pol-radius-wrap">
-        <label class="form-label small mb-1 text-muted">Radius</label><br>
-        <select id="pol-radius" class="form-select form-select-sm" style="width:auto"></select>
-      </div>
       <span id="pol-axis" class="small text-muted align-self-end pb-1"></span>
     </div>
     <div class="subsection-label" id="pol-angle-label"></div>
@@ -543,6 +539,11 @@ organella process experiment/ \
     <div class="charts-row" id="pol-where-charts"></div>
     <div class="subsection-label mt-4" id="pol-map-label"></div>
     <p class="subsection-desc" id="pol-map-desc"></p>
+    <!-- The radius is this row's own choice: nothing above it is drawn against a radius. -->
+    <div id="pol-radius-wrap" class="d-flex align-items-center mb-3" style="gap:.35rem">
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Radius</span>
+      <select id="pol-radius" class="form-select form-select-sm" style="width:auto"></select>
+    </div>
     <div class="chart-legend" id="pol-map-legend"></div>
     <div class="charts-row" id="pol-map-charts"></div>
   </div>
@@ -3284,14 +3285,13 @@ function renderPolarity() {
     + ' nothing from one ' + noun() + ' to the next. Measured instead against the direction'
     + ' from that centre to ' + dataName(ref) + '’s centre - <b>0° towards</b> it,'
     + ' <b>180° away</b> - it means the same thing in every one, and can be pooled.');
-  setHtml('pol-axis', 'Its centre sits ' + fmtGap(chosen.dist) + ' µm off the '
-    + noun() + ' centre. A structure sitting <em>on</em> the centre points nowhere and is'
-    + ' no use as an axis, which is what the number beside each choice is for.'
-    + (chosen.objects < chosen.of
-        ? ' <b>' + (chosen.of - chosen.objects) + ' of ' + chosen.of + ' ' + noun(true)
-          + ' have no ' + escHtml(chosen.name) + ' to measure against, and are left out of'
-          + ' everything below.</b>'
-        : ''));
+  // Only the thing the choice does not already say: how far off centre it is stands in
+  // the dropdown beside every option.
+  setHtml('pol-axis', chosen.objects < chosen.of
+    ? '<b>' + (chosen.of - chosen.objects) + ' of ' + chosen.of + ' ' + noun(true)
+      + ' have no ' + escHtml(chosen.name) + ' to measure against, and are left out of'
+      + ' everything below.</b>'
+    : '');
 
   // ── every direction, as an angle to that axis ──────────────────────────────
   //
@@ -3300,20 +3300,39 @@ function renderPolarity() {
   var relative = {}, kinds = {};
   var mask = boundingMaskName();
   var depthCol = mask ? distColumnsFor(mask).min : null;
+  /**
+   * How deep inside the bounding mask this reading sits.
+   *
+   * An instance has a distance row to that mask. A mask has none - it was measured as one
+   * whole structure, with no instance to carry a distance - so its own row carries the
+   * depth of its centre instead, which is the same question asked of the one point it has.
+   */
+  var depthOf = function(row) {
+    var fromDistance = depthCol == null ? null : row[depthCol];
+    if (fromDistance != null && isFinite(fromDistance)) return fromDistance;
+    var ofCentre = row.polar_depth_um;
+    return ofCentre != null && isFinite(ofCentre) ? ofCentre : null;
+  };
   var take = function(name, kind, row) {
     var axis = polarOffset(row.object_id, ref);
     var unit = polarUnit(row);
     if (!axis || !unit || row.polar_dist_um == null || !isFinite(row.polar_dist_um)) return;
     kinds[name] = kind;
-    // The depth is a distance row, which only instances have: a mask was measured as one
-    // whole structure, so there is no distance from it to the boundary to read.
-    var depth = depthCol == null ? null : row[depthCol];
+    var depth = depthOf(row);
     (relative[name] = relative[name] || []).push({
       object_id: row.object_id, group_id: row.group_id, unit: unit,
       angle_deg: polarConeDeg(unit, axis.unit), dist_um: row.polar_dist_um,
-      depth_um: depth != null && isFinite(depth) ? depth : null
+      depth_um: depth
     });
   };
+  // The reference's own centre, for the marker on 0°: the depth of the same centre the
+  // axis points at, which its structure row carries whether it has instances or not.
+  var refDepth = {};
+  filteredEnts().forEach(function(r) {
+    if (r.entity_name !== ref) return;
+    var depth = r.polar_depth_um;
+    if (depth != null && isFinite(depth)) refDepth[r.object_id] = depth;
+  });
   filteredInstances().forEach(function(r) {
     if (r.entity_name !== ref) take(r.entity_name, 'label', r);
   });
@@ -3339,6 +3358,7 @@ function renderPolarity() {
   if (hasDepth) radiusChoices.push(['membrane', 'to the ' + mask + ' (µm)']);
   if (!hasDepth) st.polarRadius = 'centre';
   document.getElementById('pol-radius-wrap').style.display = hasDepth ? '' : 'none';
+  // Only the maps are drawn against a radius, which is why the control sits with them.
   var radiusSelect = document.getElementById('pol-radius');
   radiusSelect.innerHTML = radiusChoices.map(function(choice) {
     return '<option value="' + choice[0] + '"'
@@ -3350,6 +3370,11 @@ function renderPolarity() {
     renderPolarity();
   };
   var toMask = st.polarRadius === 'membrane' && hasDepth;
+  // Whether a mask can be placed in that view at all, which decides what the row says.
+  var masksHaveDepth = Object.keys(relative).some(function(name) {
+    return kinds[name] === 'mask'
+      && relative[name].some(function(r){ return r.depth_um != null; });
+  });
   var radiusOf = function(r){ return toMask ? r.depth_um : r.dist_um; };
 
   var facetsFor = function(name){ return facetsOf(relative[name]); };
@@ -3365,7 +3390,13 @@ function renderPolarity() {
     + ' is on the same side as ' + dataName(ref) + ', <b>180°</b> is straight across the '
     + noun() + ' from it, and 90° is at right angles to that axis. A whole-structure mask'
     + ' has one centre and no more, so it brings one reading per ' + noun()
-    + ' where an instance-segmented structure brings all of them.');
+    + ' where an instance-segmented structure brings all of them.'
+    + ' <b>This row is the shape</b>: every instance, so a population spread evenly round'
+    + ' the axis can be told from one gathered in two clumps on opposite sides. The row'
+    + ' below is the same thing as one number per ' + noun() + ', which is what can be'
+    + ' compared between groups - so read the brackets here as description, not as a test:'
+    + ' one ' + noun() + ' holds thousands of these and they are not independent of each'
+    + ' other.');
   var angleHost = document.getElementById('pol-angle-charts');
   structures.forEach(function(name) {
     var facets = facetsFor(name);
@@ -3386,15 +3417,22 @@ function renderPolarity() {
   // ── the two collective measures, one per object ────────────────────────────
   setHtml('pol-index-label', 'How strongly does each structure lean towards '
     + dataName(ref) + '?');
-  setHtml('pol-index-desc', 'One point per ' + noun() + ': <b>V</b>, the mean of'
-    + ' cos(angle), which is <b>+1</b> when every instance sits straight towards '
-    + dataName(ref) + ', <b>-1</b> when they all sit straight away from it, and <b>0</b>'
-    + ' when they are spread evenly about the axis. This is the unit worth comparing'
+  setHtml('pol-index-desc', '<b>The row above as one number per ' + noun() + '.</b>'
+    + ' Every instance points somewhere; average those directions and you get one arrow'
+    + ' per structure per ' + noun() + '. Two numbers describe that arrow.'
+    + ' <b>V</b> is the one plotted: how far it points towards ' + dataName(ref)
+    + ', from <b>+1</b> (every instance on ' + dataName(ref) + '’s side) through <b>0</b>'
+    + ' to <b>-1</b> (every instance on the far side). <b>R</b> is its length: how much the'
+    + ' directions agree with each other <i>at all</i>, from <b>0</b> when they cancel to'
+    + ' <b>1</b> when they all point the same way, whichever way that is. R is under each'
+    + ' panel, because it settles what V alone cannot: V near zero with a <i>high</i> R is a'
+    + ' structure gathered on one side of the ' + noun() + ' that is not '
+    + dataName(ref) + '’s side, where V near zero with a <i>low</i> R is a structure spread'
+    + ' evenly all round. One point per ' + noun() + ' is also the unit worth comparing'
     + ' between groups: instances inside one ' + noun() + ' are not independent of each'
     + ' other, so a test over thousands of them answers a question nobody asked, where'
-    + ' seven ' + noun(true) + ' are seven samples. V and R are Polarity-JaM’s'
-    + ' polarity indices (Giese et al., <i>Nat Commun</i> 2025), so these numbers can be'
-    + ' read beside that tool’s.');
+    + ' seven ' + noun(true) + ' are seven samples. Both measures are Polarity-JaM’s'
+    + ' (Giese et al., <i>Nat Commun</i> 2025).');
   var indexHost = document.getElementById('pol-index-charts');
   structures.forEach(function(name) {
     var byObject = {};
@@ -3421,10 +3459,10 @@ function renderPolarity() {
       title: panelTitle(name, 'V towards ' + ref), unit: '',
       noun: noun(), showFacetTicks: !facets.many,
       range: [-1, 1],
-      footnote: 'R, how tightly the directions agree with each other whichever way they'
-        + ' point: <b>' + agreement.join(', ') + '</b> (median over ' + noun(true) + ','
-        + ' 0 to 1). A high R with a V near zero is a structure gathered on one side of'
-        + ' the ' + noun() + ' that is not the side ' + dataName(ref) + ' is on.'
+      footnote: '<b>R ' + agreement.join(', ')
+        + '</b> - not plotted above, and a different question from V: how much this'
+        + ' structure’s directions agree with each other at all, 0 to 1, median over the '
+        + noun(true) + ' in each group.'
     });
   });
 
@@ -3478,9 +3516,13 @@ function renderPolarity() {
           + ' middle - the comparable way round, since ' + noun(true) + ' differ in size'
         : 'the distance from the ' + noun() + ' centre as the radius')
     + '. A diamond marks each structure’s own centre.'
-    + (toMask
-        ? ' Structures measured as one whole mask are left out of this view: a depth is a'
-          + ' distance from an instance, and a mask has none.'
+    + (toMask && !masksHaveDepth
+        ? ' Structures measured as one whole mask are left out of this view: their depth'
+          + ' was not measured, which needs a run of this version.'
+        : '')
+    + (toMask && masksHaveDepth
+        ? ' A whole-structure mask is drawn at the depth of its own centre, since it has no'
+          + ' instances to draw.'
         : '')
     + ' <b>These are one per ' + noun() + ' on purpose.</b> The axis to '
     + dataName(ref) + ' fixes 0°, but nothing in the data fixes the rotation <i>about</i>'
@@ -3499,7 +3541,11 @@ function renderPolarity() {
     return '<span class="d-inline-flex align-items-center gap-1">'
       + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
       + 'background:' + entColor(name) + '"></span>' + dataName(name) + '</span>';
-  }).join(''));
+  }).concat(['<span class="d-inline-flex align-items-center gap-1">'
+      + '<span style="color:' + entColor(ref) + '">★</span>' + dataName(ref)
+      + ', the reference, on 0°</span>',
+    '<span class="d-inline-flex align-items-center gap-1">◆ a structure’s own centre</span>'
+  ]).join(''));
   var mapHost = document.getElementById('pol-map-charts');
   var reach = 0;
   structures.forEach(function(name) {
@@ -3507,6 +3553,14 @@ function renderPolarity() {
       var radius = radiusOf(r);
       if (radius != null && radius > reach) reach = radius;
     });
+  });
+  // Including the reference's own marker: it is often the most peripheral structure there
+  // is - that is what made it the default axis - and left out of this it was drawn off the
+  // edge of the plot.
+  scopedObjectNames().forEach(function(id) {
+    var axis = polarOffset(id, ref);
+    var radius = toMask ? refDepth[id] : (axis && axis.dist);
+    if (radius != null && isFinite(radius) && radius > reach) reach = radius;
   });
   // Grouped, and in group order: the panels are titled by the object, and which condition
   // an object belongs to is the thing a reader is comparing them for. The group's own
@@ -3549,6 +3603,18 @@ function renderPolarity() {
           + (toMask ? 'inside the ' + mask : 'out') + ' at %{theta:.0f}°'
           + '<br>R ' + found.R.toFixed(2) + ', V ' + found.V.toFixed(2) + '<extra></extra>' });
     });
+    // The reference on its own axis: 0° by construction, and its distance is the thing
+    // that differs between objects - how far out the structure everything is measured
+    // against actually sits in this one.
+    var refRadius = toMask ? refDepth[id] : axis.dist;
+    if (refRadius != null && isFinite(refRadius)) {
+      traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
+        r: [refRadius], theta: [0],
+        marker: { symbol: 'star', size: 13, color: entColor(ref),
+                  line: { color: '#fff', width: 1 } },
+        hovertemplate: ref + ', the reference: %{r:.2f} µm '
+          + (toMask ? 'inside the ' + mask : 'from the centre') + '<extra></extra>' });
+    }
     if (!traces.length) return;
     var el = document.createElement('div');
     el.className = 'chart-cell';

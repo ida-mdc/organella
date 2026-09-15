@@ -145,3 +145,42 @@ def test_the_report_carries_a_chance_row_for_every_object_and_target(table):
     assert sorted(set(rows["baseline_target"].to_list())) == ["nucleus", "pm"]
     assert rows["baseline_median_um"].is_not_null().all()
     assert rows["baseline_voxels"].min() > 0
+
+
+# ── where a structure's centre sits, for the structures that have no instances ──
+
+
+def test_a_structure_carries_the_depth_of_its_own_centre():
+    """A mask has no instance to carry a distance, so its own row carries this.
+
+    Off the bounding mask's transform, which the run builds anyway: the comparable way to
+    say where a structure sits, since objects differ in size where "3 µm from the centre"
+    is only readable against one object's own extent.
+    """
+    pm = np.zeros(SHAPE, dtype=np.int32)
+    pm[2:8, 4:16, 4:16] = 1
+    nucleus = _blob(1, (4, 5, 5), (2, 3, 3))       # tucked into a corner
+    middle = _blob(1, (4, 9, 9), (2, 2, 2))        # in the middle of the object
+    measured = InstanceMeasurer().measure(
+        object_stack({"pm": (pm, "mask"), "nucleus": (nucleus, "mask"),
+                      "middle": (middle, "label")}, voxel_size=VOXEL, object_mask="pm"))
+
+    depths = {name: values["polar_depth_um"]
+              for name, values in measured.entity_columns.items()}
+
+    assert set(depths) == {"pm", "nucleus", "middle"}
+    # The corner structure's centre is nearer the boundary than the middle one's.
+    assert depths["nucleus"] < depths["middle"]
+    # And the object's own centre is the deepest point there is.
+    assert depths["pm"] >= depths["middle"] > 0
+
+
+def test_the_depth_reaches_the_structure_row_of_the_report(table):
+    """It is measured against the whole object and belongs to one structure: both halves."""
+    entities = table.filter(table["row_type"] == "entity")
+
+    assert "polar_depth_um" in table.columns
+    assert entities["polar_depth_um"].is_not_null().all()
+    # Instance and distance rows are not about a structure as a whole.
+    deep = table.filter(table["row_type"] == "instance")
+    assert deep["polar_depth_um"].is_null().all()

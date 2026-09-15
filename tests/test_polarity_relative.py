@@ -236,3 +236,20 @@ def test_the_radius_can_be_read_to_the_boundary_instead(report_path):
     assert "Structures measured as one whole mask are left out of this view" in page
     # And the choice is only offered where there is a depth to read.
     assert "if (hasDepth) radiusChoices.push" in page
+
+
+def test_a_circular_map_holds_every_marker_it_draws(drawn_polarity):
+    """The reference is often the most peripheral structure there is - that is what makes it
+    the default axis - and its marker was being drawn past the edge of the plot.
+    """
+    circles = drawn_polarity["circles"]
+
+    assert circles, "the section should draw circular maps at all"
+    for panel in circles:
+        low, high = sorted(panel["range"])
+        drawn = [r for trace in panel["drawn"] for r in trace["r"]]
+        assert drawn, panel["title"]
+        for radius in drawn:
+            assert low <= radius <= high, f"{panel['title']}: {radius} outside {panel['range']}"
+    # And the reference itself is one of those markers, on its own axis.
+    assert any(t["symbol"] == "star" for p in circles for t in p["drawn"])

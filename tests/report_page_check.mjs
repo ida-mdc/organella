@@ -139,7 +139,12 @@ if (job.render) {
         series: (data || []).map((t) => ({
           name: t.name ?? null,
           x: Array.isArray(t.x) ? t.x.map(Number) : null,
+          // Polar traces carry a radius instead, and their markers say what they are.
+          r: Array.isArray(t.r) ? t.r.map(Number) : null,
+          symbol: t.marker?.symbol ?? null,
         })),
+        // The radial axis of a circular map, which has to hold every marker drawn on it.
+        polarRange: layout?.polar?.radialaxis?.range ?? null,
         xTitle: (typeof layout?.xaxis?.title === 'string'
           ? layout.xaxis.title : layout?.xaxis?.title?.text) ?? null,
         // Reference lines: a chance median is a dotted line, across the panel over a box
@@ -571,6 +576,11 @@ if (job.render) {
     // both scatter traces, and only the names tell them apart.
     seriesNames: plotted.map((p) => ({ title: p.title,
                                        names: p.series.map((t) => t.name) })),
+    // Every circular map: its radial range, and the radii actually drawn on it.
+    circles: plotted.filter((p) => p.polarRange)
+      .map((p) => ({ title: p.title, range: p.polarRange,
+                     drawn: p.series.filter((t) => t.r).map(
+                       (t) => ({ symbol: t.symbol, r: t.r })) })),
     // The reference lines, by the panel they were drawn on: a chance median per facet,
     // dotted, and on the axis the distance is on.
     references: plotted.filter((p) => p.shapes.some((sh) => sh.dash === 'dot'))
