@@ -183,6 +183,7 @@ Blender and for a hosted copy. The object row records where, in `mesh_geometry_f
 | `organella view REPORT` | serve the report, its geometry and the page, and open it |
 | `organella page` | print the path of the standalone page |
 | `organella colours REPORT PALETTE` | recolour a report in about a second |
+| `organella describe REPORT TEXT` | say what the data is: credits, a citation, a licence. `-` reads it from standard input |
 
 `dry-run` takes `--object-mask NAME`, to check every folder has it rather than only listing
 what they have. `view` takes `--port` (default 8052) and `--no-browser`. `mesh` takes
@@ -198,6 +199,7 @@ run parameters below and `--no-contacts`.
 | `-o, --output FILE` | where to write the report. Required |
 | `-p, --paths TEXT` | subdirectory to import as its own group, repeatable. Becomes the default grouping in every chart |
 | `--object-mask NAME` | the mask that bounds each object. Never guessed: it decides the origin of every distance and polarity. Left out, entities are measured where they lie |
+| `--description TEXT` | what this data is and who it credits. It travels in the report, and the page shows it above the first section, so a report you send arrives with its provenance |
 | `--object-noun WORD` | what one measured thing is called in the report, e.g. `cell`, or `nucleus/nuclei` for an irregular plural. Presentation only |
 | `--voxel-size-um Z,Y,X` | voxel size in µm; `y,x` for a plane. Inferred from the source metadata when omitted, and refused rather than invented if there is none |
 | `--entities NAMES` | measure only these, plus the object mask. Each entity is another full-size channel, so a 117-structure subject needs selecting down before it fits in memory |

@@ -76,6 +76,9 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .topbar { background: var(--surface); color: var(--ink); padding: .55rem 1.6rem;
   display: flex; flex-wrap: wrap; gap: .7rem; align-items: center;
   position: sticky; top: 0; z-index: 300; border-bottom: 1px solid var(--rule-2); }
+.report-description { font-family: var(--serif); font-size: .95rem; line-height: 1.6;
+  color: var(--ink-2); border-left: 2px solid var(--rule-2); padding: .1rem 0 .1rem 1rem;
+  margin: 0 0 2rem; max-width: 46rem; white-space: pre-wrap; }
 .landing-head { font-family: var(--serif); font-size: 1.12rem; color: var(--ink);
   margin-bottom: .7rem; }
 .landing-code { background: var(--surface-2); border: 1px solid var(--rule);
@@ -394,6 +397,10 @@ organella process experiment/ \
 
 <!-- ── Main ────────────────────────────────────────────────── -->
 <div id="main-content" class="d-none main">
+
+  <!-- What the run was told this data is: credits, a citation, a licence. Above the first
+       section, because provenance is the thing a reader who was sent this file needs first. -->
+  <div id="report-description" class="report-description d-none"></div>
 
   <!-- 01 Overview -->
   <div class="section" id="s-overview">
@@ -892,10 +899,16 @@ async function loadParquetBuffer(buffer, label) {
     COLUMN_HELP = {};
   }
   REPORT_NOUN = footer.organella_object_noun || null;
+  REPORT_DESCRIPTION = footer.organella_description || '';
   var rows = await readReportRows(file, label);
   adapt(rows);
   resetLoadState();
   setText('report-source', 'Read from ' + label);
+  // textContent, not innerHTML: the string comes out of a file the reader was sent, and a
+  // report is not a thing this page will run markup from.
+  var described = document.getElementById('report-description');
+  described.textContent = REPORT_DESCRIPTION;
+  described.classList.toggle('d-none', !REPORT_DESCRIPTION);
   await loadingStep('drawing…');
   onLoaded();
 }
@@ -1362,6 +1375,9 @@ var GEOMETRY = [];     // [{ id, group, path }] — the objects that have geomet
 // against: upload a report and its <name>_meshes folder together and the links hold,
 // whichever copy of the page is open.
 var REPORT_URL = null;
+// What the run said the data is: credits, a citation, a licence. Shown above the first
+// section, and empty for a report whose run was not told.
+var REPORT_DESCRIPTION = '';
 var GEOM_SOURCE = '';  // how it arrived, for the note under the 3D sections
 
 /** Objects the report says have geometry, whether or not it has been handed over. */

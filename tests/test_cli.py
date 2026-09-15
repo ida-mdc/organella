@@ -132,6 +132,35 @@ def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path
     assert by_name["mito"] is None
 
 
+def test_describing_a_report_keeps_everything_else_about_it(tmp_path, report_path):
+    """Credits are the thing nobody has ready when a 30-minute run starts."""
+    before = pq.read_table(report_path)
+    described = tmp_path / "described.parquet"
+    described.write_bytes(Path(report_path).read_bytes())
+
+    result = CliRunner().invoke(cli, ["describe", str(described), "Credit: someone."])
+
+    assert result.exit_code == 0, result.output
+    after = pq.read_table(described)
+    assert after.num_rows == before.num_rows
+    assert after.schema.metadata[b"organella_description"] == b"Credit: someone."
+    assert (after.schema.metadata[b"organella_processing_stats"]
+            == before.schema.metadata[b"organella_processing_stats"])
+
+
+def test_a_description_can_come_from_standard_input(tmp_path, report_path):
+    """A citation is longer than a shell line, and `-` is how the shell hands one over."""
+    described = tmp_path / "described.parquet"
+    described.write_bytes(Path(report_path).read_bytes())
+    credits = "Alpha cells, Schmidt et al. 2026.\nCC BY 4.0.\n"
+
+    result = CliRunner().invoke(cli, ["describe", str(described), "-"], input=credits)
+
+    assert result.exit_code == 0, result.output
+    written = pq.read_table(described).schema.metadata[b"organella_description"].decode()
+    assert written == credits.strip()
+
+
 def test_colouring_a_report_from_a_broken_palette_fails_before_writing(tmp_path, report_path):
     palette = tmp_path / "palette.json"
     palette.write_text('{"mito": "crimson"}')

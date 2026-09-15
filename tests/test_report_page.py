@@ -33,6 +33,20 @@ def test_every_row_kind_lands_in_the_population_it_belongs_to(page_of, report_pa
     assert adapt["contacts"] == counts["contact"]
 
 
+def test_the_description_is_put_on_the_page_as_text_and_not_as_markup():
+    """A report is a file the reader was sent, so its strings are not markup this page runs.
+
+    The load path itself only runs in a browser, which is why this reads the source: what it
+    is guarding is that nobody later reaches for innerHTML to get a link in the credits.
+    """
+    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+    described = [line for line in page.splitlines() if "report-description" in line]
+
+    assert described, "the page has somewhere to put a description"
+    assert any(".textContent = REPORT_DESCRIPTION" in line for line in page.splitlines())
+    assert not any("report-description" in line and "innerHTML" in line for line in described)
+
+
 def test_the_columns_a_deep_row_is_asked_for_are_columns_a_run_writes(report_path):
     """The page asks for deep rows by name; a rename in the writer would empty a section.
 

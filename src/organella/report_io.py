@@ -36,6 +36,10 @@ PRIVACY_SUMMARY = [
 #: Footer key holding the whole column -> description map.
 DESCRIPTIONS_KEY = "organella_column_descriptions"
 
+#: What the data is and who it credits, if the run said: a citation, a licence, a caveat.
+#: Not DESCRIPTIONS_KEY above, which is the column -> meaning map.
+DESCRIPTION_KEY = "organella_description"
+
 #: What one measured thing is called, if the run said. Presentation only: columns stay
 #: `object_*`, since renaming them per run would make two reports unjoinable.
 NOUN_KEY = "organella_object_noun"
@@ -57,7 +61,7 @@ def footer_metadata(
     return {
         f"{FOOTER_PREFIX}project_name": project_name,
         f"{FOOTER_PREFIX}flavour": flavor,
-        f"{FOOTER_PREFIX}description": description,
+        DESCRIPTION_KEY: description,
         f"{FOOTER_PREFIX}version": _version(),
         f"{FOOTER_PREFIX}created_at":
             datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -71,7 +75,8 @@ def footer_metadata(
 
 def write(report: Report, output: Path, *, root: Path, paths: Sequence[str],
           flavor: str, project_name: Optional[str] = None,
-          omit_base_dir: bool = False, object_noun: Optional[str] = None) -> Path:
+          omit_base_dir: bool = False, object_noun: Optional[str] = None,
+          description: Optional[str] = None) -> Path:
     """Write the report parquet: the rows, their descriptions, and the run's provenance."""
     output = Path(output)
     if output.suffix.lower() != ".parquet":
@@ -87,6 +92,7 @@ def write(report: Report, output: Path, *, root: Path, paths: Sequence[str],
     footer = footer_metadata(
         project_name=project_name or output.stem,
         flavor=flavor,
+        description=description or "",
         root=None if omit_base_dir else root,
         paths=paths,
         processing_stats={
@@ -133,6 +139,24 @@ def column_descriptions(report: Path) -> Dict[str, str]:
 def noun_of(footer: Dict[str, str]) -> Optional[str]:
     """What this run called one measured thing, if it said."""
     return footer.get(NOUN_KEY) or None
+
+
+def description_of(footer: Dict[str, str]) -> Optional[str]:
+    """What the run said the data is, if it said anything."""
+    return footer.get(DESCRIPTION_KEY) or None
+
+
+def describe(report: Path, text: str) -> None:
+    """Write `text` into an existing report's footer, without measuring anything again.
+
+    Credits are the thing nobody has ready when a run starts and everybody wants once the
+    report is being sent to someone, so this is the same after-the-fact path `recolour` is:
+    the rows and the rest of the footer are carried over untouched.
+    """
+    report = Path(report)
+    rows, footer = read(report)
+    footer[DESCRIPTION_KEY] = text
+    _write(rows, report, footer)
 
 
 def recolour(report: Path, colours: Dict[str, str]) -> int:

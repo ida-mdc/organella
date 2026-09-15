@@ -72,6 +72,50 @@ def test_the_footer_survives_a_recolour(report_path, tmp_path):
     assert after["organella_processing_stats"] == before["organella_processing_stats"]
 
 
+# ── what the run says the data is ────────────────────────────────────────────
+
+def test_a_report_nobody_described_says_nothing(report_path):
+    """None rather than an empty string, so a caller can ask `if description_of(...)`."""
+    _, footer = report_io.read(report_path)
+
+    assert report_io.description_of(footer) is None
+
+
+def test_a_description_travels_in_the_report(report_path, tmp_path):
+    """Credits belong to the file: the folder it was measured in does not travel with it."""
+    import shutil
+
+    copy = tmp_path / "described.parquet"
+    shutil.copy(report_path, copy)
+    credits = "Alpha cells, Schmidt et al. 2026 (doi:10.0000/xyz).\nSegmentation CC BY 4.0."
+
+    report_io.describe(copy, credits)
+    _, footer = report_io.read(copy)
+
+    # Line breaks and all: a citation is not a single line, and the page shows it pre-wrapped.
+    assert report_io.description_of(footer) == credits
+
+
+def test_describing_a_report_keeps_everything_else(report_path, tmp_path):
+    """The same rewrite `colours` does, and the same thing it must not lose."""
+    import shutil
+
+    copy = tmp_path / "described.parquet"
+    shutil.copy(report_path, copy)
+    rows_before, before = report_io.read(copy)
+    help_before = report_column_help(copy)
+
+    report_io.describe(copy, "Some credits.")
+    rows_after, after = report_io.read(copy)
+
+    assert rows_after.height == rows_before.height
+    assert report_column_help(copy) == help_before
+    assert report_io.noun_of(after) == report_io.noun_of(before)
+    for key in ("organella_created_at", "organella_flavour", "organella_processing_stats",
+                "organella_paths"):
+        assert after[key] == before[key], key
+
+
 # ── what the page makes of them ──────────────────────────────────────────────
 
 def test_the_page_explains_a_metric_in_the_reports_own_words(report_path):

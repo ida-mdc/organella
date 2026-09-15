@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
@@ -256,6 +257,25 @@ def colours(report: Path, palette: Path) -> None:
 
 
 @cli.command()
+@click.argument("report", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("text")
+def describe(report: Path, text: str) -> None:
+    """Say what REPORT is: credits, a citation, a licence, a caveat.
+
+    It goes in the report's own footer, so it travels with the file and the page shows it at
+    the top. Nothing is measured again, and nothing else in the report is touched.
+
+    TEXT of `-` is read from standard input, for credits longer than a shell line:
+
+        organella describe report.parquet - < CREDITS.md
+    """
+    if text == "-":
+        text = sys.stdin.read().strip()
+    report_io.describe(report, text)
+    click.echo(f"{report}: described in {len(text)} character(s)")
+
+
+@cli.command()
 @click.argument("object_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--output", "-o", required=True, type=click.Path(dir_okay=False, path_type=Path),
               help="Where to write the .parquet report.")
@@ -270,6 +290,11 @@ def colours(report: Path, palette: Path) -> None:
                    "and no extent of their own - polarity is then measured from the centre "
                    "of everything segmented. Run 'dry-run' to see the masks each folder "
                    "has.")
+@click.option("--description", default=None, metavar="TEXT",
+              help="What this data is and who it credits: a citation, a licence, a caveat. "
+                   "It travels in the report and the page shows it at the top, so a report "
+                   "sent to someone arrives with its provenance. `organella describe` puts "
+                   "one on a report that already exists.")
 @click.option("--object-noun", default=None, metavar="WORD",
               help="What one measured thing is called in the report, e.g. 'cell'. Give an "
                    "irregular plural as 'nucleus/nuclei'. Presentation only - it changes no "
@@ -347,7 +372,7 @@ def colours(report: Path, palette: Path) -> None:
 @_mesh_flags
 def process(
     object_dir: Path, output: Path, paths: Tuple[str, ...], object_mask: str | None,
-    object_noun: str | None, voxel_size_um: str | None,
+    description: str | None, object_noun: str | None, voxel_size_um: str | None,
     no_clip: bool, auto_label_masks: bool, entities: str | None,
     label_map: Path | None, label_map_entity: str | None,
     contact_max_um: float | None,
@@ -398,6 +423,7 @@ def process(
                               parts_dir=parts, resume=resume)
     try:
         report_io.write(report, output, root=object_dir, paths=list(paths), flavor=FLAVOR,
+                        description=description,
                         object_noun=object_noun)
     except report_io.EmptyReport as empty:
         # The parts are kept: this is the run worth resuming once it is fixed.
