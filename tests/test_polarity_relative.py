@@ -211,3 +211,28 @@ def test_a_single_value_panel_still_shows_its_reference(report_path):
     # And at least one panel in this batch is that case: mtoc_cilium is in one object of
     # four, is drawn as a single bar, and reaches nowhere near 90°.
     assert [p for p in referenced if p["yRange"] and p["yRange"][1] >= 90]
+
+
+# ── the radius, and which group an object is in ─────────────────────────────
+
+
+def test_each_circular_map_says_which_group_its_object_is_in(drawn_polarity):
+    """The panels are titled by the object; the comparison they are for is by group."""
+    said = " ".join(drawn_polarity["prose"])
+
+    assert "control" in said or "treated" in said
+
+
+def test_the_radius_can_be_read_to_the_boundary_instead(report_path):
+    """Cells differ in size, so "0.4 µm inside the membrane" travels where "5 µm out" does not.
+
+    The depth is a distance row, which only instances have, so this view drops the masks -
+    and says so rather than quietly drawing fewer structures.
+    """
+    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+
+    # Reversed on purpose: the boundary belongs at the rim, with deeper further in.
+    assert "range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02]" in page
+    assert "Structures measured as one whole mask are left out of this view" in page
+    # And the choice is only offered where there is a depth to read.
+    assert "if (hasDepth) radiusChoices.push" in page

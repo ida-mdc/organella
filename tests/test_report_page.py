@@ -918,3 +918,76 @@ def test_an_overlapping_structure_is_an_allowance_of_zero_and_not_a_missing_one(
 
     assert "Not corrected for the extent" not in said
     assert "own extent buys it" not in said
+
+
+# ── what a metric colours ───────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def coloured(report_path):
+    return run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
+                     "structure": "mito", "objectNoun": "cell",
+                     "colour": {"structure": "mito"}})["colour"]
+
+
+def test_the_scene_can_colour_by_a_distance_the_geometry_file_never_carried(coloured):
+    """A distance belongs to a pair, so it is rows of the report, not columns of a surface.
+
+    Which is why it was not on offer as a colouring: the scene reads its metrics out of the
+    geometry file. Joined on by structure and label instead, any report can be coloured by
+    them - with nothing meshed again.
+    """
+    assert coloured["reportOnly"] == ["distance_to_nucleus_um", "distance_to_pm_um",
+                                      "distance_to_nucleus_end_um", "distance_to_pm_end_um"]
+    # The nearest instance of its own kind is already in the geometry file; offering it
+    # twice would put it in the list twice.
+    assert "distance_to_closest_same_type_um" not in coloured["reportOnly"]
+    assert coloured["labels"]["distance_to_nucleus_um"] == "Distance to nucleus (µm)"
+
+
+def test_the_joined_values_are_read_per_instance(coloured, report_path):
+    """One value per instance of the object on screen, keyed by structure and label."""
+    con = duckdb.connect()
+    first = coloured["joined"]
+    expected = con.execute(
+        f"""SELECT COUNT(*) FROM read_parquet('{report_path}')
+            WHERE row_type = 'distance' AND distance_target = 'nucleus'
+              AND object_id = (SELECT MIN(object_id) FROM read_parquet('{report_path}')
+                               WHERE row_type = 'object')
+              AND distance_um IS NOT NULL""").fetchone()[0]
+
+    assert first["metric"] == "distance_to_nucleus_um"
+    assert first["n"] == expected
+    for key, value in first["sample"]:
+        assert "|" in key and isinstance(value, (int, float))
+
+
+def test_a_colouring_spans_the_population_and_not_the_cards_on_screen(coloured, report_path):
+    """Ten of thirteen thousand granules are all large; scaled to each other they are not.
+
+    The gallery draws the highest or lowest few, so a scale fitted to those few would paint
+    the same colours whatever was picked. It comes off the report's own instances instead.
+    """
+    con = duckdb.connect()
+    low, high = con.execute(
+        f"""SELECT MIN(instance_volume_um3), MAX(instance_volume_um3)
+            FROM read_parquet('{report_path}')
+            WHERE row_type = 'instance' AND instance_entity = 'mito'""").fetchone()
+
+    assert coloured["span"]["low"] == pytest.approx(low, rel=1e-6)
+    assert coloured["span"]["high"] == pytest.approx(high, rel=1e-6)
+    # A whole-structure mask has no instance rows, and one card per object is its whole
+    # population, so there the cards themselves are the range.
+    assert coloured["shownOnly"] == {"low": 2, "high": 7}
+
+
+def test_the_scale_is_shown_in_the_colours_it_labels(coloured):
+    """A legend interpolated in another space is a legend for a different colouring."""
+    ramp = coloured["ramp"]
+
+    assert len(set(ramp)) == len(ramp), "the scale has to change along its length"
+    for hex_colour in ramp:
+        assert len(hex_colour) == 7 and hex_colour.startswith("#")
+        int(hex_colour[1:], 16)
+    # Viridis: dark blue-purple at the bottom, yellow at the top.
+    assert ramp[0] < ramp[-1]

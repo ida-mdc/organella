@@ -174,6 +174,16 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   color: var(--ink-2); margin-bottom: .7rem; }
 .chart-note { font-size: .76rem; color: var(--ink-3); line-height: 1.5;
   max-width: 70ch; margin-top: .5rem; }
+/* What colour is which value, wherever a metric decides a colour. */
+.colour-ramp { display: inline-flex; align-items: center; gap: .4rem; font-size: .72rem;
+  color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.colour-ramp .ramp-label { color: var(--ink-3); }
+.colour-ramp .ramp-bar { display: inline-block; width: 92px; height: 9px;
+  border-radius: 5px; border: 1px solid rgba(0,0,0,.12); }
+/* Under what it explains rather than among the controls: a scale reads the picture, it
+   does not set it. */
+.metric-scale { margin-top: .5rem; }
+.metric-scale .colour-ramp .ramp-bar { width: 160px; height: 11px; }
 .fit-note { display: flex; flex-wrap: wrap; gap: .1rem .85rem; font-size: .74rem;
   color: var(--ink-2); margin-top: .35rem; }
 .fit-note-lbl { text-transform: uppercase; letter-spacing: .1em; font-size: .64rem;
@@ -440,6 +450,7 @@ organella process experiment/ \
       <span data-noun></span> centre.</p>
     <div id="scene-controls" class="ctrl-bar"></div>
     <div id="scene-holder"></div>
+    <div id="scene-scale" class="metric-scale"></div>
     <div id="scene-note" class="chart-note"></div>
   </div>
 
@@ -504,13 +515,17 @@ organella process experiment/ \
 
   <!-- 05 Polarity, relative to one structure -->
   <div class="section d-none" id="s-polarity">
-    <div class="section-title">Which way does each structure sit?</div>
+    <div class="section-title">Polarity</div>
     <p class="section-subtitle" id="pol-subtitle"></p>
     <div id="pol-coverage"></div>
     <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
       <div>
         <label class="form-label small mb-1 text-muted">Measured towards</label><br>
         <select id="pol-reference" class="form-select form-select-sm" style="width:auto"></select>
+      </div>
+      <div id="pol-radius-wrap">
+        <label class="form-label small mb-1 text-muted">Radius</label><br>
+        <select id="pol-radius" class="form-select form-select-sm" style="width:auto"></select>
       </div>
       <span id="pol-axis" class="small text-muted align-self-end pb-1"></span>
     </div>
@@ -705,7 +720,7 @@ function settleNoun(given, bounded) {
 
 // `only` is one facet value to narrow to, read against whatever plotGroupBy is: a group
 // when grouping by group, an object when grouping by object. Empty means all of them.
-var st = { only: '', statsEntity: null, polarRef: null };
+var st = { only: '', statsEntity: null, polarRef: null, polarRadius: 'centre' };
 // Settled against the batch in initFilters, not fixed here: by group wherever there is
 // more than one, by object where there is not.
 var plotGroupBy = 'object';
@@ -1405,6 +1420,59 @@ function scatterDistCols(rows) {
   if (hasValue(rows, 'distance_to_closest_same_type_um')) out.push('distance_to_closest_same_type_um');
   return out;
 }
+/**
+ * Metrics the report has per instance that a geometry file does not carry.
+ *
+ * Geometry is written with the instance's own measurements on it - volume, sphericity, the
+ * skeleton, where it sits - but a distance belongs to a *pair*, and the pairs are rows of
+ * the report rather than columns of a surface. So the scene and the gallery read those from
+ * the report and join them on by structure and label, which also means a report can be
+ * coloured by them without meshing anything again.
+ */
+function reportOnlyMetrics(objectId) {
+  var rows = INSTANCES.filter(function(r) {
+    return objectId == null || String(r.object_id) === String(objectId);
+  });
+  return distCols(rows).filter(function(col) {
+    // The nearest of its own kind rides in the geometry file already.
+    return col !== 'distance_to_closest_same_type_um';
+  }).concat(endDistCols(rows));
+}
+
+/**
+ * The range a metric colouring should span, for one structure.
+ *
+ * The report's own instances where it has them - which is the whole population, not the
+ * handful of cards on screen - so the colour of a card means the same thing whichever end
+ * of the sort you are looking at. A whole-structure mask has no instance rows, and one
+ * card per object *is* its population, so there the cards themselves are the range.
+ */
+function metricSpan(entity, objects, metric, shownRows) {
+  var ids = new Set((objects || []).map(function(o){ return String(o.id); }));
+  var values = INSTANCES.filter(function(r) {
+    return r.entity_name === entity && (!ids.size || ids.has(String(r.object_id)));
+  }).map(function(r){ return r[metric]; })
+    .filter(function(v){ return v != null && isFinite(v); });
+  if (values.length < 2) {
+    values = (shownRows || []).map(function(r){ return numOrNull(r.value); })
+      .filter(function(v){ return v != null && isFinite(v); });
+  }
+  if (!values.length) return { low: 0, high: 1 };
+  var low = Math.min.apply(null, values), high = Math.max.apply(null, values);
+  return { low: low, high: high > low ? high : low + 1 };
+}
+
+/** ``{structure|label: value}`` of one report metric, for one object. */
+function reportMetricValues(objectId, metric) {
+  var out = {};
+  INSTANCES.forEach(function(r) {
+    if (String(r.object_id) !== String(objectId)) return;
+    var value = r[metric];
+    if (value != null && isFinite(value)) out[r.entity_name + '|' + r.label_id] = Number(value);
+  });
+  return out;
+}
+
 /** Nearest-tip distance per instance, one column per target, for the structures that have tips. */
 function endDistCols(rows) {
   return DIST_TARGETS.map(function(t){ return distColumnsFor(t).end; })
@@ -2223,6 +2291,18 @@ function polarFrame(axis) {
     if (!best || length > best.length) best = { length: length, u: polScaled(across, 1 / length) };
   });
   return { a: axis, u: best.u };
+}
+
+/**
+ * The mask that bounds every object, where they all agree on one.
+ *
+ * The radius of a circular map can be read to it instead of from the centre, which is the
+ * comparable way round: cells differ in size, so "0.4 µm inside the membrane" means the
+ * same thing in all of them where "5 µm from the centre" does not.
+ */
+function boundingMaskName() {
+  var names = uniq(OBJECTS.map(function(o){ return o.object_mask_name; }).filter(Boolean));
+  return names.length === 1 ? names[0] : null;
 }
 
 /** Signed angle in degrees from the reference axis, in the plane of that frame. */
@@ -3200,14 +3280,20 @@ function renderPolarity() {
   // An instance brings its centroid; a mask brings the one centre it has, which is why it
   // appears as a single reading per object rather than as a shape.
   var relative = {}, kinds = {};
+  var mask = boundingMaskName();
+  var depthCol = mask ? distColumnsFor(mask).min : null;
   var take = function(name, kind, row) {
     var axis = polarOffset(row.object_id, ref);
     var unit = polarUnit(row);
     if (!axis || !unit || row.polar_dist_um == null || !isFinite(row.polar_dist_um)) return;
     kinds[name] = kind;
+    // The depth is a distance row, which only instances have: a mask was measured as one
+    // whole structure, so there is no distance from it to the boundary to read.
+    var depth = depthCol == null ? null : row[depthCol];
     (relative[name] = relative[name] || []).push({
       object_id: row.object_id, group_id: row.group_id, unit: unit,
-      angle_deg: polarConeDeg(unit, axis.unit), dist_um: row.polar_dist_um
+      angle_deg: polarConeDeg(unit, axis.unit), dist_um: row.polar_dist_um,
+      depth_um: depth != null && isFinite(depth) ? depth : null
     });
   };
   filteredInstances().forEach(function(r) {
@@ -3226,6 +3312,28 @@ function renderPolarity() {
     section.classList.add('d-none');
     return;
   }
+  // Offered only where there is a depth to read: without a bounding mask, or on a report
+  // written without per-instance distances, there is no second radius to switch to.
+  var hasDepth = Object.keys(relative).some(function(name) {
+    return relative[name].some(function(r){ return r.depth_um != null; });
+  });
+  var radiusChoices = [['centre', 'from the ' + noun() + ' centre (µm)']];
+  if (hasDepth) radiusChoices.push(['membrane', 'to the ' + mask + ' (µm)']);
+  if (!hasDepth) st.polarRadius = 'centre';
+  document.getElementById('pol-radius-wrap').style.display = hasDepth ? '' : 'none';
+  var radiusSelect = document.getElementById('pol-radius');
+  radiusSelect.innerHTML = radiusChoices.map(function(choice) {
+    return '<option value="' + choice[0] + '"'
+      + (choice[0] === st.polarRadius ? ' selected' : '') + '>'
+      + escHtml(choice[1]) + '</option>';
+  }).join('');
+  radiusSelect.onchange = function() {
+    st.polarRadius = radiusSelect.value;
+    renderPolarity();
+  };
+  var toMask = st.polarRadius === 'membrane' && hasDepth;
+  var radiusOf = function(r){ return toMask ? r.depth_um : r.dist_um; };
+
   var facetsFor = function(name){ return facetsOf(relative[name]); };
   var legend = facetLegendHtml(facetsFor(structures[0]));
   ['pol-legend', 'pol-index-legend', 'pol-where-legend']
@@ -3345,9 +3453,18 @@ function renderPolarity() {
   // ── one circular map per object ────────────────────────────────────────────
   setHtml('pol-map-label', 'Where everything sits in one ' + noun());
   setHtml('pol-map-desc', 'One panel per ' + noun() + ', the whole layout at once: the'
-    + ' angle to ' + dataName(ref) + ' round the circle, 0° at the right, and the distance'
-    + ' from the ' + noun() + ' centre as the radius. A diamond marks each structure’s'
-    + ' own centre. <b>These are one per ' + noun() + ' on purpose.</b> The axis to '
+    + ' angle to ' + dataName(ref) + ' round the circle, 0° at the right, and '
+    + (toMask
+        ? 'how far inside the ' + dataName(mask) + ' each instance sits as the radius, with'
+          + ' the ' + dataName(mask) + ' itself at the rim and the deepest instances in the'
+          + ' middle - the comparable way round, since ' + noun(true) + ' differ in size'
+        : 'the distance from the ' + noun() + ' centre as the radius')
+    + '. A diamond marks each structure’s own centre.'
+    + (toMask
+        ? ' Structures measured as one whole mask are left out of this view: a depth is a'
+          + ' distance from an instance, and a mask has none.'
+        : '')
+    + ' <b>These are one per ' + noun() + ' on purpose.</b> The axis to '
     + dataName(ref) + ' fixes 0°, but nothing in the data fixes the rotation <i>about</i>'
     + ' that axis, so which side of the circle a structure falls on is arbitrary and is not'
     + ' the same arbitrary choice in the next panel. A direction is <i>projected</i> onto'
@@ -3355,8 +3472,12 @@ function renderPolarity() {
     + ' projection puts it; what is real about its position is how far round from '
     + dataName(ref) + ' it is, which is the row above. Read each panel on its own.');
   // Named by colour: every other row titles its panels by the structure, and these are
-  // titled by the object, so without this the diamonds are unlabelled.
-  setHtml('pol-map-legend', structures.map(function(name) {
+  // titled by the object, so without this the diamonds are unlabelled. Only what this view
+  // can draw - reading it to the boundary leaves the masks out, and a legend naming them
+  // would have a reader hunting for a colour that is not there.
+  setHtml('pol-map-legend', structures.filter(function(name) {
+    return relative[name].some(function(r){ return radiusOf(r) != null; });
+  }).map(function(name) {
     return '<span class="d-inline-flex align-items-center gap-1">'
       + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
       + 'background:' + entColor(name) + '"></span>' + dataName(name) + '</span>';
@@ -3364,49 +3485,79 @@ function renderPolarity() {
   var mapHost = document.getElementById('pol-map-charts');
   var reach = 0;
   structures.forEach(function(name) {
-    relative[name].forEach(function(r){ if (r.dist_um > reach) reach = r.dist_um; });
+    relative[name].forEach(function(r) {
+      var radius = radiusOf(r);
+      if (radius != null && radius > reach) reach = radius;
+    });
   });
-  scopedObjectNames().forEach(function(id) {
+  // Grouped, and in group order: the panels are titled by the object, and which condition
+  // an object belongs to is the thing a reader is comparing them for. The group's own
+  // colour, the one every chart above uses for it.
+  var groupOfObject = {};
+  OBJECTS.forEach(function(o){ groupOfObject[String(o.object_id)] = o.group_id || ''; });
+  var mapObjects = scopedObjectNames().slice().sort(function(a, b) {
+    return String(groupOfObject[a]).localeCompare(String(groupOfObject[b]))
+      || String(a).localeCompare(String(b));
+  });
+  mapObjects.forEach(function(id) {
     var axis = polarOffset(id, ref);
     if (!axis) return;
     var frame = polarFrame(axis.unit);
     var traces = [], sampled = [];
     structures.forEach(function(name) {
-      var rows = relative[name].filter(function(r){ return r.object_id === id; });
+      var rows = relative[name].filter(function(r) {
+        return r.object_id === id && radiusOf(r) != null;
+      });
       if (!rows.length) return;
       // A stride rather than a random draw: the same panel twice is the same panel.
       var step = Math.max(1, Math.ceil(rows.length / POLAR_DOT_BUDGET));
       var shown = rows.filter(function(_, i){ return i % step === 0; });
       if (step > 1) sampled.push(dataName(name) + ' 1 in ' + step);
       traces.push({ type: 'scatterpolar', mode: 'markers', name: name,
-        r: shown.map(function(r){ return r.dist_um; }),
+        r: shown.map(radiusOf),
         theta: shown.map(function(r){ return polarAngleDeg(r.unit, frame); }),
         marker: { color: entColor(name), size: rows.length > 1 ? 4 : 9,
                   opacity: rows.length > 1 ? 0.5 : 0.9, line: { width: 0 } },
-        hovertemplate: '%{r:.2f} µm at %{theta:.0f}°<extra>' + name + '</extra>' });
+        hovertemplate: (toMask ? '%{r:.2f} µm inside the ' + mask : '%{r:.2f} µm out')
+          + ' at %{theta:.0f}°<extra>' + name + '</extra>' });
       var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit);
       if (!found || !found.mean) return;
-      var distances = rows.map(function(r){ return r.dist_um; })
-                          .sort(function(a, b){ return a - b; });
+      var distances = rows.map(radiusOf).sort(function(a, b){ return a - b; });
       traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
         r: [quantileSorted(distances, 0.5)], theta: [polarAngleDeg(found.mean, frame)],
         marker: { symbol: 'diamond', size: 11, color: entColor(name),
                   line: { color: '#fff', width: 1.5 } },
-        hovertemplate: 'centre of ' + name + ': %{r:.2f} µm at %{theta:.0f}°'
+        hovertemplate: 'centre of ' + name + ': %{r:.2f} µm '
+          + (toMask ? 'inside the ' + mask : 'out') + ' at %{theta:.0f}°'
           + '<br>R ' + found.R.toFixed(2) + ', V ' + found.V.toFixed(2) + '<extra></extra>' });
     });
     if (!traces.length) return;
     var el = document.createElement('div');
     el.className = 'chart-cell';
     el.style.width = '330px';
+    var group = groupOfObject[String(id)];
+    if (group) {
+      var heading = document.createElement('div');
+      heading.style.cssText = 'font-size:.72rem;font-weight:600;color:' + CS.ink
+        + ';margin-bottom:2px;display:flex;align-items:center;gap:5px';
+      heading.innerHTML = '<span style="display:inline-block;width:9px;height:9px;'
+        + 'border-radius:50%;background:' + gColor(group) + '"></span>' + escHtml(group);
+      el.appendChild(heading);
+    }
+    var plotEl = document.createElement('div');
+    el.appendChild(plotEl);
     mapHost.appendChild(el);
-    Plotly.newPlot(el, traces, {
+    Plotly.newPlot(plotEl, traces, {
       margin: { l: 52, r: 52, t: 34, b: 26 }, height: 320,
       title: { text: String(id) }, showlegend: false,
       polar: {
         // Ticks up the 45° spoke and only a few of them: along 0° they ran into the dots
         // and into each other, and the radius is the one axis here that is plain µm.
-        radialaxis: { range: [0, reach * 1.02], angle: 45, nticks: 4,
+        // Reversed for a depth, so the boundary stays at the rim where it belongs and
+        // deeper is further in - the picture the right way round, from the number as it
+        // was measured.
+        radialaxis: { range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02],
+                      angle: 45, nticks: 4,
                       ticksuffix: ' µm', tickfont: { size: 9 } },
         // Only the two directions that mean anything are named. The perpendicular is the
         // arbitrary part of the frame, so a tick saying 90° there would read as a
@@ -3953,6 +4104,49 @@ function litColour(hex) {
 /** A structure's colour, as a lit surface needs it. */
 function litEntColour(name) { return litColour(entColor(name)); }
 
+/** linear → sRGB, per channel: the inverse of toLinear, for showing a colour as a colour. */
+function fromLinear(channel) {
+  var c = Math.max(0, Math.min(1, channel));
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+/**
+ * The metric scale at t, as a hex.
+ *
+ * Through viridisAt and back out of linear rather than interpolated again in sRGB, so a
+ * legend, a thumbnail and a surface in the 3D scene are the same colours at the same
+ * values - which is the whole point of showing the scale.
+ */
+function viridisHexAt(t) {
+  return '#' + viridisAt(t).map(function(channel) {
+    return Math.round(fromLinear(channel) * 255).toString(16).padStart(2, '0');
+  }).join('');
+}
+
+/**
+ * The legend a metric colouring needs: the scale, and the values at its ends.
+ *
+ * Colour is the one encoding in this report that cannot be read off the chart itself - a
+ * box plot has its axis, a card coloured by its volume has nothing - so anywhere a metric
+ * decides a colour, this says which colour was which value.
+ */
+function colourRamp(opts) {
+  var el = document.createElement('div');
+  el.className = 'colour-ramp';
+  var stops = [];
+  for (var i = 0; i <= 10; i++) stops.push(viridisHexAt(i / 10) + ' ' + (i * 10) + '%');
+  var number = function(v) {
+    return v == null || !isFinite(v) ? '–' : Number(v).toPrecision(3);
+  };
+  el.innerHTML = (opts.label ? '<span class="ramp-label">' + escHtml(opts.label) + '</span>' : '')
+    + '<span>' + number(opts.low) + '</span>'
+    + '<span class="ramp-bar" style="background:linear-gradient(to right,'
+    + stops.join(', ') + ')"></span>'
+    + '<span>' + number(opts.high) + '</span>';
+  el.title = (opts.label || 'metric') + ': ' + number(opts.low) + ' to ' + number(opts.high);
+  return el;
+}
+
 /** #rrggbb → [r, g, b] in 0..1, the form a vertex-colour attribute wants. */
 function toRgb(hex) {
   var value = String(hex).replace('#', '');
@@ -4296,7 +4490,12 @@ function geometryMetrics() {
 }
 function labelFor(col) {
   if (POLARITY_LABELS[col]) return POLARITY_LABELS[col]();
-  return METRIC_LABELS[col] || col;
+  if (METRIC_LABELS[col]) return METRIC_LABELS[col];
+  // A widened distance column, which is named after the structure it was measured to.
+  if (col.indexOf('distance_to_') === 0) {
+    return 'Distance to ' + distColLabel(col) + ' (µm)';
+  }
+  return col;
 }
 function numOrNull(v) { return v === null || v === undefined ? null : Number(v); }
 
@@ -4402,11 +4601,17 @@ async function renderScene() {
 
   var current = objects.find(function(o){ return o.id === sceneState.objectId; }) || objects[0];
   sceneState.objectId = current.id;
-  var metrics = geometryMetrics();
+  // Both kinds: what the geometry file carries, and what only the report does.
+  var fromReport = reportOnlyMetrics(current.id);
+  var metrics = geometryMetrics().concat(fromReport);
   if (!sceneState.metric || metrics.indexOf(sceneState.metric) < 0) sceneState.metric = metrics[0];
 
   var stageParts = stageCanvas(holderWrap, 520);
   var holder = stageParts.holder, canvas = stageParts.canvas;
+  // Under the scene, filled by the painting - which is where the scale's ends are known,
+  // since they come from the instances on screen rather than from the whole report.
+  var rampHost = document.getElementById('scene-scale');
+  rampHost.replaceChildren();
   var loaded = null;
   if (_objectStage) { _objectStage.dispose(); _objectStage = null; }
 
@@ -4437,7 +4642,11 @@ async function renderScene() {
     if (!wanted.length) return { instances: [], masks: [], edges: [] };
 
     var metricCols = [...new Set([sceneState.metric, 'polar_dist_um',
-                                  'polar_nx', 'polar_ny', 'polar_nz'])];
+                                  'polar_nx', 'polar_ny', 'polar_nz'])]
+      .filter(function(col){ return fromReport.indexOf(col) < 0; });
+    // A report-only metric is joined on by structure and label instead of selected.
+    var joined = fromReport.indexOf(sceneState.metric) >= 0
+      ? reportMetricValues(current.id, sceneState.metric) : null;
     var rows = await queryRows(
       sceneGeometrySql(sourceOf([current]), wanted, metricCols));
 
@@ -4449,10 +4658,13 @@ async function renderScene() {
     rows.forEach(function(row) {
       var drawable = decodeDrawable(row);
       if (!drawable) return;
+      var key = String(row.entity) + '|'
+        + (row.label === null || row.label === undefined ? '' : String(row.label));
       var item = {
         entity: String(row.entity),
         label: row.label === null || row.label === undefined ? null : String(row.label),
-        metric: numOrNull(row[sceneState.metric]),
+        metric: joined ? (key in joined ? joined[key] : null)
+                       : numOrNull(row[sceneState.metric]),
         polar: { dist: numOrNull(row.polar_dist_um) || 0,
                  n: [numOrNull(row.polar_nx) || 0, numOrNull(row.polar_ny) || 0,
                      numOrNull(row.polar_nz) || 0] },
@@ -4481,6 +4693,7 @@ async function renderScene() {
     // Colours come from the report's full structure list, not the drawn subset, so turning a
     // structure off does not recolour the ones left.
     var colourOf;
+    rampHost.replaceChildren();
     if (sceneState.colourBy === 'metric') {
       var values = loaded.instances.map(function(i){ return i.metric; }).filter(isFinite);
       var low = Math.min.apply(null, values), high = Math.max.apply(null, values);
@@ -4489,6 +4702,11 @@ async function renderScene() {
         return isFinite(item.metric) ? viridisAt((item.metric - low) / span)
           : [0.6, 0.6, 0.6].map(toLinear);
       };
+      // Which colour was which value, from the instances actually on screen.
+      if (values.length) {
+        rampHost.appendChild(colourRamp({ label: labelFor(sceneState.metric),
+                                          low: low, high: high }));
+      }
     } else if (sceneState.colourBy === 'group') {
       var keys = loaded.instances.map(function(i){ return i.entity + '|' + i.label; });
       var groups = contactGroups(keys, loaded.edges);
@@ -4836,9 +5054,12 @@ function renderGallery(container, entity, rowType) {
   bar.className = 'ctrl-bar';
   var grid = document.createElement('div');
   grid.className = 'gallery-grid';
+  // Under the cards, filled once they are read and the scale's ends are known.
+  var rampHost = document.createElement('div');
+  rampHost.className = 'metric-scale';
   var footer = document.createElement('div');
   footer.className = 'chart-note';
-  container.append(bar, grid, footer);
+  container.append(bar, grid, rampHost, footer);
 
   var wanted = function() {
     var columns = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ')
@@ -4865,9 +5086,21 @@ function renderGallery(container, entity, rowType) {
           + labelFor(state.metric) + '.';
         return;
       }
-      // Two encodings: the shape takes the structure's colour, the border says which object
-      // (or group) it came from, the same colour the charts above use.
-      var meshHex = litEntColour(entity);
+      // Two encodings: the shape takes the colour the sort metric gives it - the same
+      // scale, the same colours as the 3D scene - and the border says which object (or
+      // group) it came from, the colour the charts above use for it.
+      //
+      // The scale spans the whole population of that structure, not the cards on screen:
+      // the ten largest granules of thirteen thousand are all "large", and scaled to each
+      // other they would be drawn as the full range of the colour map.
+      var scale = metricSpan(entity, objects, state.metric, rows);
+      var colourFor = function(value) {
+        return isFinite(value) ? viridisHexAt((value - scale.low) / (scale.high - scale.low))
+                               : '#9aa0a6';
+      };
+      rampHost.replaceChildren();
+      rampHost.appendChild(colourRamp({ label: labelFor(state.metric),
+                                        low: scale.low, high: scale.high }));
       // A mask card is named after its object, and object names are folder paths that
       // differ in the middle: trimming to a fixed width leaves them all reading the same.
       // The shared prefix and suffix come off instead, as they do on the chart ticks.
@@ -4888,6 +5121,7 @@ function renderGallery(container, entity, rowType) {
         thumb.height = THUMB_PX * 2;
         var caption = document.createElement('figcaption');
         var value = numOrNull(row.value);
+        var meshHex = colourFor(value);
         // A mask is one per object, so the object names the card; an instance is one of
         // thousands in an object, so its label number does.
         // The full name is the hover.
@@ -6574,6 +6808,9 @@ if (typeof globalThis !== 'undefined') {
     distColumnsFor: distColumnsFor,
     distCols: distCols, scatterDistCols: scatterDistCols, histTargets: histTargets,
     endDistCols: endDistCols, extentGapUm: extentGapUm,
+    reportOnlyMetrics: reportOnlyMetrics, reportMetricValues: reportMetricValues,
+    metricSpan: metricSpan, viridisHexAt: viridisHexAt, labelFor: labelFor,
+    boundingMaskName: boundingMaskName,
     polarUnit: polarUnit, polarOffset: polarOffset, polarReferences: polarReferences,
     polarFrame: polarFrame, polarAngleDeg: polarAngleDeg, polarConeDeg: polarConeDeg,
     polarityIndices: polarityIndices,

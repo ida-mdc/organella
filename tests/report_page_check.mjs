@@ -349,6 +349,30 @@ if (job.rows && job.polarity) {
   };
 }
 
+// ── what a metric colours, in the scene and in the gallery ───────────────────
+if (job.rows && job.colour) {
+  const s = R.state();
+  const object = String(s.OBJECTS[0].object_id);
+  const entity = job.colour.structure || job.structure;
+  const reportOnly = R.reportOnlyMetrics(object);
+  const metric = job.colour.metric || reportOnly[0];
+  const values = metric ? R.reportMetricValues(object, metric) : {};
+  out.colour = {
+    // Metrics the report can colour by that no geometry file carries.
+    reportOnly,
+    labels: Object.fromEntries(reportOnly.map((c) => [c, R.labelFor(c)])),
+    joined: { metric, n: Object.keys(values).length,
+              sample: Object.entries(values).slice(0, 3) },
+    // The range a colouring spans: the population, not the cards on screen.
+    span: R.metricSpan(entity, s.OBJECTS.map((o) => ({ id: String(o.object_id) })),
+                       job.colour.spanMetric || 'volume_um3', []),
+    shownOnly: R.metricSpan('nothing-of-this-name', [], 'volume_um3',
+                            [{ value: 2 }, { value: 7 }]),
+    ramp: [0, 0.25, 0.5, 0.75, 1].map((t) => R.viridisHexAt(t)),
+    boundingMask: R.boundingMaskName(),
+  };
+}
+
 // The median of a binned population, which is how a chance distribution's reference value
 // is read off the counts rather than off a sort of every voxel in the object.
 if (job.medianOfCounts) {
