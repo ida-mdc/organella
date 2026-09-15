@@ -1,6 +1,6 @@
 # Organella: measuring label relationships in 3D
 
-<img src="docs/organella.png" alt="A figure drawn entirely out of organelles, holding a measuring tape" align="right" width="190">
+<img src="https://raw.githubusercontent.com/ida-mdc/organella/main/docs/organella.png" alt="A figure drawn entirely out of organelles, holding a measuring tape" align="right" width="190">
 
 Organella measures segmented objects - 2D or 3D, one or a batch of them - and produces a
 single report you read in one standalone page: distributions, distances, contacts, and the
@@ -26,8 +26,8 @@ neighbouring cells. `--no-clip` measures them anyway.
 
 |  |  |
 | --- | --- |
-| [![The 3D view of a cell drawn from its geometry](docs/report-3d.png)](docs/report-3d.png)<br>**The object in 3D,** from the geometry a `--with-mesh` run wrote. Structures switch on and off, colour by a metric, and explode pushes every instance out along its own direction from the centre. | [![Composition per object and boxes per group](docs/report-distributions.png)](docs/report-distributions.png)<br>**Composition, and groups compared.** How much of each structure there is in each object, and a box per group with Mann-Whitney brackets between whatever the charts are faceted by. |
-| [![The instance gallery, microtubules sorted by skeleton length](docs/report-instances.png)](docs/report-instances.png)<br>**The instances behind a distribution:** the highest, the lowest, or a fair sample of any metric. Click one to look at it properly. | [![Voxel-distance histograms, one panel per target structure](docs/report-voxel-distances.png)](docs/report-voxel-distances.png)<br>**Every voxel, by distance.** A structure's voxels binned by how far each one is from another structure, one panel per target. |
+| [![The 3D view of a cell drawn from its geometry](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)<br>**The object in 3D,** from the geometry a `--with-mesh` run wrote. Structures switch on and off, colour by a metric, and explode pushes every instance out along its own direction from the centre. | [![Composition per object and boxes per group](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)<br>**Composition, and groups compared.** How much of each structure there is in each object, and a box per group with Mann-Whitney brackets between whatever the charts are faceted by. |
+| [![The instance gallery, microtubules sorted by skeleton length](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)<br>**The instances behind a distribution:** the highest, the lowest, or a fair sample of any metric. Click one to look at it properly. | [![Voxel-distance histograms, one panel per target structure](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)<br>**Every voxel, by distance.** A structure's voxels binned by how far each one is from another structure, one panel per target. |
 
 ## Workflow
 

@@ -7,6 +7,20 @@ requires-python = ">=3.11"
 authors = [
     { name = "Helmholtz Imaging Engineering & Support Unit MDC" },
 ]
+keywords = [
+    "segmentation", "morphometry", "microscopy", "electron microscopy", "FIB-SEM",
+    "organelles", "image analysis", "parquet",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
 
 dependencies = [
     # The command line itself. Installed today only because kimimaro happens to want it,
@@ -33,6 +47,11 @@ dependencies = [
 # Reading a chunked store - N5 or Zarr, local or over S3 - so an object can be described by
 # a manifest instead of being downloaded. An extra rather than a dependency: measuring files
 # on disk needs neither, and zarr is pinned below 3 because zarr 3 dropped N5 support.
+[project.urls]
+Homepage = "https://ida-mdc.github.io/organella/"
+Repository = "https://github.com/ida-mdc/organella"
+Issues = "https://github.com/ida-mdc/organella/issues"
+
 [project.optional-dependencies]
 remote = [
     "zarr>=2.16,<3",
