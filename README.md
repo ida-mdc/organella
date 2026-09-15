@@ -122,6 +122,25 @@ smaller - so no shape is taken on faith. Each panel says how much was allowed fo
 panels are read against the uncorrected line, because a tip is a point, and so are the
 per-voxel curves, which compare samples with samples.
 
+**Direction is read against a structure, not against the volume.** Every polarity column is
+measured from the object mask's own centroid, which is the right origin but points wherever
+the volume happened to be oriented - so an azimuth means nothing from one object to the next.
+Pick a structure in *Which way does each structure sit?* and the direction from the centre to
+its centre becomes 0°: every angle is then measured against something inside the object and
+can be pooled. The section reports the angle per instance, the two collective measures per
+object - **R**, how tightly a structure's directions agree, and **V**, the same strength signed
+by whether it leans towards the reference (+1) or away from it (-1) - the angle against the
+distance from the centre, and one circular map per object. R and V are
+[Polarity-JaM](https://www.polarityjam.com)'s polarity indices ([Giese et al., *Nat Commun*
+2025](https://doi.org/10.1038/s41467-025-56643-x)), so the numbers can be read beside that
+tool's, and its point about the statistics is taken: instances inside one object are not
+independent of each other, so the unit worth comparing between groups is one R and one V per
+object. This is a rotation of what was already measured, so it needs no re-run - but only
+what has a direction can be rotated, and a whole-structure mask has one centre and no more,
+so it appears as one reading per object rather than as a shape. The circular maps are one per
+object on purpose: the axis fixes 0°, but nothing in the data fixes the rotation *about* that
+axis, so which side of the circle a structure falls on is arbitrary.
+
 **A skeletonised structure is also measured at its tips.** `How far is each … end from other
 structures?` is the distance of the nearest tip rather than of whichever part comes closest -
 a filament can run past a structure along its whole length and end nowhere near it - and each

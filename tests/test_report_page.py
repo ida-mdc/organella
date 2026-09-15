@@ -304,9 +304,10 @@ def test_every_section_draws(drawn):
 
 
 def test_the_sections_draw_the_charts_they_promise(drawn):
-    """Boxes for distributions, bars for one-per-object values, curves for shares."""
+    """Boxes for distributions, bars for one-per-object values, curves for shares, and
+    one circle per object for where its structures sit around it."""
     assert drawn["plots"] > 10
-    assert set(drawn["traceTypes"]) == {"bar", "box", "scatter"}
+    assert set(drawn["traceTypes"]) == {"bar", "box", "scatter", "scatterpolar"}
 
 
 def test_the_question_headings_name_the_structure_they_are_about(drawn):
@@ -758,7 +759,10 @@ def test_every_distance_panel_carries_its_chance_line(drawn):
     from it than that condition's own shape puts anything.
     """
     referenced = {r["title"]: r for r in drawn["references"]}
-    distance_panels = [t for t in drawn["titles"] if " to " in t and "every voxel" not in t]
+    # The distance row's own panels: "<structure> to <target>". The polarity section's
+    # panels are angles rather than distances and are read against their own reference.
+    distance_panels = [t for t in drawn["titles"] if " to " in t
+                       and "every voxel" not in t and "angle to" not in t]
 
     assert distance_panels, "the report should draw distance panels at all"
     for title in distance_panels:
@@ -845,8 +849,9 @@ def test_the_reference_allows_for_the_extent_of_what_is_read_against_it(page_of,
     assert chance["extentGap"] > 0
     assert chance["corrected"] == pytest.approx(chance["median"] - chance["extentGap"])
     # And that is the number the panels draw, not the raw median.
-    drawn_at = [at for r in drawn["references"] if " to " in r["title"]
-                and "end to" not in r["title"] for at in r["at"]]
+    drawn_at = [at for r in drawn["references"]
+                if " to " in r["title"] and "end to" not in r["title"]
+                and "angle to" not in r["title"] for at in r["at"]]
     assert drawn_at, "no reference line was drawn to check"
     for at in drawn_at:
         assert at < chance["median"] + chance["extentGap"]

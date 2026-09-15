@@ -50,7 +50,14 @@ MITO_COLOUR = "#d62728"
 
 
 def _run(root: Path, out: Path) -> Path:
-    """One batch through the real pipeline, exactly as `process` runs it."""
+    """One batch through the real pipeline, exactly as `process` runs it.
+
+    Every setting the run depends on is set here rather than inherited. A module-scoped
+    fixture is built before the per-test isolation below has run, so without this a voxel
+    size left in the environment by an earlier test reaches this batch - and a 3D one is
+    refused outright by a 2D batch.
+    """
+    os.environ.pop("ORGANELLA_VOXEL_SIZE_UM", None)
     os.environ["ORGANELLA_OBJECT_MASK"] = OBJECT_MASK
     # The per-voxel distance distributions, because one section of the report is about them
     # and without them the shared report cannot exercise it at all.

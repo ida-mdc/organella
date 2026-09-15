@@ -502,7 +502,37 @@ organella process experiment/ \
     </div>
   </div>
 
-  <!-- 05 Files -->
+  <!-- 05 Polarity, relative to one structure -->
+  <div class="section d-none" id="s-polarity">
+    <div class="section-title">Which way does each structure sit?</div>
+    <p class="section-subtitle" id="pol-subtitle"></p>
+    <div id="pol-coverage"></div>
+    <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+      <div>
+        <label class="form-label small mb-1 text-muted">Measured towards</label><br>
+        <select id="pol-reference" class="form-select form-select-sm" style="width:auto"></select>
+      </div>
+      <span id="pol-axis" class="small text-muted align-self-end pb-1"></span>
+    </div>
+    <div class="subsection-label" id="pol-angle-label"></div>
+    <p class="subsection-desc" id="pol-angle-desc"></p>
+    <div class="chart-legend" id="pol-legend"></div>
+    <div class="charts-row" id="pol-angle-charts"></div>
+    <div class="subsection-label mt-4" id="pol-index-label"></div>
+    <p class="subsection-desc" id="pol-index-desc"></p>
+    <div class="chart-legend" id="pol-index-legend"></div>
+    <div class="charts-row" id="pol-index-charts"></div>
+    <div class="subsection-label mt-4" id="pol-where-label"></div>
+    <p class="subsection-desc" id="pol-where-desc"></p>
+    <div class="chart-legend" id="pol-where-legend"></div>
+    <div class="charts-row" id="pol-where-charts"></div>
+    <div class="subsection-label mt-4" id="pol-map-label"></div>
+    <p class="subsection-desc" id="pol-map-desc"></p>
+    <div class="chart-legend" id="pol-map-legend"></div>
+    <div class="charts-row" id="pol-map-charts"></div>
+  </div>
+
+  <!-- 06 Files -->
   <div class="section" id="s-structure">
     <div class="section-title">The files behind it</div>
     <p class="section-subtitle">What was read, and what was measured of each whole structure.</p>
@@ -675,7 +705,7 @@ function settleNoun(given, bounded) {
 
 // `only` is one facet value to narrow to, read against whatever plotGroupBy is: a group
 // when grouping by group, an object when grouping by object. Empty means all of them.
-var st = { only: '', statsEntity: null };
+var st = { only: '', statsEntity: null, polarRef: null };
 // Settled against the batch in initFilters, not fixed here: by group wherever there is
 // more than one, by object where there is not.
 var plotGroupBy = 'object';
@@ -1163,6 +1193,8 @@ function adapt(rows) {
   // not one per instance, and every panel that reads it reads it for a whole facet at
   // once.
   CHANCE = {};
+  // Per object x structure, and both change with the report.
+  _POLAR_OFFSETS = {};
   baselineRows.forEach(function(r) {
     if (r.baseline_target == null) return;
     var id = String(r.object_id);
@@ -2027,7 +2059,7 @@ function initFilters() {
 function renderAll() {
   var sections = [
     ['overview', renderOverview], ['3d', renderScene], ['entities', renderEntityStats],
-    ['groups', renderContacts], ['structure', renderStructure]
+    ['groups', renderContacts], ['polarity', renderPolarity], ['structure', renderStructure]
   ];
   sections.forEach(function(entry) {
     try {
@@ -2044,6 +2076,181 @@ function renderAll() {
       section.appendChild(note);
     }
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Polarity, relative to one structure
+// ══════════════════════════════════════════════════════════════
+// Every polarity column in a report is measured from one origin - the object mask's own
+// centroid - but it points wherever the volume happened to be oriented, so an azimuth of
+// 40° means nothing from one object to the next. What does carry across is an angle
+// measured against something *inside* the object: pick a structure, take the direction from
+// the centre to its centre, call that 0°, and "towards it" and "away from it" then mean the
+// same thing in every object and can be pooled.
+//
+// That is a rotation of what was already measured, so nothing has to be measured again -
+// but only what has a direction can be rotated. An instance has its centroid; a
+// whole-structure mask has one centre and nothing more, so a mask is one point here rather
+// than a shape. Giving a mask an angular extent would mean measuring it per voxel, which
+// is a re-run.
+//
+// R and V are Polarity-JaM's two collective measures (Giese et al., Nat Commun 2025,
+// polarityjam.com), which this is deliberately comparable with: R is the length of the mean
+// unit vector - 0 when directions cancel, 1 when they all agree - and V = R·cos(mean
+// direction − reference) is the same strength signed by whether it leans towards the
+// reference or away, so -1 is straight away from it and +1 straight at it. Their point about
+// the statistics is worth keeping too: instances inside one object are not independent of
+// each other, so the comparable unit is one R and one V *per object*, which is what the
+// panels plot.
+
+// A drawing budget for the circular plots, not a rule about the data: 14,000 dots in one
+// polar panel is a disc, and eight of them is a minute of scripting time.
+var POLAR_DOT_BUDGET = 300;
+
+function polDot(a, b) {
+  var sum = 0;
+  for (var i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return sum;
+}
+function polNorm(a) { return Math.sqrt(polDot(a, a)); }
+function polScaled(a, k) { return a.map(function(v){ return v * k; }); }
+function polAdded(a, b) { return a.map(function(v, i){ return v + b[i]; }); }
+
+/** A row's direction from the object centre, as a unit vector in array axis order. */
+function polarUnit(row) {
+  var keys = (row.spatial_dims === 2 || (row.spatial_dims == null && PLANAR))
+    ? ['polar_ny', 'polar_nx'] : ['polar_nz', 'polar_ny', 'polar_nx'];
+  var out = [];
+  for (var i = 0; i < keys.length; i++) {
+    var value = row[keys[i]];
+    if (value == null || !isFinite(value)) return null;
+    out.push(Number(value));
+  }
+  return out;
+}
+
+// Grouped once per report: an offset is asked for per object x structure by four rows of
+// panels, and each answer walks that structure's instances.
+var _POLAR_OFFSETS = {};
+
+/**
+ * Where a structure's centre sits, seen from the object centre: direction and how far.
+ *
+ * A label structure answers with the mean of its instances' offsets - its centre of
+ * instances - and a mask with the one centre it has. Null where the structure sits *on* the
+ * centre, which is no direction at all: the object mask itself always does, and a structure
+ * spread evenly around the object can too.
+ */
+function polarOffset(objectId, structure) {
+  var key = objectId + '|' + structure;
+  if (key in _POLAR_OFFSETS) return _POLAR_OFFSETS[key];
+  var sum = null, n = 0;
+  INSTANCES.forEach(function(r) {
+    if (r.object_id !== objectId || r.entity_name !== structure) return;
+    var unit = polarUnit(r);
+    if (!unit || r.polar_dist_um == null || !isFinite(r.polar_dist_um)) return;
+    var offset = polScaled(unit, r.polar_dist_um);
+    sum = sum ? polAdded(sum, offset) : offset;
+    n++;
+  });
+  var found = null;
+  if (n) {
+    var mean = polScaled(sum, 1 / n), length = polNorm(mean);
+    if (length > 0) found = { unit: polScaled(mean, 1 / length), dist: length,
+                              of: 'instances', n: n };
+  } else {
+    ENTS.forEach(function(r) {
+      if (found || r.object_id !== objectId || r.entity_name !== structure) return;
+      var unit = polarUnit(r);
+      if (unit && r.polar_dist_um != null && isFinite(r.polar_dist_um) && r.polar_dist_um > 0) {
+        found = { unit: unit, dist: r.polar_dist_um, of: 'centre', n: 1 };
+      }
+    });
+  }
+  _POLAR_OFFSETS[key] = found;
+  return found;
+}
+
+/**
+ * The structures that can serve as the reference: the ones every object has first, and
+ * within those, the most off-centre.
+ *
+ * Off-centre because that is what makes an axis: a structure whose centre sits almost on
+ * the object's centre points nowhere in particular, and every angle measured against it is
+ * noise. But coverage comes first, because a reference only some objects have silently
+ * takes the rest of the batch out of the section - on a batch of seven cells the most
+ * off-centre structure of all sat in one of them, and choosing it by distance alone answered
+ * the question for one cell and called it the answer.
+ *
+ * Ordered rather than filtered: both numbers stand beside every choice, so a one-object
+ * reference is available and is visible as one.
+ */
+function polarReferences() {
+  var objects = scopedObjectNames();
+  var out = [];
+  entityNames().forEach(function(name) {
+    if (OBJECTS.some(function(o){ return o.object_mask_name === name; })) return;
+    var distances = [];
+    objects.forEach(function(id) {
+      var offset = polarOffset(id, name);
+      if (offset) distances.push(offset.dist);
+    });
+    if (!distances.length) return;
+    distances.sort(function(a, b){ return a - b; });
+    out.push({ name: name, dist: quantileSorted(distances, 0.5),
+               objects: distances.length, of: objects.length });
+  });
+  return out.sort(function(a, b) {
+    return (b.objects - a.objects) || (b.dist - a.dist);
+  });
+}
+
+/**
+ * The plane a circular plot is drawn in: the reference axis, and one direction across it.
+ *
+ * In a plane there is nothing to choose - the axis and its perpendicular are the whole of
+ * it - and the angles are the real thing. In a volume the rotation about the axis is *not*
+ * determined by anything in the data: this picks the axis of the volume that lies furthest
+ * from the reference, which is reproducible but arbitrary, and why the circular plots are
+ * one per object rather than pooled.
+ */
+function polarFrame(axis) {
+  if (axis.length === 2) return { a: axis, u: [axis[1], -axis[0]] };
+  var best = null;
+  [[1, 0, 0], [0, 1, 0], [0, 0, 1]].forEach(function(candidate) {
+    var across = polAdded(candidate, polScaled(axis, -polDot(candidate, axis)));
+    var length = polNorm(across);
+    if (!best || length > best.length) best = { length: length, u: polScaled(across, 1 / length) };
+  });
+  return { a: axis, u: best.u };
+}
+
+/** Signed angle in degrees from the reference axis, in the plane of that frame. */
+function polarAngleDeg(unit, frame) {
+  return Math.atan2(polDot(unit, frame.u), polDot(unit, frame.a)) * 180 / Math.PI;
+}
+
+/** Angle in degrees between a direction and the reference axis: 0 towards, 180 away. */
+function polarConeDeg(unit, axis) {
+  return Math.acos(Math.max(-1, Math.min(1, polDot(unit, axis)))) * 180 / Math.PI;
+}
+
+/**
+ * Polarity-JaM's R and V for one population of directions against one axis.
+ *
+ * V is the mean of cos(angle to the axis), which is the same number as R·cos(mean
+ * direction − axis) and needs no mean direction to state.
+ */
+function polarityIndices(units, axis) {
+  var sum = null, cosines = 0;
+  units.forEach(function(unit) {
+    sum = sum ? polAdded(sum, unit) : unit.slice();
+    cosines += polDot(unit, axis);
+  });
+  if (!units.length) return null;
+  var mean = polScaled(sum, 1 / units.length), R = polNorm(mean);
+  return { n: units.length, R: R, V: cosines / units.length,
+           mean: R > 0 ? polScaled(mean, 1 / R) : null };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2932,7 +3139,295 @@ function renderOverview() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  05 — The files behind it
+//  05 — Which way does each structure sit?
+// ══════════════════════════════════════════════════════════════
+/**
+ * Everything the report can say about direction, made comparable between objects.
+ *
+ * One reference structure turns every measured direction into an angle against something
+ * inside the object (see the block above): the distributions of that angle, Polarity-JaM's
+ * R and V per object, the joint reading of angle against distance, and one circular map per
+ * object. The reference is the reader's to choose, and the section is only drawn where
+ * something has a direction at all.
+ */
+function renderPolarity() {
+  var section = document.getElementById('s-polarity');
+  ['pol-angle-charts', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts']
+    .forEach(function(id){ document.getElementById(id).innerHTML = ''; });
+
+  var references = polarReferences();
+  if (!references.length) {
+    section.classList.add('d-none');
+    return;
+  }
+  section.classList.remove('d-none');
+
+  // The most off-centre structure to begin with: it makes the best-defined axis, and how
+  // far off centre each one is stands beside the choice so a poor one is visible as one.
+  if (st.polarRef == null || !references.some(function(r){ return r.name === st.polarRef; })) {
+    st.polarRef = references[0].name;
+  }
+  var ref = st.polarRef;
+  var select = document.getElementById('pol-reference');
+  select.innerHTML = references.map(function(r) {
+    return '<option value="' + escHtml(r.name) + '"' + (r.name === ref ? ' selected' : '')
+      + '>' + escHtml(r.name) + ' (' + fmtGap(r.dist) + ' µm off centre, in '
+      + (r.objects === r.of ? 'all ' + r.of : r.objects + ' of ' + r.of) + ' '
+      + noun(r.of !== 1) + ')</option>';
+  }).join('');
+  select.onchange = function() {
+    st.polarRef = select.value;
+    renderPolarity();
+  };
+  var chosen = references.filter(function(r){ return r.name === ref; })[0];
+  setHtml('pol-subtitle',
+    'Every direction in a report is measured from the ' + noun() + '’s own centre, and'
+    + ' points wherever the volume happened to be oriented - so an azimuth of 40° means'
+    + ' nothing from one ' + noun() + ' to the next. Measured instead against the direction'
+    + ' from that centre to ' + dataName(ref) + '’s centre - <b>0° towards</b> it,'
+    + ' <b>180° away</b> - it means the same thing in every one, and can be pooled.');
+  setHtml('pol-axis', 'Its centre sits ' + fmtGap(chosen.dist) + ' µm off the '
+    + noun() + ' centre. A structure sitting <em>on</em> the centre points nowhere and is'
+    + ' no use as an axis, which is what the number beside each choice is for.'
+    + (chosen.objects < chosen.of
+        ? ' <b>' + (chosen.of - chosen.objects) + ' of ' + chosen.of + ' ' + noun(true)
+          + ' have no ' + escHtml(chosen.name) + ' to measure against, and are left out of'
+          + ' everything below.</b>'
+        : ''));
+
+  // ── every direction, as an angle to that axis ──────────────────────────────
+  //
+  // An instance brings its centroid; a mask brings the one centre it has, which is why it
+  // appears as a single reading per object rather than as a shape.
+  var relative = {}, kinds = {};
+  var take = function(name, kind, row) {
+    var axis = polarOffset(row.object_id, ref);
+    var unit = polarUnit(row);
+    if (!axis || !unit || row.polar_dist_um == null || !isFinite(row.polar_dist_um)) return;
+    kinds[name] = kind;
+    (relative[name] = relative[name] || []).push({
+      object_id: row.object_id, group_id: row.group_id, unit: unit,
+      angle_deg: polarConeDeg(unit, axis.unit), dist_um: row.polar_dist_um
+    });
+  };
+  filteredInstances().forEach(function(r) {
+    if (r.entity_name !== ref) take(r.entity_name, 'label', r);
+  });
+  filteredEnts().forEach(function(r) {
+    if (r.entity_kind !== 'mask' || r.entity_name === ref) return;
+    if (OBJECTS.some(function(o){ return o.object_mask_name === r.entity_name; })) return;
+    if (relative[r.entity_name] && kinds[r.entity_name] === 'label') return;
+    take(r.entity_name, 'mask', r);
+  });
+  var structures = Object.keys(relative).sort(function(a, b) {
+    return (kinds[a] === kinds[b]) ? a.localeCompare(b) : (kinds[a] === 'label' ? -1 : 1);
+  });
+  if (!structures.length) {
+    section.classList.add('d-none');
+    return;
+  }
+  var facetsFor = function(name){ return facetsOf(relative[name]); };
+  var legend = facetLegendHtml(facetsFor(structures[0]));
+  ['pol-legend', 'pol-index-legend', 'pol-where-legend']
+    .forEach(function(id){ setHtml(id, legend); });
+
+  // ── how far round each structure sits ──────────────────────────────────────
+  setHtml('pol-angle-label', 'How far round from ' + dataName(ref)
+    + ' does each structure sit?');
+  setHtml('pol-angle-desc', 'The angle between the direction to each instance and the'
+    + ' direction to ' + dataName(ref) + ', both from the ' + noun() + ' centre. <b>0°</b>'
+    + ' is on the same side as ' + dataName(ref) + ', <b>180°</b> is straight across the '
+    + noun() + ' from it, and 90° is at right angles to that axis. A whole-structure mask'
+    + ' has one centre and no more, so it brings one reading per ' + noun()
+    + ' where an instance-segmented structure brings all of them.');
+  var angleHost = document.getElementById('pol-angle-charts');
+  structures.forEach(function(name) {
+    var facets = facetsFor(name);
+    var series = facets.valuesOf(relative[name], 'angle_deg',
+                                 { name: name, color: entColor(name) });
+    var isotropic = {};
+    series.forEach(function(f){ isotropic[f.name] = 90; });
+    distributionPanel(angleHost, {
+      series: series, title: panelTitle(name, 'angle to ' + ref), unit: '°',
+      noun: name, showFacetTicks: !facets.many, chanceBy: isotropic,
+      footnote: 'Dotted: 90°. Half of a population that cared nothing for the axis would'
+        + ' sit beyond it, whichever way the ' + noun() + ' is shaped - that much is'
+        + ' geometry, not a measurement. Below the line leans towards ' + dataName(ref)
+        + ', above it leans away.'
+    });
+  });
+
+  // ── the two collective measures, one per object ────────────────────────────
+  setHtml('pol-index-label', 'How strongly does each structure lean towards '
+    + dataName(ref) + '?');
+  setHtml('pol-index-desc', 'One point per ' + noun() + ': <b>V</b>, the mean of'
+    + ' cos(angle), which is <b>+1</b> when every instance sits straight towards '
+    + dataName(ref) + ', <b>-1</b> when they all sit straight away from it, and <b>0</b>'
+    + ' when they are spread evenly about the axis. This is the unit worth comparing'
+    + ' between groups: instances inside one ' + noun() + ' are not independent of each'
+    + ' other, so a test over thousands of them answers a question nobody asked, where'
+    + ' seven ' + noun(true) + ' are seven samples. V and R are Polarity-JaM’s'
+    + ' polarity indices (Giese et al., <i>Nat Commun</i> 2025), so these numbers can be'
+    + ' read beside that tool’s.');
+  var indexHost = document.getElementById('pol-index-charts');
+  structures.forEach(function(name) {
+    var byObject = {};
+    relative[name].forEach(function(r) {
+      (byObject[r.object_id] = byObject[r.object_id] || []).push(r);
+    });
+    var rows = Object.keys(byObject).map(function(id) {
+      var axis = polarOffset(id, ref);
+      var found = polarityIndices(byObject[id].map(function(r){ return r.unit; }), axis.unit);
+      return { object_id: id, group_id: byObject[id][0].group_id,
+               V: found.V, R: found.R, n: found.n };
+    });
+    var facets = facetsOf(rows);
+    var fallback = { name: name, color: entColor(name) };
+    // R beside V rather than in a panel of its own: it is the same directions read for
+    // agreement instead of for which way they agree, and a row of fourteen panels for two
+    // numbers reads worse than a row of seven that carry both.
+    var agreement = facets.valuesOf(rows, 'R', fallback).map(function(f) {
+      var median = quantileSorted(f.values.slice().sort(function(a, b){ return a - b; }), 0.5);
+      return (f.values.length > 1 ? escHtml(f.label) + ' ' : '') + median.toFixed(2);
+    });
+    distributionPanel(indexHost, {
+      series: facets.valuesOf(rows, 'V', fallback),
+      title: panelTitle(name, 'V towards ' + ref), unit: '',
+      noun: noun(), showFacetTicks: !facets.many,
+      range: [-1, 1],
+      footnote: 'R, how tightly the directions agree with each other whichever way they'
+        + ' point: <b>' + agreement.join(', ') + '</b> (median over ' + noun(true) + ','
+        + ' 0 to 1). A high R with a V near zero is a structure gathered on one side of'
+        + ' the ' + noun() + ' that is not the side ' + dataName(ref) + ' is on.'
+    });
+  });
+
+  // ── angle against distance ─────────────────────────────────────────────────
+  setHtml('pol-where-label', 'How far out does it sit, and which way?');
+  setHtml('pol-where-desc', 'The two readings together, one point per instance: how far'
+    + ' round from ' + dataName(ref) + ' it sits, against how far from the ' + noun()
+    + ' centre. The line is the median distance per equal-count bin of angle and the band'
+    + ' the middle 50%, so a structure that is both on ' + dataName(ref) + '’s side'
+    + ' <i>and</i> further out reads as a slope rather than as two separate facts.'
+    + ' Structures with one centre per ' + noun() + ' are left out: two points make no'
+    + ' trend.');
+  var whereHost = document.getElementById('pol-where-charts');
+  structures.forEach(function(name) {
+    if (kinds[name] !== 'label') return;
+    var facets = facetsFor(name);
+    var fallback = { name: name, color: entColor(name) };
+    var el = document.createElement('div');
+    el.className = 'chart-cell';
+    el.style.width = PANEL_WIDTH + 'px';
+    whereHost.appendChild(el);
+    var traces = [];
+    facets.split(relative[name], fallback).forEach(function(f) {
+      var points = f.rows.map(function(r){ return [r.angle_deg, r.dist_um]; });
+      var trend = binnedTrend(points, 9);
+      if (trend) {
+        traces = traces.concat(trendTraces(trend, f.label, f.color,
+          { band: true, xlabel: 'angle', ylabel: 'distance' }));
+      } else {
+        traces.push(pointTrace(points, f.label, f.color,
+          { xlabel: 'angle', ylabel: 'distance' }));
+      }
+    });
+    Plotly.newPlot(el, traces, {
+      margin: { l: 54, r: 6, t: 30, b: 44 }, height: PANEL_HEIGHT,
+      title: { text: panelTitle(name, 'distance by angle') }, showlegend: false,
+      xaxis: { title: 'angle to ' + ref + ' (°)', range: [0, 180], dtick: 45 },
+      yaxis: { title: 'µm from the ' + noun() + ' centre', rangemode: 'tozero' },
+      shapes: [{ type: 'line', xref: 'x', yref: 'paper', x0: 90, x1: 90, y0: 0, y1: 1,
+                 line: { color: CS.ink3, width: 1, dash: 'dot' } }]
+    }, { responsive: true, displayModeBar: false });
+  });
+
+  // ── one circular map per object ────────────────────────────────────────────
+  setHtml('pol-map-label', 'Where everything sits in one ' + noun());
+  setHtml('pol-map-desc', 'One panel per ' + noun() + ', the whole layout at once: the'
+    + ' angle to ' + dataName(ref) + ' round the circle, 0° at the right, and the distance'
+    + ' from the ' + noun() + ' centre as the radius. A diamond marks each structure’s'
+    + ' own centre. <b>These are one per ' + noun() + ' on purpose.</b> The axis to '
+    + dataName(ref) + ' fixes 0°, but nothing in the data fixes the rotation <i>about</i>'
+    + ' that axis, so which side of the circle a structure falls on is arbitrary and is not'
+    + ' the same arbitrary choice in the next panel. A direction is <i>projected</i> onto'
+    + ' that plane to be drawn, so one pointing straight across the axis lands wherever the'
+    + ' projection puts it; what is real about its position is how far round from '
+    + dataName(ref) + ' it is, which is the row above. Read each panel on its own.');
+  // Named by colour: every other row titles its panels by the structure, and these are
+  // titled by the object, so without this the diamonds are unlabelled.
+  setHtml('pol-map-legend', structures.map(function(name) {
+    return '<span class="d-inline-flex align-items-center gap-1">'
+      + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
+      + 'background:' + entColor(name) + '"></span>' + dataName(name) + '</span>';
+  }).join(''));
+  var mapHost = document.getElementById('pol-map-charts');
+  var reach = 0;
+  structures.forEach(function(name) {
+    relative[name].forEach(function(r){ if (r.dist_um > reach) reach = r.dist_um; });
+  });
+  scopedObjectNames().forEach(function(id) {
+    var axis = polarOffset(id, ref);
+    if (!axis) return;
+    var frame = polarFrame(axis.unit);
+    var traces = [], sampled = [];
+    structures.forEach(function(name) {
+      var rows = relative[name].filter(function(r){ return r.object_id === id; });
+      if (!rows.length) return;
+      // A stride rather than a random draw: the same panel twice is the same panel.
+      var step = Math.max(1, Math.ceil(rows.length / POLAR_DOT_BUDGET));
+      var shown = rows.filter(function(_, i){ return i % step === 0; });
+      if (step > 1) sampled.push(dataName(name) + ' 1 in ' + step);
+      traces.push({ type: 'scatterpolar', mode: 'markers', name: name,
+        r: shown.map(function(r){ return r.dist_um; }),
+        theta: shown.map(function(r){ return polarAngleDeg(r.unit, frame); }),
+        marker: { color: entColor(name), size: rows.length > 1 ? 4 : 9,
+                  opacity: rows.length > 1 ? 0.5 : 0.9, line: { width: 0 } },
+        hovertemplate: '%{r:.2f} µm at %{theta:.0f}°<extra>' + name + '</extra>' });
+      var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit);
+      if (!found || !found.mean) return;
+      var distances = rows.map(function(r){ return r.dist_um; })
+                          .sort(function(a, b){ return a - b; });
+      traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
+        r: [quantileSorted(distances, 0.5)], theta: [polarAngleDeg(found.mean, frame)],
+        marker: { symbol: 'diamond', size: 11, color: entColor(name),
+                  line: { color: '#fff', width: 1.5 } },
+        hovertemplate: 'centre of ' + name + ': %{r:.2f} µm at %{theta:.0f}°'
+          + '<br>R ' + found.R.toFixed(2) + ', V ' + found.V.toFixed(2) + '<extra></extra>' });
+    });
+    if (!traces.length) return;
+    var el = document.createElement('div');
+    el.className = 'chart-cell';
+    el.style.width = '330px';
+    mapHost.appendChild(el);
+    Plotly.newPlot(el, traces, {
+      margin: { l: 52, r: 52, t: 34, b: 26 }, height: 320,
+      title: { text: String(id) }, showlegend: false,
+      polar: {
+        // Ticks up the 45° spoke and only a few of them: along 0° they ran into the dots
+        // and into each other, and the radius is the one axis here that is plain µm.
+        radialaxis: { range: [0, reach * 1.02], angle: 45, nticks: 4,
+                      ticksuffix: ' µm', tickfont: { size: 9 } },
+        // Only the two directions that mean anything are named. The perpendicular is the
+        // arbitrary part of the frame, so a tick saying 90° there would read as a
+        // measurement of something.
+        angularaxis: { direction: 'counterclockwise', rotation: 0,
+                       tickmode: 'array', tickvals: [0, 180],
+                       ticktext: [ref, 'away'], tickfont: { size: 9 } }
+      }
+    }, { responsive: true, displayModeBar: false });
+    if (sampled.length) {
+      var note = document.createElement('div');
+      note.className = 'chart-note';
+      note.innerHTML = 'Drawn from a sample: ' + sampled.join(', ') + '. The diamonds are'
+        + ' from all of them.';
+      el.appendChild(note);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  06 — The files behind it
 // ══════════════════════════════════════════════════════════════
 function renderStructure() {
   var terms = extentTerms();
@@ -4583,6 +5078,22 @@ function distributionPanel(host, opts) {
     return at != null && isFinite(at) ? at : null;
   };
   var chances = series.map(chanceOf).filter(function(v){ return v != null; });
+  // A reference outside the data sits off an autoranged panel, and a line nobody can see is
+  // worse than none, so wherever one is drawn the axis is told to hold it. Both sides
+  // matter: above the data says the population is closer, or leans harder, than the
+  // reference, below it says the opposite, and a panel of nearly equal values would hide
+  // the second. Computed here rather than per branch because a single value per facet is
+  // drawn as a bar and needs it just as much as a box does.
+  var dataSpan = seriesSpan(series);
+  var beyond = chances.filter(function(v) {
+    return v < dataSpan.min || v > dataSpan.max;
+  });
+  var heldRange = function() {
+    if (!beyond.length) return null;
+    var low = Math.min.apply(null, [dataSpan.min].concat(beyond));
+    var high = Math.max.apply(null, [dataSpan.max].concat(beyond));
+    return [Math.min(0, low), high > 0 ? high * 1.08 : 0];
+  };
 
   if (bars) {
     traces = [{ type:'bar',
@@ -4596,7 +5107,7 @@ function distributionPanel(host, opts) {
       title:{ text: opts.title }, showlegend:false,
       xaxis: opts.showFacetTicks ? { automargin:true } : { showticklabels:false, ticks:'' },
       yaxis:{ title: opts.unit || null, rangemode:'tozero',
-              range: opts.range ? opts.range.slice() : undefined } };
+              range: (opts.range ? opts.range.slice() : null) || heldRange() || undefined } };
   } else if (plotStyle === 'histogram') {
     // Every facet binned on one grid, as a share of its own population, so the shapes are
     // comparable however many instances each facet holds.
@@ -4640,22 +5151,15 @@ function distributionPanel(host, opts) {
         marker:{ color:f.color }, line:{ color:f.color }, showlegend:false,
         hovertemplate:'%{y:.3g}<extra>' + f.name + '</extra>' };
     });
-    var span = seriesSpan(series);
-    // A reference outside the data sits off an autoranged panel, and a line nobody can see
-    // is worse than none - so the axis is told to hold it. Both sides matter: above every
-    // box says the population is closer than chance, below every box says it is further,
-    // and the second is the one a panel of nearly equal boxes would otherwise hide.
-    var beyond = chances.filter(function(v){ return v < span.min || v > span.max; });
-    if (beyond.length) {
-      span = { min: Math.min.apply(null, [span.min].concat(beyond)),
-               max: Math.max.apply(null, [span.max].concat(beyond)) };
-    }
+    var span = beyond.length
+      ? { min: Math.min.apply(null, [dataSpan.min].concat(beyond)),
+          max: Math.max.apply(null, [dataSpan.max].concat(beyond)) }
+      : dataSpan;
     layout = { margin:{l:54,r:6,t:28,b:opts.showFacetTicks ? 52 : 22}, height:opts.height || PANEL_HEIGHT,
       title:{ text: opts.title }, showlegend:false,
       xaxis: opts.showFacetTicks ? { automargin:true } : { showticklabels:false, ticks:'' },
       yaxis:{ title: opts.unit || null,
-              range: flatRange(span, opts)
-                || (beyond.length ? [Math.min(0, span.min), span.max * 1.08] : null)
+              range: flatRange(span, opts) || heldRange()
                 || (opts.range ? opts.range.slice() : undefined) } };
     // Brackets belong on boxes, where there is a top to hang them above, and only while
     // they fit. A bracket sets the range itself, to make room for the rungs, so a panel
@@ -4877,6 +5381,16 @@ function pairPanels(host, opts) {
   }
 }
 
+/** The facets of a block, named in one legend above its rows of panels. */
+function facetLegendHtml(facets) {
+  if (!facets.many) return '';
+  return '<div class="chart-legend">' + facets.values.map(function(v) {
+    return '<span class="d-inline-flex align-items-center gap-1">'
+      + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'
+      + gColor(v) + '"></span>' + escHtml(v) + '</span>';
+  }).join('') + '</div>';
+}
+
 /**
  * The facets a population is split into, ready for the panels above.
  *
@@ -4936,14 +5450,7 @@ function renderEntityStats() {
   // as ticks they cost more height than the plots. But once at the top of the block is not
   // enough: by the third question you have scrolled past it and the colours are unlabelled
   // again, so every row of plots gets its own.
-  function facetLegend() {
-    if (!facets.many) return '';
-    return '<div class="chart-legend">' + facets.values.map(function(v) {
-      return '<span class="d-inline-flex align-items-center gap-1">'
-        + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'
-        + gColor(v) + '"></span>' + escHtml(v) + '</span>';
-    }).join('') + '</div>';
-  }
+  function facetLegend() { return facetLegendHtml(facets); }
 
   var labelEnts = uniq(ENTS.filter(function(r){ return r.entity_kind === 'label'; })
                            .map(function(r){ return r.entity_name; }));
@@ -6067,6 +6574,10 @@ if (typeof globalThis !== 'undefined') {
     distColumnsFor: distColumnsFor,
     distCols: distCols, scatterDistCols: scatterDistCols, histTargets: histTargets,
     endDistCols: endDistCols, extentGapUm: extentGapUm,
+    polarUnit: polarUnit, polarOffset: polarOffset, polarReferences: polarReferences,
+    polarFrame: polarFrame, polarAngleDeg: polarAngleDeg, polarConeDeg: polarConeDeg,
+    polarityIndices: polarityIndices,
+    setPolarReference: function(name){ st.polarRef = name; },
     chanceRows: chanceRows, chanceStats: chanceStats, chanceCurve: chanceCurve,
     medianOfCounts: medianOfCounts, spanUnion: spanUnion,
     voxelDiagonalUm: voxelDiagonalUm, shareWithin: shareWithin,

@@ -142,6 +142,8 @@ if (job.render) {
           ? layout.xaxis.title : layout?.xaxis?.title?.text) ?? null,
         // Reference lines: a chance median is a dotted line, across the panel over a box
         // and along it over a histogram, which is the difference `axis` records.
+        // The axis a reference had to be held on, where the panel set one.
+        yRange: layout?.yaxis?.range ?? null,
         shapes: (layout?.shapes ?? []).map((sh) => ({
           dash: sh.line?.dash ?? null,
           axis: sh.yref === 'paper' ? 'x' : 'y',
@@ -305,6 +307,48 @@ if (job.rows) {
   }
 }
 
+// ── polarity, read against one structure ─────────────────────────────────────
+if (job.rows && job.polarity) {
+  const reference = job.polarity.reference;
+  if (reference) R.setPolarReference(reference);
+  const s = R.state();
+  const chosen = reference || R.polarReferences()[0]?.name;
+  const objects = [...new Set(s.OBJECTS.map((o) => String(o.object_id)))].sort();
+  const axes = Object.fromEntries(objects.map((id) => {
+    const offset = R.polarOffset(id, chosen);
+    return [id, offset && { dist: offset.dist, of: offset.of, n: offset.n }];
+  }));
+  // One structure's instances, read against that axis: the angle, and the two indices.
+  const structure = job.polarity.structure || job.structure;
+  const perObject = objects.map((id) => {
+    const offset = R.polarOffset(id, chosen);
+    const rows = s.INSTANCES.filter(
+      (r) => String(r.object_id) === id && r.entity_name === structure);
+    const units = rows.map((r) => R.polarUnit(r)).filter(Boolean);
+    if (!offset || !units.length) return null;
+    const indices = R.polarityIndices(units, offset.unit);
+    const cone = units.map((u) => R.polarConeDeg(u, offset.unit));
+    const frame = R.polarFrame(offset.unit);
+    return { object: id, n: indices.n, R: indices.R, V: indices.V,
+             // Null where the directions cancel exactly: R is then 0 and there is no
+             // mean direction to take an angle of.
+             meanCone: indices.mean ? R.polarConeDeg(indices.mean, offset.unit) : null,
+             coneRange: [Math.min(...cone), Math.max(...cone)],
+             // The signed angle in the frame, which the circular plots draw.
+             signed: units.map((u) => R.polarAngleDeg(u, frame)),
+             // The frame's two directions have to be unit length and at right angles.
+             frame: { axisNorm: Math.hypot(...frame.a), acrossNorm: Math.hypot(...frame.u),
+                      dot: frame.a.reduce((t, v, i) => t + v * frame.u[i], 0) } };
+  }).filter(Boolean);
+  out.polarity = {
+    references: R.polarReferences(),
+    chosen: chosen,
+    axes: axes,
+    structure: structure,
+    perObject: perObject,
+  };
+}
+
 // The median of a binned population, which is how a chance distribution's reference value
 // is read off the counts rather than off a sort of every voxel in the object.
 if (job.medianOfCounts) {
@@ -445,7 +489,8 @@ if (job.render) {
   if (job.significance !== undefined) R.setSignificance(job.significance);
   R.renderAll();
   const failed = [];
-  for (const id of ['s-overview', 's-3d', 's-entities', 's-groups', 's-structure']) {
+  for (const id of ['s-overview', 's-3d', 's-entities', 's-groups', 's-polarity',
+                    's-structure']) {
     const section = globalThis.document.getElementById(id);
     const complaint = (section?.children ?? [])
       .find((kid) => String(kid.className).includes('callout-warn')
@@ -455,7 +500,7 @@ if (job.render) {
   out.render = {
     failed,
     // Which sections drew at all: one with nothing to say hides itself.
-    shown: ['s-overview', 's-3d', 's-entities', 's-groups', 's-structure']
+    shown: ['s-overview', 's-3d', 's-entities', 's-groups', 's-polarity', 's-structure']
       .filter((id) => globalThis.document.getElementById(id)?._shown !== false),
     // Every question heading and the sentence under it, so a section that had nothing to
     // draw can be checked for saying why. Taken as the markup each node was given rather
@@ -467,8 +512,15 @@ if (job.render) {
         if (n.innerHTML) out.push(n.innerHTML);
         for (const kid of n.children || []) walk(kid);
       };
-      const host = globalThis.document.getElementById('entity-stats-container');
-      if (host) walk(host);
+      // Both prose-bearing sections: the structure blocks build theirs as one innerHTML,
+      // the polarity section sets each heading and sentence by id.
+      for (const id of ['entity-stats-container', 'pol-subtitle', 'pol-axis',
+                        'pol-angle-label', 'pol-angle-desc', 'pol-index-label',
+                        'pol-index-desc', 'pol-where-label', 'pol-where-desc',
+                        'pol-map-label', 'pol-map-desc']) {
+        const host = globalThis.document.getElementById(id);
+        if (host) walk(host);
+      }
       return out;
     })(),
     // Where a caveat about what was measured ended up. The overview says what the batch
@@ -486,7 +538,7 @@ if (job.render) {
     // The reference lines, by the panel they were drawn on: a chance median per facet,
     // dotted, and on the axis the distance is on.
     references: plotted.filter((p) => p.shapes.some((sh) => sh.dash === 'dot'))
-      .map((p) => ({ title: p.title,
+      .map((p) => ({ title: p.title, yRange: p.yRange,
                      dotted: p.shapes.filter((sh) => sh.dash === 'dot').length,
                      at: p.shapes.filter((sh) => sh.dash === 'dot').map((sh) => sh.at),
                      axis: [...new Set(p.shapes.filter((sh) => sh.dash === 'dot')
