@@ -6,11 +6,36 @@ Organella measures segmented objects - 2D or 3D, one or a batch of them - and pr
 single report you read in one standalone page: distributions, distances, contacts, and the
 objects themselves in 3D.
 
+### [Open the viewer](https://ida-mdc.github.io/organella/)
+
+Drop a `report.parquet` on it and every chart is drawn in your browser. Nothing is uploaded
+and no server runs, so a report can be mailed to a collaborator with a link to that page.
+
 An **object** is one segmented thing measured as a whole, given as a folder: a source image,
 one mask that bounds the object, and the label/mask volumes inside it. For example, object can be a cell
 bounded by its plasma membrane (`--object-mask pm`). Specifying the object bound is optional. 
 Everything inside is clipped to it by default, because a field of view often holds
 neighbouring cells. `--no-clip` measures them anyway.
+
+<br clear="right">
+
+## What the report looks like
+
+![The 3D view: a cell drawn from its geometry, with its structures toggled on and off](docs/report-3d.png)
+
+*The object itself, from the geometry a `--with-mesh` run wrote. Structures switch on and off,
+colour by a metric to see where the extremes sit, and explode pushes every instance out along
+its own direction from the centre.*
+
+![Composition per object and per group, with boxes and significance brackets](docs/report-distributions.png)
+
+*How much of each structure there is, per object and per group, with Mann-Whitney brackets
+between whatever the charts are faceted by.*
+
+![The instance gallery: individual microtubules sorted by skeleton length](docs/report-instances.png)
+
+*The instances behind a distribution - the highest, the lowest, or a fair sample of any metric -
+so an outlier can be looked at rather than guessed at.*
 
 ## Workflow
 
