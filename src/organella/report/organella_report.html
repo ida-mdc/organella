@@ -533,6 +533,10 @@ organella process experiment/ \
     <p class="subsection-desc" id="pol-index-desc"></p>
     <div class="chart-legend" id="pol-index-legend"></div>
     <div class="charts-row" id="pol-index-charts"></div>
+    <div class="subsection-label mt-4" id="pol-arrow-label"></div>
+    <p class="subsection-desc" id="pol-arrow-desc"></p>
+    <div class="chart-legend" id="pol-arrow-legend"></div>
+    <div class="charts-row" id="pol-arrow-charts"></div>
     <div class="subsection-label mt-4" id="pol-where-label"></div>
     <p class="subsection-desc" id="pol-where-desc"></p>
     <div class="chart-legend" id="pol-where-legend"></div>
@@ -3251,8 +3255,8 @@ function renderOverview() {
  */
 function renderPolarity() {
   var section = document.getElementById('s-polarity');
-  ['pol-angle-charts', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts']
-    .forEach(function(id){ document.getElementById(id).innerHTML = ''; });
+  ['pol-angle-charts', 'pol-index-charts', 'pol-arrow-charts', 'pol-where-charts',
+   'pol-map-charts'].forEach(function(id){ document.getElementById(id).innerHTML = ''; });
 
   var references = polarReferences();
   if (!references.length) {
@@ -3377,9 +3381,18 @@ function renderPolarity() {
   });
   var radiusOf = function(r){ return toMask ? r.depth_um : r.dist_um; };
 
+  // In group order, with each object's group to hand: two rows below are one panel per
+  // object, and which condition an object belongs to is what a reader compares them for.
+  var groupOfObject = {};
+  OBJECTS.forEach(function(o){ groupOfObject[String(o.object_id)] = o.group_id || ''; });
+  var mapObjects = scopedObjectNames().slice().sort(function(a, b) {
+    return String(groupOfObject[a]).localeCompare(String(groupOfObject[b]))
+      || String(a).localeCompare(String(b));
+  });
+
   var facetsFor = function(name){ return facetsOf(relative[name]); };
   var legend = facetLegendHtml(facetsFor(structures[0]));
-  ['pol-legend', 'pol-index-legend', 'pol-where-legend']
+  ['pol-legend', 'pol-index-legend', 'pol-arrow-legend', 'pol-where-legend']
     .forEach(function(id){ setHtml(id, legend); });
 
   // ── how far round each structure sits ──────────────────────────────────────
@@ -3424,8 +3437,9 @@ function renderPolarity() {
     + ', from <b>+1</b> (every instance on ' + dataName(ref) + '’s side) through <b>0</b>'
     + ' to <b>-1</b> (every instance on the far side). <b>R</b> is its length: how much the'
     + ' directions agree with each other <i>at all</i>, from <b>0</b> when they cancel to'
-    + ' <b>1</b> when they all point the same way, whichever way that is. R is under each'
-    + ' panel, because it settles what V alone cannot: V near zero with a <i>high</i> R is a'
+    + ' <b>1</b> when they all point the same way, whichever way that is. R is plotted'
+    + ' beside V, because it settles what V alone cannot: V near zero with a <i>high</i> R'
+    + ' is a'
     + ' structure gathered on one side of the ' + noun() + ' that is not '
     + dataName(ref) + '’s side, where V near zero with a <i>low</i> R is a structure spread'
     + ' evenly all round. One point per ' + noun() + ' is also the unit worth comparing'
@@ -3450,20 +3464,88 @@ function renderPolarity() {
     // R beside V rather than in a panel of its own: it is the same directions read for
     // agreement instead of for which way they agree, and a row of fourteen panels for two
     // numbers reads worse than a row of seven that carry both.
-    var agreement = facets.valuesOf(rows, 'R', fallback).map(function(f) {
-      var median = quantileSorted(f.values.slice().sort(function(a, b){ return a - b; }), 0.5);
-      return (f.values.length > 1 ? escHtml(f.label) + ' ' : '') + median.toFixed(2);
-    });
     distributionPanel(indexHost, {
       series: facets.valuesOf(rows, 'V', fallback),
-      title: panelTitle(name, 'V towards ' + ref), unit: '',
+      title: panelTitle(name, 'V towards ' + ref), unit: 'V',
       noun: noun(), showFacetTicks: !facets.many,
       range: [-1, 1],
-      footnote: '<b>R ' + agreement.join(', ')
-        + '</b> - not plotted above, and a different question from V: how much this'
-        + ' structure’s directions agree with each other at all, 0 to 1, median over the '
-        + noun(true) + ' in each group.'
+      help: '<b>V</b>, the signed polarity index: <b>+1</b> every ' + dataName(name)
+        + ' towards ' + dataName(ref) + ', <b>0</b> spread evenly about that axis,'
+        + ' <b>-1</b> every one of them away from it. One point per ' + noun() + '.'
     });
+    // R beside V rather than under it in words: it is the other half of the same arrow,
+    // and a number in a caption with no axis and no spread cannot be read at all.
+    distributionPanel(indexHost, {
+      series: facets.valuesOf(rows, 'R', fallback),
+      title: panelTitle(name, 'R, agreement'), unit: 'R',
+      noun: noun(), showFacetTicks: !facets.many,
+      range: [0, 1],
+      help: '<b>R</b>, the polarity index: <b>0</b> when the ' + dataName(name)
+        + ' directions cancel out - spread evenly all round - and <b>1</b> when every one'
+        + ' of them points the same way, whichever way that is. One point per ' + noun()
+        + '. A high R with a V near 0 is a structure gathered on one side of the '
+        + noun() + ' that is not ' + dataName(ref) + '\u2019s side.'
+    });
+  });
+
+  // ── the same two numbers as one arrow, which is how they are drawn ────────
+  //
+  // Polarity-JaM's own picture (their Fig 2C): the mean direction as an arrow whose
+  // *length* is the polarity index. It is worth having because R and V are not two facts
+  // about a structure but two readings of one arrow - R is how long it is, V is how much
+  // of it points at the reference - and a pair of box plots can never show that.
+  //
+  // Half a disc, not a whole one: the angle to the axis runs 0° to 180° and the rotation
+  // about it is arbitrary (see the maps below), so the missing half is not data. That is
+  // the same shape their hemirose plots use, for the same reason - an angle with no
+  // meaningful other side.
+  setHtml('pol-arrow-label', 'The average direction, one arrow per ' + noun());
+  setHtml('pol-arrow-desc', 'One arrow per ' + noun() + ' per structure: it points at the'
+    + ' average of that structure\u2019s directions, and its <b>length is R</b> - out to'
+    + ' the rim is 1, every instance agreeing, and nothing at the centre is 0, directions'
+    + ' cancelling out. <b>0° is towards ' + dataName(ref) + '</b> and 180° is away, so how'
+    + ' far along that axis an arrow reaches <i>is</i> V: a long arrow pointing right is a'
+    + ' structure gathered on ' + dataName(ref) + '\u2019s side, a long arrow pointing up'
+    + ' is one gathered somewhere else, and a short arrow is one that is not gathered at'
+    + ' all. Drawn the way Polarity-JaM draws it (Giese et al., <i>Nat Commun</i> 2025,'
+    + ' Fig 2C).');
+  var arrowHost = document.getElementById('pol-arrow-charts');
+  structures.forEach(function(name) {
+    var traces = [];
+    mapObjects.forEach(function(id) {
+      var axis = polarOffset(id, ref);
+      var units = relative[name].filter(function(r){ return r.object_id === id; })
+                                .map(function(r){ return r.unit; });
+      if (!axis || !units.length) return;
+      var found = polarityIndices(units, axis.unit);
+      if (!found || !found.mean) return;
+      var at = polarConeDeg(found.mean, axis.unit);
+      var group = groupOfObject[String(id)];
+      traces.push({ type: 'scatterpolar', mode: 'lines+markers', name: String(id),
+        r: [0, found.R], theta: [at, at],
+        line: { color: group ? gColor(group) : entColor(name), width: 2 },
+        marker: { size: [0, 8], color: group ? gColor(group) : entColor(name) },
+        hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
+          + found.V.toFixed(2) + '<extra></extra>' });
+    });
+    if (!traces.length) return;
+    var el = document.createElement('div');
+    el.className = 'chart-cell';
+    el.style.width = '300px';
+    arrowHost.appendChild(el);
+    Plotly.newPlot(el, traces, {
+      margin: { l: 44, r: 44, t: 30, b: 10 }, height: 220,
+      title: { text: panelTitle(name, 'average direction') }, showlegend: false,
+      polar: {
+        // Half the disc: 0° towards the reference, 180° away, and nothing below - the
+        // rotation about that axis is not in the data.
+        sector: [0, 180],
+        radialaxis: { range: [0, 1], angle: 90, nticks: 3, tickfont: { size: 9 } },
+        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
+                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
+                       tickfont: { size: 9 } }
+      }
+    }, { responsive: true, displayModeBar: false });
   });
 
   // ── angle against distance ─────────────────────────────────────────────────
@@ -3561,15 +3643,6 @@ function renderPolarity() {
     var axis = polarOffset(id, ref);
     var radius = toMask ? refDepth[id] : (axis && axis.dist);
     if (radius != null && isFinite(radius) && radius > reach) reach = radius;
-  });
-  // Grouped, and in group order: the panels are titled by the object, and which condition
-  // an object belongs to is the thing a reader is comparing them for. The group's own
-  // colour, the one every chart above uses for it.
-  var groupOfObject = {};
-  OBJECTS.forEach(function(o){ groupOfObject[String(o.object_id)] = o.group_id || ''; });
-  var mapObjects = scopedObjectNames().slice().sort(function(a, b) {
-    return String(groupOfObject[a]).localeCompare(String(groupOfObject[b]))
-      || String(a).localeCompare(String(b));
   });
   mapObjects.forEach(function(id) {
     var axis = polarOffset(id, ref);

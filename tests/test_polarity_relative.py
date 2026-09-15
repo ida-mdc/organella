@@ -150,18 +150,24 @@ def test_a_plane_has_no_arbitrary_rotation_to_choose(polar_2d):
 
 
 @pytest.fixture(scope="module")
-def drawn_polarity(ring_report):
-    return run_page({"rows": rows_of(ring_report), "columnHelp": help_of(ring_report),
+def drawn_polarity(report_path):
+    """The shared batch, not the ring: its two groups have three mitochondria and four, so
+    the directions do not cancel and there is an average direction to draw.
+    """
+    return run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
                      "structure": "mito", "objectNoun": "cell", "render": True,
                      "groupBy": "group"})["render"]
 
 
-def test_the_section_draws_all_four_readings(drawn_polarity):
-    """The angle, the indices, the two together, and one circle per object."""
+def test_the_section_draws_all_five_readings(drawn_polarity):
+    """The angle, both indices, the average direction as an arrow, the two together, and
+    one circle per object."""
     titles = drawn_polarity["titles"]
 
     assert "mito angle to nucleus" in titles
     assert "mito V towards nucleus" in titles
+    assert "mito R, agreement" in titles
+    assert "mito average direction" in titles
     assert "mito distance by angle" in titles
     # One circular map per object, titled by the object it is of.
     assert len([t for t in titles if t.startswith("object_")]) == 4
@@ -253,3 +259,32 @@ def test_a_circular_map_holds_every_marker_it_draws(drawn_polarity):
             assert low <= radius <= high, f"{panel['title']}: {radius} outside {panel['range']}"
     # And the reference itself is one of those markers, on its own axis.
     assert any(t["symbol"] == "star" for p in circles for t in p["drawn"])
+
+
+def test_the_arrow_is_the_two_indices_as_one_picture(drawn_polarity):
+    """R is the arrow's length and V is how much of it points at the reference.
+
+    Polarity-JaM draws it that way (their Fig 2C) because the pair are two readings of one
+    arrow, not two facts: a box of V beside a box of R can never show that a long arrow
+    pointing sideways and a short arrow pointing at the reference are different situations.
+    """
+    arrows = [p for p in drawn_polarity["circles"] if "average direction" in (p["title"] or "")]
+
+    assert arrows, "the section should draw the arrows at all"
+    for panel in arrows:
+        assert panel["range"] == [0, 1], "R is a length from 0 to 1"
+        for trace in panel["drawn"]:
+            # Each arrow runs from the centre out to its own R.
+            assert len(trace["r"]) == 2 and trace["r"][0] == 0
+            assert 0 <= trace["r"][1] <= 1
+
+
+def test_the_panels_name_the_structure_and_not_the_page_s_own_function(drawn_polarity):
+    """`named` is a function of this page, so reading it as the structure's name put its
+    source code into the caption under every V and R panel.
+    """
+    helps = " ".join(drawn_polarity["helps"])
+
+    assert "function" not in helps
+    assert "rows.filter" not in helps
+    assert "the signed polarity index" in helps and "the polarity index" in helps

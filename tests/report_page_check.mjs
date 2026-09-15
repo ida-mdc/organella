@@ -606,7 +606,8 @@ if (job.render) {
         }
       };
       for (const id of ['entity-stats-container', 'overview-volumes', 'ct-far-charts',
-                        'ct-baseline-charts', 'ct-compare-charts']) {
+                        'ct-baseline-charts', 'ct-compare-charts',
+                        'pol-angle-charts', 'pol-index-charts', 'pol-where-charts']) {
         const host = globalThis.document.getElementById(id);
         if (host) walk(host);
       }
