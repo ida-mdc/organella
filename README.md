@@ -39,13 +39,14 @@ neighbouring cells. `--no-clip` measures them anyway.
 
 ## Try it
 
-First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) (or install the package via pip without uv, but uv is cool).
-
-Next, install Organella:
+Install Organella:
 
 ```bash
-uv pip install "organella @ git+https://github.com/ida-mdc/organella.git@main"
+pip install organella
 ```
+
+Or with [uv](https://docs.astral.sh/uv/getting-started/installation/), which is quicker:
+`uv pip install organella`.
 
 Then test, measure, and view your label dataset:
 
