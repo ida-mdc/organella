@@ -102,6 +102,32 @@ In the page, **Charts** switches every panel between boxes and histograms, and
 column carries its own description in the report, so the page explains each metric under the
 chart of it.
 
+**Every distance panel is drawn against chance.** A run measures, per object and structure,
+the distance to that structure from everywhere in the object, and the panels put it beside
+what was measured: a dotted line at the distance half the object lies within (across the
+boxes, or along the axis in histogram style), and a dotted curve beside the per-voxel
+distributions. A population sitting *below* its line is closer to that structure than the
+object's own shape puts anything; a population on top of the curve is placed no differently
+from anything else in the object. That is a different statement from two conditions
+differing, which is all a comparison between facets can say. `--baseline-exclude` decides
+what is left out of that region.
+
+The line allows for the fact that an instance has extent where a sample of the object has
+none - a granule reaches a structure from its surface, so its closest point is nearer than
+a point would be whatever else is true of it. The allowance is **measured, not assumed**:
+it is the gap between an instance's body average and its closest point, which the run
+records for every instance against every structure. For a sphere that gap is exactly its
+radius; for a filament along a structure it is far larger, and for one crossing it far
+smaller - so no shape is taken on faith. Each panel says how much was allowed for. The tip
+panels are read against the uncorrected line, because a tip is a point, and so are the
+per-voxel curves, which compare samples with samples.
+
+**A skeletonised structure is also measured at its tips.** `How far is each … end from other
+structures?` is the distance of the nearest tip rather than of whichever part comes closest -
+a filament can run past a structure along its whole length and end nowhere near it - and each
+panel says what share of the population ends within one voxel of the structure, which is what
+"connected to it" comes down to at a given voxel size.
+
 ## Your input
 
 Entity files must match `<prefix>_<name>_label.tif` (or `_labels.tif`) and
@@ -212,6 +238,7 @@ run parameters below and `--no-contacts`.
 | `--max-skeleton-voxels N` | skip skeletons for instances above this voxel count. Default 500000 |
 | `--polarity-spread` | also measure each instance's angular spread on the polarity sphere |
 | `--distance-histograms` | also measure per-instance distance distributions, not just the minimum |
+| `--baseline-exclude NAMES` | structures to leave out of the region every distance is read against. Each structure gets a chance distribution - its distance from everywhere in the object - and a measured distance only means something against that. Name the structures an instance could never sit inside, e.g. `nucleus`, so "closer than chance" is not decided by ground it was never free to occupy |
 | `--colours FILE` | also `--colors`. JSON of `{"mito": "#d62728"}`. Lands in the report, so every chart draws that structure the same. Unnamed structures keep the built-in palette |
 
 **Geometry**, all of it only with `--with-mesh`

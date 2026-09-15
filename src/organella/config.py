@@ -278,6 +278,11 @@ class RunConfig:
     # Both walk every voxel of every instance, so they are opt-in.
     polarity_spread: bool = False
     distance_histograms: bool = False
+    # Structures left out of the region a distance is read against: the chance distribution
+    # is over everywhere an instance could have been, so a structure it could never sit in
+    # does not belong in it. None leaves in everything but the target itself, which is
+    # excluded either way because its own distance to itself is zero.
+    baseline_exclude: EntityFilter = None
     # Geometry is written beside the report, never into it; unset means no meshing at all.
     mesh_dir: Optional[str] = None
     mesh_smooth_sigma: float = 0.7
@@ -300,7 +305,7 @@ class RunConfig:
         "object_mask", "voxel_size_um", "clip", "auto_label_masks", "entities",
         "label_map", "label_map_entity", "skeletons", "geometry_as",
         "max_skeleton_voxels",
-        "contact_max_um", "polarity_spread", "distance_histograms",
+        "contact_max_um", "polarity_spread", "distance_histograms", "baseline_exclude",
         "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
     )
 
@@ -347,6 +352,8 @@ class RunConfig:
             contact_max_um=_env_float("ORGANELLA_CONTACT_MAX_UM", 0.5),
             polarity_spread=_env_flag("ORGANELLA_POLARITY_SPREAD"),
             distance_histograms=_env_flag("ORGANELLA_DISTANCE_HISTOGRAMS"),
+            baseline_exclude=parse_entity_filter(
+                os.environ.get("ORGANELLA_BASELINE_EXCLUDE")),
             mesh_dir=os.environ.get("ORGANELLA_MESH_DIR") or None,
             mesh_smooth_sigma=_env_float("ORGANELLA_MESH_SMOOTH_SIGMA", 0.7),
             mesh_step_size=_env_int("ORGANELLA_MESH_STEP_SIZE", 2),

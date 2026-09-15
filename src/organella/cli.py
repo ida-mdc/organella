@@ -177,6 +177,7 @@ def _apply_analysis_env(
     num_threads: int | None,
     polarity_spread: bool = False,
     distance_histograms: bool = False,
+    baseline_exclude: str | None = None,
     skeletons: str | None = None,
     geometry_as: str | None = None,
     entities: str | None = None,
@@ -195,6 +196,7 @@ def _apply_analysis_env(
         "ORGANELLA_NUM_THREADS": num_threads,
         "ORGANELLA_POLARITY_SPREAD": "1" if polarity_spread else None,
         "ORGANELLA_DISTANCE_HISTOGRAMS": "1" if distance_histograms else None,
+        "ORGANELLA_BASELINE_EXCLUDE": baseline_exclude,
         "ORGANELLA_SKELETONS": skeletons,
         "ORGANELLA_GEOMETRY_AS": geometry_as,
         "ORGANELLA_ENTITIES": entities,
@@ -348,6 +350,13 @@ def describe(report: Path, text: str) -> None:
               help="Also measure each instance's angular spread on the polarity sphere.")
 @click.option("--distance-histograms", is_flag=True,
               help="Also measure per-instance distance distributions, not just the minimum.")
+@click.option("--baseline-exclude", "baseline_exclude", default=None, metavar="NAMES",
+              help="Structures to leave out of the region every distance is read against, "
+                   "comma separated, e.g. nucleus. Each structure gets a chance "
+                   "distribution - the distance to it from everywhere in the object - and a "
+                   "measured distance means something only against that. Name the "
+                   "structures an instance could never sit inside, so 'closer than chance' "
+                   "is not decided by ground it was never free to occupy.")
 @click.option("--colours", "--colors", "colours", metavar="FILE",
               type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="JSON file of structure: hex colour pairs, e.g. {\"mito\": \"#d62728\"}. "
@@ -378,7 +387,8 @@ def process(
     contact_max_um: float | None,
     max_skeleton_voxels: int | None, num_threads: int | None,
     skeletons: str | None, geometry_as: str | None, polarity_spread: bool,
-    distance_histograms: bool, colours: Path | None, no_contacts: bool, no_instances: bool,
+    distance_histograms: bool, baseline_exclude: str | None,
+    colours: Path | None, no_contacts: bool, no_instances: bool,
     max_workers: int | None, resume: bool, with_mesh: bool,
     mesh_dir: Path | None, mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
@@ -395,7 +405,7 @@ def process(
         )
     _apply_analysis_env(object_mask, object_noun, voxel_size_um, no_clip, auto_label_masks,
                         contact_max_um, max_skeleton_voxels, num_threads,
-                        polarity_spread, distance_histograms,
+                        polarity_spread, distance_histograms, baseline_exclude,
                         skeletons, geometry_as, entities, label_map,
                         label_map_entity)
 

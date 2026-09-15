@@ -8,6 +8,7 @@ place that writes the file.
 from organella.model.measurement import ObjectMeasurement
 from organella.model.object import EntityVolume, ObjectStack
 from organella.model.rows import (
+    BASELINE_ROW,
     CONTACT_ROW,
     DEEP_OBS_LEVEL,
     DISTANCE_ROW,
@@ -18,6 +19,7 @@ from organella.model.rows import (
 )
 
 __all__ = [
+    "BASELINE_ROW",
     "CONTACT_ROW",
     "DEEP_OBS_LEVEL",
     "DISTANCE_ROW",

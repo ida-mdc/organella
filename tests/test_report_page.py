@@ -684,3 +684,232 @@ def test_a_structure_missing_from_an_object_is_a_zero_and_not_a_hole(drawn):
     widths = {len(s["x"]) for s in series if s["x"] is not None}
 
     assert len(widths) == 1
+
+
+# ── what a distance is read against ─────────────────────────────────────────
+
+
+def test_the_chance_rows_are_read_in_per_object_and_structure(page_of, report_path):
+    """One row per object x target in the file, one entry per object x target in the page."""
+    con = duckdb.connect()
+    written = {}
+    for object_id, target in con.execute(
+        f"""SELECT object_id, baseline_target FROM read_parquet('{report_path}')
+            WHERE row_type = 'baseline'""").fetchall():
+        written.setdefault(object_id, []).append(target)
+
+    assert page_of["adapt"]["chance"] == {k: sorted(v) for k, v in written.items()}
+
+
+def test_one_objects_reference_is_the_one_the_run_measured(page_of, report_path):
+    """Pooling is for a facet of several; one object answers with its own row.
+
+    The run measured that median off a 4096-bin histogram of every voxel it had, which is
+    finer than anything the page could recover from the 128 bins it ships - so for a single
+    object the page has to hand back the stored number rather than re-derive it.
+    """
+    con = duckdb.connect()
+    target = page_of["chance"]["target"]
+    stored = dict(con.execute(
+        f"""SELECT object_id, baseline_median_um FROM read_parquet('{report_path}')
+            WHERE row_type = 'baseline' AND baseline_target = '{target}'""").fetchall())
+
+    for object_id, median in page_of["chance"]["perObject"].items():
+        assert median == pytest.approx(stored[object_id], rel=1e-6)
+
+
+def test_a_facet_of_several_objects_is_read_against_all_of_them_pooled(page_of):
+    """A group's reference is its objects' distances together, not one of them.
+
+    Weighted by how much object each brought: pooling the histograms is what does that,
+    and it is why the pooled median sits among the per-object ones rather than outside.
+    """
+    chance = page_of["chance"]
+    medians = [v for v in chance["perObject"].values() if v is not None]
+
+    assert chance["objects"] == len(medians) > 1
+    # Among them, to the resolution of the pooled bins: the per-object numbers came off
+    # the run's own 4096-bin histograms, and pooling can only get within one bin of them.
+    grain = chance["pooledWidth"]
+    assert min(medians) - grain <= chance["median"] <= max(medians) + grain
+    assert chance["voxels"] > 0
+    # A density curve over the pooled bins, which integrates to one whatever it is of.
+    assert chance["curve"]["density"] == pytest.approx(1.0, rel=1e-6)
+
+
+def test_the_binned_median_is_interpolated_inside_the_bin_that_holds_it():
+    """Read off counts, so the reading has to be right in the middle of a bin as well."""
+    got = run_page({"medianOfCounts": [
+        {"counts": [0, 10, 10, 0], "min": 0.0, "width": 1.0},
+        {"counts": [4, 0, 0, 0], "min": 2.0, "width": 0.5},
+        {"counts": [0, 0, 0], "min": 0.0, "width": 1.0},
+    ]})["medianOfCounts"]
+
+    assert got[0] == pytest.approx(2.0)      # half of 20 falls at the top of the second bin
+    assert got[1] == pytest.approx(2.25)     # all four in one bin: halfway across it
+    assert got[2] is None                    # nothing to take a median of
+
+
+def test_every_distance_panel_carries_its_chance_line(drawn):
+    """One dotted line per facet, across the boxes: the whole of "closer than chance".
+
+    Without it a distance panel can only say that two conditions differ, which is not the
+    question - a structure can sit closer to the membrane in one condition and be further
+    from it than that condition's own shape puts anything.
+    """
+    referenced = {r["title"]: r for r in drawn["references"]}
+    distance_panels = [t for t in drawn["titles"] if " to " in t and "every voxel" not in t]
+
+    assert distance_panels, "the report should draw distance panels at all"
+    for title in distance_panels:
+        if "nearest of the same kind" in title:
+            # A distance to another instance of the same structure has no such reference:
+            # the region is not made of that structure.
+            assert title not in referenced
+            continue
+        assert title in referenced, f"{title} was drawn without a reference line"
+        assert referenced[title]["axis"] == ["y"], "on the axis the distance is on"
+
+
+def test_the_chance_line_follows_the_distance_onto_the_other_axis(report_path):
+    """A histogram puts the distance on x, so the line that reads against it goes vertical."""
+    drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
+                      "structure": "mito", "render": True,
+                      "plotStyle": "histogram"})["render"]
+
+    axes = {a for r in drawn["references"] for a in r["axis"]}
+    assert axes == {"x"}
+
+
+def test_the_per_voxel_panels_draw_the_chance_distribution_beside_the_measured_one(drawn):
+    """The paper-shaped reading: the measured curve against the same distances everywhere."""
+    voxel_panels = [p for p in drawn["seriesNames"] if "every voxel" in (p["title"] or "")]
+
+    assert voxel_panels, "the report should draw per-voxel panels at all"
+    for panel in voxel_panels:
+        measured = [n for n in panel["names"] if not n.endswith("(chance)")]
+        chance = [n for n in panel["names"] if n.endswith("(chance)")]
+        assert len(chance) == len(measured) > 0, panel
+
+
+def test_the_reader_is_told_what_the_dotted_line_is(drawn):
+    """A line nobody can name is noise; every panel that draws one says what it is."""
+    said = " ".join(drawn["footnotes"])
+
+    assert "Dotted" in said
+    assert "lies within that of" in said
+
+
+# ── the ends of a filament, as against the whole of it ──────────────────────
+
+
+def test_the_end_distances_widen_onto_the_instance_like_any_other(page_of):
+    """One column per target, and they are distances rather than shape metrics."""
+    ends = page_of["adapt"]["endDistCols"]
+
+    assert ends == ["distance_to_nucleus_end_um", "distance_to_pm_end_um"]
+    # Not among the morphology metrics: drawn there they would be drawn twice, once
+    # without the unit and the reference that make them readable.
+    assert not [c for c in page_of["adapt"]["metricCols"] if "_end_" in c]
+
+
+def test_the_ends_get_their_own_row_of_panels(drawn):
+    """Their own question, because it is a different one from how close any part gets."""
+    end_panels = [t for t in drawn["titles"] if "end to" in t]
+
+    assert sorted(end_panels) == ["mito end to nucleus", "mito end to pm"]
+    said = " ".join(drawn["prose"])
+    assert "where its skeleton stops" in said
+    assert "within one voxel" in said
+
+
+def test_an_end_panel_says_how_many_reach_the_structure(drawn):
+    """The share within one voxel: what "connected to it" comes down to at this voxel size."""
+    reaching = [f for f in drawn["footnotes"] if "end within one voxel" in f]
+
+    assert len(reaching) == 2
+    for note in reaching:
+        assert "%" in note and "µm" in note
+
+
+def test_the_reference_allows_for_the_extent_of_what_is_read_against_it(page_of, drawn):
+    """A point has no surface; an instance touches from one, and the line has to know.
+
+    Measured rather than assumed: the allowance is the gap between an instance's body
+    average and its closest point, which is its radius for a sphere and something quite
+    different for a filament - so no shape is taken on faith and no threshold decides
+    which instances qualify.
+    """
+    chance = page_of["chance"]
+
+    assert chance["extentGap"] > 0
+    assert chance["corrected"] == pytest.approx(chance["median"] - chance["extentGap"])
+    # And that is the number the panels draw, not the raw median.
+    drawn_at = [at for r in drawn["references"] if " to " in r["title"]
+                and "end to" not in r["title"] for at in r["at"]]
+    assert drawn_at, "no reference line was drawn to check"
+    for at in drawn_at:
+        assert at < chance["median"] + chance["extentGap"]
+
+
+def test_a_tip_is_a_point_so_its_reference_is_left_alone(report_path):
+    """The end panels read a tip against the same samples the reference is made of."""
+    drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
+                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
+    by_title = {r["title"]: r for r in drawn["references"]}
+
+    for target in ("pm", "nucleus"):
+        whole = by_title["mito to " + target]["at"]
+        tips = by_title["mito end to " + target]["at"]
+        # The same structure, the same objects: the tip reference is the uncorrected one,
+        # so it sits further out than the one the whole instance is read against.
+        assert min(tips) > min(whole)
+    said = " ".join(drawn["footnotes"])
+    assert "own extent buys it" in said
+
+
+def test_a_sparse_target_is_not_flagged_for_the_reader(drawn):
+    """The count, where there is one to state, instead of a threshold on some panels.
+
+    This used to be a title flag on any target with under twenty instances or under a
+    twentieth of the population - a rule that decided for the reader what counts as too
+    few. The count is said where a target has instances to count; every target in this
+    batch is a whole-structure mask, which has none, so nothing is claimed about them.
+    """
+    assert not [t for t in drawn["titles"] if "target n=" in t]
+    assert not [f for f in drawn["footnotes"] if "Nearest of" in f]
+
+
+def test_without_body_averages_the_reference_says_it_is_uncorrected(report_path):
+    """The allowance is measured, so a run that did not measure it must not be corrected.
+
+    `distance_mean_um` is what --distance-histograms adds; dropping it is what the page
+    sees from a run without the flag. Silence there would be the worst outcome: the line
+    would sit where it sits and read as if the extent had been allowed for.
+    """
+    rows = [{k: v for k, v in row.items() if k != "distance_mean_um"} for row in
+            rows_of(report_path)]
+    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
+                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
+    said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
+
+    assert "Not corrected for the extent" in said
+    assert "--distance-histograms" in said
+    assert "own extent buys it" not in said
+
+
+def test_an_overlapping_structure_is_an_allowance_of_zero_and_not_a_missing_one(report_path):
+    """Zero is a measurement: two structures that overlap leave no gap to allow for.
+
+    Read as "not measured" it would tell a reader to re-run with a flag they already used.
+    """
+    rows = [dict(row) for row in rows_of(report_path)]
+    for row in rows:
+        if row.get("row_type") == "distance" and row.get("distance_um") is not None:
+            row["distance_mean_um"] = row["distance_um"]
+    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
+                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
+    said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
+
+    assert "Not corrected for the extent" not in said
+    assert "own extent buys it" not in said

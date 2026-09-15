@@ -140,6 +140,14 @@ if (job.render) {
         })),
         xTitle: (typeof layout?.xaxis?.title === 'string'
           ? layout.xaxis.title : layout?.xaxis?.title?.text) ?? null,
+        // Reference lines: a chance median is a dotted line, across the panel over a box
+        // and along it over a histogram, which is the difference `axis` records.
+        shapes: (layout?.shapes ?? []).map((sh) => ({
+          dash: sh.line?.dash ?? null,
+          axis: sh.yref === 'paper' ? 'x' : 'y',
+          // Where it was drawn: along y over a box, along x over a histogram.
+          at: sh.yref === 'paper' ? sh.x0 : sh.y0,
+        })),
         // A bracket is a path shape plus a stars annotation carrying the p-value.
         brackets: (layout?.annotations ?? [])
           .filter((a) => a.hovertext && a.hovertext.includes('Mann-Whitney'))
@@ -195,6 +203,10 @@ if (job.rows) {
       t, instanceRows.filter((r) => r[R.distColumnsFor(t).min] != null).length])),
     histTargets: R.histTargets(instanceRows),
     distCols: R.distCols(instanceRows),
+    endDistCols: R.endDistCols(instanceRows),
+    // The chance distributions, by the object and the structure they are of.
+    chance: Object.fromEntries(Object.entries(s.CHANCE).map(
+      ([id, byTarget]) => [id, Object.keys(byTarget).sort()])),
     scatterDistCols: R.scatterDistCols(instanceRows),
     metricCols: R.nonDistMetricCols(instanceRows).sort(),
     orderedDims: R.orderDistDims(R.scatterDistCols(instanceRows)),
@@ -225,7 +237,11 @@ if (job.rows) {
   // ── the curves and trends the panels draw ───────────────────────────────────
   const entity = job.structure;
   const rows = instanceRows.filter((r) => r.entity_name === entity);
-  const target = out.adapt.distCols[0];
+  // A target this structure was actually measured to: with two label structures in a
+  // batch, the first distance column of the batch can be the one to the structure itself,
+  // which it never fills.
+  const target = out.adapt.distCols.find(
+    (c) => rows.some((r) => r[c] != null && isFinite(r[c])));
   if (rows.length && target) {
     const vals = rows.map((r) => r[target]).filter((v) => v != null && isFinite(v));
     const ecdf = R.ecdfCurve(vals);
@@ -238,6 +254,43 @@ if (job.rows) {
       median: ecdf.median,
       vertices: ecdf.x.length,
     };
+    // What a distance is read against, for the target the curves above are of.
+    const forTarget = target.replace(/^distance_to_/, '').replace(/_um$/, '');
+    const objects = [...new Set(rows.map((r) => r.object_id))].sort();
+    const pooled = R.chanceStats(objects, forTarget);
+    if (pooled) {
+      const span = R.histSpan(R.chanceRows(objects, forTarget), forTarget);
+      const curve = R.chanceCurve(objects, forTarget, span);
+      out.chance = {
+        target: forTarget,
+        objects: pooled.objects,
+        median: pooled.median,
+        mean: pooled.mean,
+        voxels: pooled.voxels,
+        excluded: pooled.excluded,
+        // Each object's own reference, as the run measured it, beside the pooled one.
+        perObject: Object.fromEntries(objects.map(
+          (id) => [id, R.chanceStats([id], forTarget)?.median ?? null])),
+        // What an instance's own extent buys it, and the reference once that is allowed
+        // for: this is the number the panels draw, not the raw median.
+        extentGap: R.extentGapUm(rows, forTarget),
+        corrected: Math.max(0, pooled.median - (R.extentGapUm(rows, forTarget) || 0)),
+        // The resolution the pooled median was read at: the bins of the pooled histogram,
+        // which is as close as it can come to the per-object numbers.
+        pooledWidth: (() => {
+          const agg = span && R.aggregateHistograms(R.chanceRows(objects, forTarget),
+                                                    forTarget, 200, span);
+          return agg ? agg.width : null;
+        })(),
+        curve: curve && { bins: curve.counts.length,
+                          density: curve.density.reduce((a, b) => a + b, 0) * curve.width,
+                          min: curve.min, max: curve.max },
+        // The resolution at which "touching" can be told apart at all, and the share of
+        // the measured population inside it.
+        voxelDiagonal: R.voxelDiagonalUm(objects),
+        withinOneVoxel: R.shareWithin(vals, R.voxelDiagonalUm(objects)),
+      };
+    }
     const hist = R.histTargets(rows)[0];
     if (hist) {
       const span = R.histSpan(rows, hist);
@@ -250,6 +303,13 @@ if (job.rows) {
                         densitySums: agg.density.reduce((a, b) => a + b, 0) * agg.width };
     }
   }
+}
+
+// The median of a binned population, which is how a chance distribution's reference value
+// is read off the counts rather than off a sort of every voxel in the object.
+if (job.medianOfCounts) {
+  out.medianOfCounts = job.medianOfCounts.map(
+    (c) => R.medianOfCounts(c.counts, c.min, c.width));
 }
 
 // ── the SQL the geometry sections build ───────────────────────────────────────
@@ -419,6 +479,18 @@ if (job.render) {
     plots: plotted.length,
     traceTypes: [...new Set(plotted.flatMap((p) => p.traces))].sort(),
     titles: plotted.map((p) => p.title).filter(Boolean),
+    // What each panel drew, by name: a measured curve and the chance curve beside it are
+    // both scatter traces, and only the names tell them apart.
+    seriesNames: plotted.map((p) => ({ title: p.title,
+                                       names: p.series.map((t) => t.name) })),
+    // The reference lines, by the panel they were drawn on: a chance median per facet,
+    // dotted, and on the axis the distance is on.
+    references: plotted.filter((p) => p.shapes.some((sh) => sh.dash === 'dot'))
+      .map((p) => ({ title: p.title,
+                     dotted: p.shapes.filter((sh) => sh.dash === 'dot').length,
+                     at: p.shapes.filter((sh) => sh.dash === 'dot').map((sh) => sh.at),
+                     axis: [...new Set(p.shapes.filter((sh) => sh.dash === 'dot')
+                                               .map((sh) => sh.axis))] })),
     // The brackets, as Plotly was actually asked to draw them.
     brackets: plotted.flatMap((p) => p.brackets),
     bracketedPanels: plotted.filter((p) => p.brackets.length).length,
@@ -437,6 +509,22 @@ if (job.render) {
       };
       for (const id of ['entity-stats-container', 'overview-volumes', 'ct-far-charts',
                         'ct-baseline-charts', 'ct-compare-charts']) {
+        const host = globalThis.document.getElementById(id);
+        if (host) walk(host);
+      }
+      return out;
+    })(),
+    // What a panel says underneath it: the chance reference in numbers, and the share of
+    // a population whose tips reach a structure.
+    footnotes: (() => {
+      const out = [];
+      const walk = (n) => {
+        for (const kid of n.children || []) {
+          if (String(kid.className).includes('chart-note')) out.push(kid.innerHTML);
+          walk(kid);
+        }
+      };
+      for (const id of ['entity-stats-container']) {
         const host = globalThis.document.getElementById(id);
         if (host) walk(host);
       }

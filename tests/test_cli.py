@@ -60,13 +60,15 @@ def test_analysis_flags_travel_as_environment_variables(monkeypatch):
     env = {k: v for k, v in os.environ.items() if not k.startswith("ORGANELLA_")}
     monkeypatch.setattr(os, "environ", env)
 
-    _apply_analysis_env("pm", "cell", "0.5,0.1,0.1", True, False, 0.25, None, None)
+    _apply_analysis_env("pm", "cell", "0.5,0.1,0.1", True, False, 0.25, None, None,
+                        baseline_exclude="nucleus")
 
     assert env["ORGANELLA_OBJECT_MASK"] == "pm"
     assert env["ORGANELLA_OBJECT_NOUN"] == "cell"
     assert env["ORGANELLA_VOXEL_SIZE_UM"] == "0.5,0.1,0.1"
     assert env["ORGANELLA_NO_CLIP"] == "1"
     assert env["ORGANELLA_CONTACT_MAX_UM"] == "0.25"
+    assert env["ORGANELLA_BASELINE_EXCLUDE"] == "nucleus"
     # Flags left alone must not be forced to a default here - config.py owns those.
     assert "ORGANELLA_AUTO_LABEL_MASKS" not in env
     assert "ORGANELLA_MAX_SKELETON_VOXELS" not in env

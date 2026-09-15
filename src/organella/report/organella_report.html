@@ -547,11 +547,11 @@ organella process experiment/ \
 //  Organella report — a standalone read of one report.parquet
 //
 //  The report is a single table of typed rows (row_type: object / entity /
-//  instance / distance / contact). Every question below is asked of one of
-//  those depths, so the first thing this does is take the table apart into
-//  the four populations the sections are about (`adapt`), widening the long
-//  distance rows into one column per target on the way. Everything after
-//  that reads plain objects.
+//  instance / distance / contact / baseline). Every question below is asked
+//  of one of those depths, so the first thing this does is take the table
+//  apart into the populations the sections are about (`adapt`), widening the
+//  long distance rows into one column per target on the way. Everything
+//  after that reads plain objects.
 //
 //  Geometry never enters the report — it is one geometry.parquet per object
 //  beside it — so the 3D sections ask for it separately and stay quiet when
@@ -565,6 +565,10 @@ var OBJECTS = [];      // one per object folder (row_type='object')
 var ENTS = [];         // one per object x structure (row_type='entity')
 var INSTANCES = [];    // one per instance, distances widened onto it
 var CONTACTS = [];     // one per touching pair (row_type='contact')
+// object -> target -> the same distance from everywhere in the object (row_type='baseline'):
+// the chance distribution every measured distance is read against. Empty for a report
+// written before it was measured, and then the panels simply carry no reference line.
+var CHANCE = {};
 var COLS = [];         // the columns INSTANCES actually carry
 var DIST_TARGETS = []; // structures instances were measured to
 var PLANAR = false;    // 2D objects: area and perimeter, not volume and surface
@@ -861,11 +865,15 @@ async function registerReport(buffer) {
  * other sixty-odd are null on those rows: they belong to the depths above. Building them
  * anyway was most of the minute a real report took to open, and most of the two gigabytes
  * it took to hold.
+ *
+ * Baseline rows are not in here on purpose: there are a handful per object, and they come
+ * through the whole-row read with the object and entity rows.
  */
 var DEEP_COLUMNS = {
   distance: ['object_id', 'distance_entity', 'distance_label', 'distance_target',
              'distance_um', 'distance_mean_um', 'distance_hist_counts',
-             'distance_hist_min_um', 'distance_hist_max_um'],
+             'distance_hist_min_um', 'distance_hist_max_um',
+             'distance_end_min_um', 'distance_end_max_um'],
   contact: ['object_id', 'contact_entity', 'contact_label_a', 'contact_label_b',
             'contact_gap_um']
 };
@@ -1004,7 +1012,11 @@ function distColumnsFor(target) {
     mean: 'distance_to_' + target + '_mean_um',
     histMin: 'distance_to_' + target + '_hist_min_um',
     histMax: 'distance_to_' + target + '_hist_max_um',
-    hist: 'distance_to_' + target + '_hist_um'
+    hist: 'distance_to_' + target + '_hist_um',
+    // The same distance read at the instance's skeleton tips: how close its *end* gets,
+    // where `min` is how close any part of it gets.
+    end:  'distance_to_' + target + '_end_um',
+    endFar: 'distance_to_' + target + '_end_far_um'
   };
 }
 
@@ -1037,6 +1049,7 @@ function checkReadable(rows, label) {
 
 function adapt(rows) {
   var objectRows = [], entityRows = [], instanceRows = [], distanceRows = [], contactRows = [];
+  var baselineRows = [];
   DROPPED = 0;
   rows.forEach(function(r) {
     if (r.row_type === 'object') objectRows.push(r);
@@ -1044,6 +1057,7 @@ function adapt(rows) {
     else if (r.row_type === 'instance') instanceRows.push(r);
     else if (r.row_type === 'distance') distanceRows.push(r);
     else if (r.row_type === 'contact') contactRows.push(r);
+    else if (r.row_type === 'baseline') baselineRows.push(r);
   });
 
   // What every deep row needs joined back on.
@@ -1125,6 +1139,12 @@ function adapt(rows) {
     var col = distColumnsFor(target);
     if (d.distance_um != null) { host[col.min] = d.distance_um; instanceCols[col.min] = 1; }
     if (d.distance_mean_um != null) { host[col.mean] = d.distance_mean_um; instanceCols[col.mean] = 1; }
+    if (d.distance_end_min_um != null) {
+      host[col.end] = d.distance_end_min_um; instanceCols[col.end] = 1;
+    }
+    if (d.distance_end_max_um != null) {
+      host[col.endFar] = d.distance_end_max_um; instanceCols[col.endFar] = 1;
+    }
     if (d.distance_hist_counts != null) {
       host[col.hist] = d.distance_hist_counts;
       host[col.histMin] = d.distance_hist_min_um;
@@ -1136,6 +1156,26 @@ function adapt(rows) {
   });
   DIST_TARGETS = Object.keys(targets).sort();
   COLS = Object.keys(instanceCols);
+
+  // ── the chance distributions, by the object and structure they are of ────
+  //
+  // Held as a map rather than widened onto anything: there is one per object x target,
+  // not one per instance, and every panel that reads it reads it for a whole facet at
+  // once.
+  CHANCE = {};
+  baselineRows.forEach(function(r) {
+    if (r.baseline_target == null) return;
+    var id = String(r.object_id);
+    (CHANCE[id] = CHANCE[id] || {})[String(r.baseline_target)] = {
+      counts: r.baseline_hist_counts,
+      min: r.baseline_hist_min_um,
+      max: r.baseline_hist_max_um,
+      mean: r.baseline_mean_um,
+      median: r.baseline_median_um,
+      voxels: r.baseline_voxels,
+      excluded: r.baseline_excluded != null ? String(r.baseline_excluded) : null
+    };
+  });
 
   // ── contacts: both instances of a pair are of one structure ──────────────
   CONTACTS = contactRows.map(function(r) {
@@ -1301,6 +1341,7 @@ function distColSet() {
   DIST_TARGETS.forEach(function(t) {
     var c = distColumnsFor(t);
     s.add(c.min); s.add(c.mean); s.add(c.histMin); s.add(c.histMax); s.add(c.hist);
+    s.add(c.end); s.add(c.endFar);
   });
   return s;
 }
@@ -1332,12 +1373,164 @@ function scatterDistCols(rows) {
   if (hasValue(rows, 'distance_to_closest_same_type_um')) out.push('distance_to_closest_same_type_um');
   return out;
 }
+/** Nearest-tip distance per instance, one column per target, for the structures that have tips. */
+function endDistCols(rows) {
+  return DIST_TARGETS.map(function(t){ return distColumnsFor(t).end; })
+    .filter(function(c){ return hasValue(rows, c); });
+}
+
 /** Targets whose per-voxel histograms were recorded. */
 function histTargets(rows) {
   return DIST_TARGETS.filter(function(t) {
     var c = distColumnsFor(t);
     return rows.some(function(r){ return r[c.hist] != null; });
   });
+}
+
+// ── what a distance is read against ──────────────────────────────────────────
+//
+// The run measured, per object and target, the distance to that target from everywhere in
+// the object: the chance distribution. It is what turns "these granules are 300 nm from the
+// membrane" into a statement - against a cell where half the volume is within 200 nm that
+// is *far*, and against one where half of it is a micrometre away it is close. The shape of
+// the object, not the structure, decides which.
+//
+// These read it the way the panels need it: the stored histograms in the same columns an
+// instance's own histogram arrives in, so histSpan and aggregateHistograms take them
+// unchanged.
+
+/** The stored chance histograms for these objects, shaped like instance rows. */
+function chanceRows(objectIds, target) {
+  var col = distColumnsFor(target);
+  var out = [];
+  (objectIds || []).forEach(function(id) {
+    var found = (CHANCE[String(id)] || {})[target];
+    if (!found || found.counts == null) return;
+    var row = { object_id: String(id), chance_voxels: found.voxels,
+                chance_median: found.median, chance_mean: found.mean,
+                chance_excluded: found.excluded };
+    row[col.hist] = found.counts;
+    row[col.histMin] = found.min;
+    row[col.histMax] = found.max;
+    out.push(row);
+  });
+  return out;
+}
+
+/** The median of a binned population, interpolated inside the bin that holds it. */
+function medianOfCounts(counts, min, width) {
+  var total = counts.reduce(function(a, b){ return a + b; }, 0);
+  if (!(total > 0)) return null;
+  var half = total / 2, seen = 0;
+  for (var i = 0; i < counts.length; i++) {
+    if (seen + counts[i] >= half) {
+      return min + (i + (counts[i] > 0 ? (half - seen) / counts[i] : 0)) * width;
+    }
+    seen += counts[i];
+  }
+  return min + counts.length * width;
+}
+
+/**
+ * The pooled chance distribution of one target over several objects.
+ *
+ * One object answers with what the run measured off its own 4096-bin histogram. Several are
+ * pooled first - a facet is the objects in it, and its reference has to be their distances
+ * together, weighted by how much object each brought - and the median then comes off the
+ * pooled bins.
+ */
+function chanceStats(objectIds, target) {
+  var rows = chanceRows(objectIds, target);
+  if (!rows.length) return null;
+  var excluded = rows[0].chance_excluded || null;
+  if (rows.length === 1) {
+    return { median: rows[0].chance_median, mean: rows[0].chance_mean,
+             voxels: rows[0].chance_voxels, objects: 1, excluded: excluded };
+  }
+  var span = histSpan(rows, target);
+  var agg = span ? aggregateHistograms(rows, target, 200, span) : null;
+  var voxels = 0, weighted = 0;
+  rows.forEach(function(r) {
+    if (r.chance_voxels == null || r.chance_mean == null) return;
+    voxels += r.chance_voxels;
+    weighted += r.chance_mean * r.chance_voxels;
+  });
+  return {
+    median: agg ? medianOfCounts(agg.counts, agg.min, agg.width) : null,
+    mean: voxels > 0 ? weighted / voxels : null,
+    voxels: voxels || null, objects: rows.length, excluded: excluded
+  };
+}
+
+/** The chance distribution as a curve on a given grid, to draw a measured one against. */
+function chanceCurve(objectIds, target, span) {
+  var rows = chanceRows(objectIds, target);
+  if (!rows.length || !span) return null;
+  var own = histSpan(rows, target);
+  return aggregateHistograms(rows, target, 30,
+    { min: span.min, max: span.max, srcWidth: own ? own.srcWidth : null });
+}
+
+/** Two spans as one, so a measured distribution and its reference share an axis. */
+function spanUnion(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return { min: Math.min(a.min, b.min), max: Math.max(a.max, b.max),
+           srcWidth: a.srcWidth != null ? a.srcWidth : b.srcWidth };
+}
+
+/** How far apart two samples of an object are at their closest: the resolution of "touching". */
+function voxelDiagonalUm(objectIds) {
+  var wanted = new Set((objectIds || []).map(String));
+  var worst = null;
+  OBJECTS.forEach(function(o) {
+    if (wanted.size && !wanted.has(String(o.object_id))) return;
+    var sizes = ['pixel_size_Z', 'pixel_size_Y', 'pixel_size_X']
+      .map(function(k){ return o[k]; })
+      .filter(function(v){ return v != null && isFinite(v) && v > 0; });
+    if (!sizes.length) return;
+    var diagonal = Math.sqrt(sizes.reduce(function(a, v){ return a + v * v; }, 0));
+    if (worst == null || diagonal > worst) worst = diagonal;
+  });
+  return worst;
+}
+
+/**
+ * How much of an instance's closeness is its own size, measured on the instances.
+ *
+ * A point has no extent; an instance touches from its surface. So under "placed wherever
+ * there is room" an instance's *closest* point is already nearer any structure than a
+ * random sample is, by however much its body reaches - and comparing the two without
+ * allowing for that credits every granule with a couple of hundred nanometres it gets for
+ * being 400 nm across.
+ *
+ * The allowance is the gap between an instance's body average and its closest point, which
+ * the run measured for every instance against every target. For a sphere that gap is
+ * exactly its radius; for a filament running along a structure it is much larger, and for
+ * one crossing it much smaller. That is why it is read off the data rather than computed
+ * from a radius: the shape, the orientation and the target are all already in it.
+ *
+ * Null without --distance-histograms, which is what measures the body average.
+ */
+function extentGapUm(rows, target) {
+  var col = distColumnsFor(target);
+  var gaps = [];
+  rows.forEach(function(r) {
+    var nearest = r[col.min], body = r[col.mean];
+    if (nearest == null || body == null || !isFinite(nearest) || !isFinite(body)) return;
+    // The body average cannot sit inside the closest point; anything else is not a gap.
+    if (body >= nearest) gaps.push(body - nearest);
+  });
+  if (!gaps.length) return null;
+  gaps.sort(function(a, b){ return a - b; });
+  return quantileSorted(gaps, 0.5);
+}
+
+/** The share of these values at or below a threshold, as a percentage. */
+function shareWithin(values, threshold) {
+  if (!values.length || threshold == null) return null;
+  var n = values.filter(function(v){ return v <= threshold; }).length;
+  return 100 * n / values.length;
 }
 /**
  * What a measurement means, in the report's own words, for the caption under its chart.
@@ -1359,6 +1552,14 @@ function metricHelp(col, prefer) {
   if (mean && COLUMN_HELP.distance_mean_um) {
     return escHtml(COLUMN_HELP.distance_mean_um) + ' Measured to ' + dataName(mean[1]) + '.';
   }
+  var end = /^distance_to_(.+)_end_um$/.exec(col);
+  if (end && COLUMN_HELP.distance_end_min_um) {
+    return escHtml(COLUMN_HELP.distance_end_min_um) + ' Measured to ' + dataName(end[1]) + '.';
+  }
+  var endFar = /^distance_to_(.+)_end_far_um$/.exec(col);
+  if (endFar && COLUMN_HELP.distance_end_max_um) {
+    return escHtml(COLUMN_HELP.distance_end_max_um) + ' Measured to ' + dataName(endFar[1]) + '.';
+  }
   var closest = /^distance_to_(.+)_um$/.exec(col);
   if (closest && col !== 'distance_to_closest_same_type_um' && COLUMN_HELP.distance_um) {
     return escHtml(COLUMN_HELP.distance_um) + ' Measured to ' + dataName(closest[1]) + '.';
@@ -1369,6 +1570,8 @@ function metricHelp(col, prefer) {
 function distColLabel(col) {
   if (col === 'distance_to_closest_same_type_um') return 'nearest of the same kind';
   return col.replace(/^distance_to_/, '')
+    .replace(/_end_far_um$/, ' (far end)')
+    .replace(/_end_um$/, ' (nearest end)')
     .replace(/_mean_um$/, ' (mean)')
     .replace(/_um$/, '')
     .replace(/_/g, ' ')
@@ -1395,7 +1598,10 @@ function axisColTitle(col) {
   return axisColLabel(col) + (u ? ' (' + u + ')' : '');
 }
 function correlationAxisCols(rows) {
-  return nonDistMetricCols(rows).concat(scatterDistCols(rows));
+  // The end distances are offered as axes but not as pair panels: "length against how far
+  // its tip sits from the centrioles" is a question worth an axis, where one panel per
+  // pair of them would be sixty panels for the same row of structures.
+  return nonDistMetricCols(rows).concat(scatterDistCols(rows)).concat(endDistCols(rows));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4368,6 +4574,15 @@ function distributionPanel(host, opts) {
   var bars = isSingleValued(series);
   var bracketed = false;
   var traces, layout;
+  // Which style actually got drawn, not which was asked for: a histogram of one value per
+  // facet falls back to boxes, and the chance line goes on a different axis for each.
+  var drawn = bars ? 'bar' : (plotStyle === 'histogram' ? 'histogram' : 'box');
+  // The reference each facet is read against, where the caller has one.
+  var chanceOf = function(f) {
+    var at = opts.chanceBy ? opts.chanceBy[f.name] : null;
+    return at != null && isFinite(at) ? at : null;
+  };
+  var chances = series.map(chanceOf).filter(function(v){ return v != null; });
 
   if (bars) {
     traces = [{ type:'bar',
@@ -4417,6 +4632,7 @@ function distributionPanel(host, opts) {
       layout.xaxis = { showticklabels:false, ticks:'' };
       layout.yaxis = { title: opts.unit || null,
                        range: flatRange(histSpanOf, opts) || undefined };
+      drawn = 'box';
     }
   } else {
     traces = series.map(function(f) {
@@ -4425,11 +4641,22 @@ function distributionPanel(host, opts) {
         hovertemplate:'%{y:.3g}<extra>' + f.name + '</extra>' };
     });
     var span = seriesSpan(series);
+    // A reference outside the data sits off an autoranged panel, and a line nobody can see
+    // is worse than none - so the axis is told to hold it. Both sides matter: above every
+    // box says the population is closer than chance, below every box says it is further,
+    // and the second is the one a panel of nearly equal boxes would otherwise hide.
+    var beyond = chances.filter(function(v){ return v < span.min || v > span.max; });
+    if (beyond.length) {
+      span = { min: Math.min.apply(null, [span.min].concat(beyond)),
+               max: Math.max.apply(null, [span.max].concat(beyond)) };
+    }
     layout = { margin:{l:54,r:6,t:28,b:opts.showFacetTicks ? 52 : 22}, height:opts.height || PANEL_HEIGHT,
       title:{ text: opts.title }, showlegend:false,
       xaxis: opts.showFacetTicks ? { automargin:true } : { showticklabels:false, ticks:'' },
       yaxis:{ title: opts.unit || null,
-              range: flatRange(span, opts) || (opts.range ? opts.range.slice() : undefined) } };
+              range: flatRange(span, opts)
+                || (beyond.length ? [Math.min(0, span.min), span.max * 1.08] : null)
+                || (opts.range ? opts.range.slice() : undefined) } };
     // Brackets belong on boxes, where there is a top to hang them above, and only while
     // they fit. A bracket sets the range itself, to make room for the rungs, so a panel
     // given an explicit range keeps it and says the comparison in text instead.
@@ -4437,6 +4664,23 @@ function distributionPanel(host, opts) {
       bracketLayout(layout, comparisons, span);
       bracketed = true;
     }
+  }
+
+  // The chance distribution's median, per facet: the distance half the object sits within
+  // of that structure. Dotted, and on whichever axis carries the distance - across the
+  // panel over each box, along it where a histogram puts the distance on x. A box sitting
+  // below its line is closer to the structure than the object's shape alone puts it.
+  if (chances.length) {
+    layout.shapes = layout.shapes || [];
+    series.forEach(function(f, i) {
+      var at = chanceOf(f);
+      if (at == null) return;
+      layout.shapes.push(drawn === 'histogram'
+        ? { type:'line', xref:'x', yref:'paper', x0:at, x1:at, y0:0, y1:1,
+            line:{ color:f.color, width:1, dash:'dot' } }
+        : { type:'line', xref:'x', yref:'y', x0:i - 0.42, x1:i + 0.42, y0:at, y1:at,
+            line:{ color:CS.ink3, width:1.2, dash:'dot' } });
+    });
   }
 
   // A line the panel is read against - 50% for the baseline scores - drawn across the
@@ -4755,6 +4999,18 @@ function renderEntityStats() {
         + ' Near 0 means that ' + named + ' sits right against it.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="dist"></div>'
+      + '<div class="subsection-label mt-3" data-slot="end-label" style="display:none">How far'
+        + ' is each ' + named + '\u2019s <b>end</b> from other structures?</div>'
+      + '<p class="subsection-desc" data-slot="end-desc" style="display:none">The distance of'
+        + ' the nearest <b>tip</b> of each ' + named + ' - where its skeleton stops - rather'
+        + ' than of whichever part of it comes closest. A filament can run past a structure'
+        + ' along its whole length and end nowhere near it, and the panels above cannot tell'
+        + ' that apart from being anchored to it by the tip. The share underneath is how many'
+        + ' end within one voxel of the structure, which is as close as two things can be'
+        + ' measured to be without overlapping - what "connected to it" comes down to at this'
+        + ' voxel size.</p>'
+      + facetLegend()
+      + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
         + ' ' + named + ' close to two structures at once?</div>'
       + '<p class="subsection-desc" data-slot="both-desc" style="display:none">One panel per'
@@ -4808,6 +5064,66 @@ function renderEntityStats() {
     // ── the instances themselves ──────────────────────────────────────────────
     renderGallery(slot('gallery'), ent);
 
+    // Which objects each facet is made of: a chance distribution is per object, and a
+    // facet is read against its own objects pooled, not against the batch.
+    var allObjects = uniq(rows.map(function(r){ return r.object_id; }));
+    var objectsOf = {}, rowsOf = {};
+    facets.split(rows, fallback).forEach(function(f) {
+      objectsOf[f.name] = uniq(f.rows.map(function(r){ return r.object_id; }));
+      rowsOf[f.name] = f.rows;
+    });
+    /**
+     * The dotted reference for one target, per facet, and the sentence that explains it.
+     *
+     * `allowExtent` says whether what is being read against it has extent. A whole
+     * instance does, and the reference has to allow for it (see extentGapUm); a skeleton
+     * tip does not - it is a point, like the samples the reference is made of - and
+     * correcting there would move the line for nothing.
+     */
+    var chanceFor = function(target, allowExtent) {
+      var by = {}, said = [];
+      Object.keys(objectsOf).forEach(function(name) {
+        var stats = chanceStats(objectsOf[name], target);
+        if (!stats || stats.median == null || !isFinite(stats.median)) return;
+        // Null means there was nothing to measure it from; zero is a measurement - two
+        // structures that overlap leave an instance's body average at its closest point -
+        // and the two must not read the same.
+        var gap = allowExtent ? extentGapUm(rowsOf[name], target) : null;
+        by[name] = Math.max(0, stats.median - (gap == null ? 0 : gap));
+        said.push({ name: name, at: by[name], gap: gap, excluded: stats.excluded });
+      });
+      if (!said.length) return null;
+      var per = function(pick) {
+        return said.map(function(x) {
+          return (said.length > 1 ? escHtml(facets.labelOf(x.name)) + ' ' : '')
+            + fmtGap(pick(x));
+        }).join(', ');
+      };
+      var corrected = !allowExtent || said.every(function(x){ return x.gap != null; });
+      // An allowance of zero is still an allowance; there is just nothing to say about it.
+      var worthSaying = corrected && allowExtent
+        && said.some(function(x){ return x.gap > 0; });
+      return { by: by,
+        note: 'Dotted: ' + per(function(x){ return x.at; }) + ' µm - half of the ' + noun()
+          + ' lies within that of ' + dataName(target)
+          + (worthSaying
+              ? ', less the ' + per(function(x){ return x.gap; }) + ' µm that each '
+                + named + '\u2019s own extent buys it: its body average sits that much'
+                + ' further out than its closest point, so a ' + named + ' reaches a'
+                + ' structure from its surface where a sample of the ' + noun()
+                + ' has none'
+              : '')
+          + '. Below the line is closer than the ' + noun()
+          + '\u2019s own shape puts anything'
+          + (said[0].excluded
+              ? ', with ' + dataName(said[0].excluded) + ' left out of that region' : '')
+          + '.'
+          + (corrected ? ''
+              : ' Not corrected for the extent of a ' + named + ': re-run with'
+                + ' <code>--distance-histograms</code> to measure how much of its'
+                + ' closeness is its own size.') };
+    };
+
     // ── how far from other structures ─────────────────────────────────────────
     var dCols = distCols(rows);
     if (dCols.length) {
@@ -4815,19 +5131,55 @@ function renderEntityStats() {
       var dcEl = slot('dist');
       orderDistDims(dCols).forEach(function(col) {
         var title = distColLabel(col);
-        // Flag a sparse target - "distance to nearest X" is noisy when X has few instances.
         var target = col.replace(/^distance_to_/, '').replace(/_um$/, '');
-        if (col !== 'distance_to_closest_same_type_um') {
-          var targets = instRows.filter(function(r){ return r.entity_name === target; }).length;
-          if (targets > 0 && (targets < 20 || targets < rows.length * 0.05)) {
-            title += ' (target n=' + targets + ')';
-          }
-        }
+        // How many instances the nearest was taken of, said rather than judged. This used
+        // to be a title flag on any target with under twenty instances or under a
+        // twentieth of the population - a threshold that decided for the reader what
+        // counts as too few, in a report whose whole point is that the numbers are there.
+        var targets = col === 'distance_to_closest_same_type_um' ? 0
+          : instRows.filter(function(r){ return r.entity_name === target; }).length;
+        var chance = col === 'distance_to_closest_same_type_um' ? null
+          : chanceFor(target, true);
         distributionPanel(dcEl, {
           series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'to ' + title), unit: 'µm',
           help: metricHelp(col, 'instance_'),
-          noun: ent, showFacetTicks: !facets.many
+          noun: ent, showFacetTicks: !facets.many,
+          chanceBy: chance ? chance.by : null,
+          footnote: [targets ? 'Nearest of ' + targets.toLocaleString() + ' '
+                                 + dataName(target) + ' instances.' : '',
+                     chance ? chance.note : ''].filter(Boolean).join(' ') || null
+        });
+      });
+    }
+
+    // ── how far the ends sit, for a structure that has ends ───────────────────
+    var eCols = endDistCols(rows);
+    if (eCols.length) {
+      reveal('end-label'); reveal('end-desc');
+      var ecEl = slot('end');
+      var touching = voxelDiagonalUm(allObjects);
+      orderDistDims(eCols).forEach(function(col) {
+        var endTarget = col.replace(/^distance_to_/, '').replace(/_end_um$/, '');
+        // A tip is a point, so the reference needs no allowance for extent here.
+        var endChance = chanceFor(endTarget, false);
+        var endSeries = facets.valuesOf(rows, col, fallback);
+        var shares = endSeries.map(function(f) {
+          var share = shareWithin(f.values, touching);
+          if (share == null) return null;
+          return (endSeries.length > 1 ? escHtml(f.label) + ' ' : '') + share.toFixed(1) + '%';
+        }).filter(Boolean);
+        var reached = (touching != null && shares.length)
+          ? '<b>' + shares.join(', ') + '</b> end within one voxel (' + fmtGap(touching)
+            + ' µm) of ' + dataName(endTarget) + '.'
+          : '';
+        distributionPanel(ecEl, {
+          series: endSeries,
+          title: panelTitle(ent, 'end to ' + endTarget.replace(/_/g, ' ')), unit: 'µm',
+          help: metricHelp(col, 'instance_'),
+          noun: ent, showFacetTicks: !facets.many,
+          chanceBy: endChance ? endChance.by : null,
+          footnote: [reached, endChance ? endChance.note : ''].filter(Boolean).join(' ')
         });
       });
     }
@@ -4860,13 +5212,30 @@ function renderEntityStats() {
       reveal('hist-label'); reveal('hist-desc');
       var dhEl = slot('hist');
       var unbinnable = [];
+      var drewChance = false;
       hTargets.forEach(function(target) {
         var el = document.createElement('div');
         el.className = 'chart-cell'; el.style.width = '320px';
         dhEl.appendChild(el);
-        // Shared grid across all facets so the density curves line up (no bar-width gaps).
-        var span = histSpan(rows, target);
+        // Shared grid across all facets so the density curves line up (no bar-width gaps),
+        // and wide enough to hold the chance distribution too: the two are only comparable
+        // drawn on one axis, and the object reaches further from a structure than the
+        // instances of any one population do.
+        var measuredSpan = histSpan(rows, target);
+        var span = spanUnion(measuredSpan,
+                             histSpan(chanceRows(allObjects, target), target));
         var traces = [];
+        // The same distances taken over the whole object, dotted: the shape a population
+        // that cared nothing for this structure would have, in the same object.
+        var addChance = function(objects, name, colour) {
+          var curve = chanceCurve(objects, target, span);
+          if (!curve) return;
+          drewChance = true;
+          traces.push({ type:'scatter', mode:'lines', name:name + ' (chance)',
+            x:curve.centers, y:curve.density,
+            line:{color:colour, width:1.5, dash:'dot', shape:'hv'},
+            hovertemplate:'%{x:.2f} µm: %{y:.4f}<extra>anywhere in ' + name + '</extra>' });
+        };
         if (facets.many) {
           facets.values.forEach(function(v) {
             var agg = aggregateHistograms(
@@ -4875,6 +5244,7 @@ function renderEntityStats() {
             traces.push({ type:'scatter', mode:'lines', name:facets.labelOf(v),
               x:agg.centers, y:agg.density, line:{color:gColor(v), width:2, shape:'hv'},
               hovertemplate:'%{x:.2f} µm: %{y:.4f}<extra>' + v + '</extra>' });
+            addChance(objectsOf[String(v)], String(v), gColor(v));
           });
         } else {
           var agg = aggregateHistograms(rows, target, 30, span);
@@ -4883,6 +5253,7 @@ function renderEntityStats() {
               x:agg.centers, y:agg.density, line:{color:color, width:2, shape:'hv'},
               fillcolor: withAlpha(color, 0.22),
               hovertemplate:'%{x:.2f} µm: %{y:.4f}<extra></extra>' });
+            addChance(allObjects, noun(), CS.ink3);
           }
         }
         if (!traces.length) {
@@ -4900,6 +5271,17 @@ function renderEntityStats() {
           showlegend:false   // facets are named by the block's shared legend
         }, {responsive:true, displayModeBar:false});
       });
+      if (drewChance) {
+        var reference = document.createElement('div');
+        reference.className = 'chart-note';
+        reference.innerHTML = 'Dotted: the same distances taken over every sample of the '
+          + noun() + ' instead of over the ' + named + ' - what this curve would look like'
+          + ' if ' + named + ' sat wherever there was room. The measured curve peaking'
+          + ' nearer 0 than the dotted one is the whole of "closer than chance"; the two'
+          + ' lying on top of each other says the ' + named + ' population is placed no'
+          + ' differently from anything else in the ' + noun() + '.';
+        dhEl.appendChild(reference);
+      }
       if (unbinnable.length) {
         var trouble = document.createElement('div');
         trouble.className = 'chart-note';
@@ -5681,9 +6063,13 @@ if (typeof globalThis !== 'undefined') {
     decodeDrawable: decodeDrawable,
     state: function(){ return { OBJECTS:OBJECTS, ENTS:ENTS, INSTANCES:INSTANCES,
                                 CONTACTS:CONTACTS, COLS:COLS, DIST_TARGETS:DIST_TARGETS,
-                                PLANAR:PLANAR, MIXED_DIMS:MIXED_DIMS }; },
+                                PLANAR:PLANAR, MIXED_DIMS:MIXED_DIMS, CHANCE:CHANCE }; },
     distColumnsFor: distColumnsFor,
     distCols: distCols, scatterDistCols: scatterDistCols, histTargets: histTargets,
+    endDistCols: endDistCols, extentGapUm: extentGapUm,
+    chanceRows: chanceRows, chanceStats: chanceStats, chanceCurve: chanceCurve,
+    medianOfCounts: medianOfCounts, spanUnion: spanUnion,
+    voxelDiagonalUm: voxelDiagonalUm, shareWithin: shareWithin,
     nonDistMetricCols: nonDistMetricCols, correlationAxisCols: correlationAxisCols,
     orderDistDims: orderDistDims,
     contactClusters: contactClusters, contactStructures: contactStructures,

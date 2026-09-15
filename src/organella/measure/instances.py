@@ -15,6 +15,13 @@ belongs to a pair, and target names come from the data:
     SELECT object_id, distance_entity, distance_label, distance_target, distance_um
     FROM pp_all WHERE row_type = 'distance'
 
+One more, short one per target: what the same distance looks like from everywhere in the
+object (``row_type='baseline'``), which is what says whether a measured distance is close or
+merely as close as anything would be:
+
+    SELECT object_id, baseline_target, baseline_median_um, baseline_hist_counts
+    FROM pp_all WHERE row_type = 'baseline'
+
 Rows rather than list columns on the object row: the viewer materialises object rows in
 memory, so lists meant loading an object's whole instance table whatever was asked.
 
@@ -32,12 +39,12 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
 
-from organella.config import RunConfig, wants_skeletons
+from organella.config import RunConfig, normalize_name, wants_skeletons
 from organella.analysis.distances import (
     POLARITY_2D,
     POLARITY_3D,
@@ -50,9 +57,11 @@ from organella.analysis.distances import (
 from organella.analysis.shapes import (
     METRICS_2D,
     METRICS_3D,
+    skeleton_endpoints_um,
     skeleton_graph_metrics,
 )
 from organella.model import (
+    BASELINE_ROW,
     DISTANCE_ROW,
     INSTANCE_ROW,
     ObjectMeasurement,
@@ -65,6 +74,19 @@ from organella.analysis.cache import (
 logger = logging.getLogger(__name__)
 
 DISTANCE_HISTOGRAM_BINS = 20
+
+# The chance distribution is one row per target rather than one per instance, so it can
+# afford a finer grid than the per-instance histograms: 128 bins over the object is ~1% of
+# the range per bin, which is what makes it drawable as a curve rather than a staircase.
+BASELINE_HISTOGRAM_BINS = 128
+# Binned this finely first, so the median comes off the counts rather than off a sort of
+# every voxel in the object - 300 million of them on a real cell - and is still exact to a
+# few nanometres. Summed down to the stored bins afterwards.
+_BASELINE_FINE_BINS = 4096
+# How much of the object a chance pass holds at once. The transform is already the largest
+# array in the process, so this walks it rather than gathering it: 8 million voxels is
+# 32 MB of float32 per slab whatever the object's size.
+_BASELINE_SLAB_VOXELS = 8_000_000
 
 # Both dimensionalities are declared; each object fills its own set and leaves the other
 # null.
@@ -109,6 +131,26 @@ _DISTANCE_COLUMNS: Dict[str, Any] = {
     "distance_hist_counts": str,
 }
 
+# The same pair, read at the instance's skeleton tips rather than over all of it. Only
+# filled for a structure that was skeletonised, so the columns are added to the rows only
+# when something in the object has tips at all.
+_END_COLUMNS: Dict[str, Any] = {
+    "distance_end_min_um": np.float64,
+    "distance_end_max_um": np.float64,
+}
+
+# One row per target: the distance to it from everywhere in the object.
+_BASELINE_COLUMNS: Dict[str, Any] = {
+    "baseline_target": str,
+    "baseline_excluded": str,
+    "baseline_voxels": np.int64,
+    "baseline_mean_um": np.float64,
+    "baseline_median_um": np.float64,
+    "baseline_hist_min_um": np.float64,
+    "baseline_hist_max_um": np.float64,
+    "baseline_hist_counts": str,
+}
+
 _OBJECT_COLUMNS: Dict[str, Any] = {
     "object_volume_um3": np.float64,
     "object_area_um2": np.float64,
@@ -144,6 +186,16 @@ _DESCRIPTIONS: Dict[str, str] = {
     "distance_hist_min_um": "Lower bound of the histogram range, shared by every instance of this structure measured to this target.",
     "distance_hist_max_um": "Upper bound of the histogram range, shared by every instance of this structure measured to this target.",
     "distance_hist_counts": "Per-instance voxel counts over the histogram range, as a JSON array of fixed-width bins.",
+    "distance_end_min_um": "Smallest distance in µm from one of this instance's skeleton tips to the target structure: how close its *end* gets, where distance_um is how close any part of it gets. A filament can run past a structure along its whole length and end nowhere near it, which is the difference these two columns are for. Null for a structure with no curve skeleton (--skeletons), and for an instance whose skeleton is a closed loop and so has no tips.",
+    "distance_end_max_um": "Largest distance in µm from one of this instance's skeleton tips to the target structure: the tip that sits furthest from it. With the usual two tips, the pair says whether one end is against the structure while the other is not.",
+    "baseline_target": "Structure the chance distribution on this row is measured to. One row per structure measured to, for the object as a whole.",
+    "baseline_excluded": "Structures left out of the region, from --baseline-exclude, comma separated. The target itself is always out of it, since its distance to itself is zero. Null where nothing else was excluded.",
+    "baseline_voxels": "How many samples of the object the chance distribution was taken over.",
+    "baseline_mean_um": "Mean distance in µm to this structure over every sample of the region: how far from it a point of the object sits on average.",
+    "baseline_median_um": "Median distance in µm to this structure over the region - the distance half the object is closer than. This is the number a measured distance is read against: a structure whose instances sit at 0.3 µm from the membrane where half the object is within 0.9 µm is closer to it than the object's shape alone would put them; one at 0.9 µm is exactly as close as anything would be. Taken from a 4096-bin histogram rather than a sort of every sample, so it is exact to about a thousandth of the range.",
+    "baseline_hist_min_um": "Lower bound of the chance histogram's range.",
+    "baseline_hist_max_um": "Upper bound of the chance histogram's range.",
+    "baseline_hist_counts": "Sample counts over that range, as a JSON array of fixed-width bins: the shape of the chance distribution, to draw a measured distribution against.",
     "object_volume_um3": "Volume in µm³ enclosed by the object mask.",
     "object_area_um2": "Area in µm² enclosed by the object mask.",
 }
@@ -202,15 +254,18 @@ class InstanceMeasurer:
     NAME = "organella-instances"
     DESCRIPTION = (
         "Measures every labelled instance in an object: volume, surface area, sphericity, PCA aspect "
-        "ratio, curve-skeleton metrics, distance to each other entity, distance to the closest "
-        "instance of its own entity, and its direction from the object centre."
+        "ratio, curve-skeleton metrics, distance to each other entity (from all of it and from its "
+        "skeleton tips), distance to the closest instance of its own entity, and its direction from "
+        "the object centre. Also the chance distribution of each distance - the same distance from "
+        "everywhere in the object - which is what a measured one is read against."
     )
 
     # The object row's own columns, then the columns of the rows below it.
     OBJECT_COLUMNS: Dict[str, Any] = dict(_OBJECT_COLUMNS)
     ROW_SCHEMAS: Dict[str, Dict[str, Any]] = {
         INSTANCE_ROW: dict(_INSTANCE_COLUMNS),
-        DISTANCE_ROW: dict(_DISTANCE_COLUMNS),
+        DISTANCE_ROW: {**_DISTANCE_COLUMNS, **_END_COLUMNS},
+        BASELINE_ROW: dict(_BASELINE_COLUMNS),
     }
     COLUMN_DESCRIPTIONS: Dict[str, str] = dict(_DESCRIPTIONS)
 
@@ -245,12 +300,16 @@ class InstanceMeasurer:
                 name, volumes[name], sample_size, center, inst, object_id=stack.object_id,
             )
 
-        dist = self._measure_distances(volumes, stack.kinds, label_names, ids_by_entity,
-                                       sample_size, object_mask_name)
+        dist, baseline = self._measure_distances(
+            volumes, stack.kinds, label_names, ids_by_entity, sample_size,
+            object_mask_name, object_id=stack.object_id,
+        )
 
         logger.info(
-            "organella: %s: %d instances, %d instance-target distances",
+            "organella: %s: %d instances, %d instance-target distances, "
+            "%d chance distributions",
             stack.object_id, len(inst["instance_label"]), len(dist["distance_um"]),
+            len(baseline["baseline_target"]),
         )
         # Kept on the cache, so these metrics are measured once per object however many
         # readers want them.
@@ -260,7 +319,8 @@ class InstanceMeasurer:
         )
         return ObjectMeasurement(
             columns=out,
-            tables={INSTANCE_ROW: _nulled(inst), DISTANCE_ROW: _nulled(dist)},
+            tables={INSTANCE_ROW: _nulled(inst), DISTANCE_ROW: _nulled(dist),
+                    BASELINE_ROW: _nulled(baseline)},
         )
 
     # ── morphology, one instance at a time ────────────────────────────────────
@@ -351,14 +411,19 @@ class InstanceMeasurer:
         ids_by_entity: Dict[str, List[int]],
         sample_size: Sequence[float],
         object_mask_name: str | None = None,
-    ) -> Dict[str, List[Any]]:
-        """One row per (instance, target), reducing each transform over every entity.
+        object_id: str = "object",
+    ) -> Tuple[Dict[str, List[Any]], Dict[str, List[Any]]]:
+        """One row per (instance, target), and one per target, from the same transforms.
 
         Targets are the outer loop so only one distance transform exists at a time. Each
         entity's foreground is indexed once, after which measuring it against a transform
         is a gather plus a reduceat over the foreground alone: 0.01 s where scipy's
         ndimage.minimum, whose cost follows the volume and label count instead, took 54 s
         on a 197-megavoxel object with 10k instances.
+
+        The transform is already built, so two more readings come almost free off it: the
+        distance at each instance's skeleton tips, and the distance from everywhere in the
+        object - the chance distribution a measured distance has to be read against.
         """
         cfg = self._config
         # Only the columns that get filled: the histogram ones are dropped from the report
@@ -366,7 +431,13 @@ class InstanceMeasurer:
         columns = list(_DISTANCE_COLUMNS) if cfg.distance_histograms else [
             "distance_entity", "distance_label", "distance_target", "distance_um",
         ]
+        ends = self._endpoint_indexes(views, label_names, ids_by_entity, sample_size,
+                                      object_id)
+        if ends:
+            columns += list(_END_COLUMNS)
         dist: Dict[str, List[Any]] = {col: [] for col in columns}
+        baseline: Dict[str, List[Any]] = {col: [] for col in _BASELINE_COLUMNS}
+        region = _ReferenceRegion.of(views, object_mask_name, cfg.baseline_exclude)
         indexes = {
             name: _foreground_index(views[name])
             for name in label_names if ids_by_entity.get(name)
@@ -381,11 +452,22 @@ class InstanceMeasurer:
                 sample_size, cfg.edt_threads,
             )
             flat = transform.reshape(-1)
+            chance = region.distribution(transform)
+            if chance is not None:
+                baseline["baseline_target"].append(target)
+                baseline["baseline_excluded"].append(region.excluded_label)
+                baseline["baseline_voxels"].append(chance["voxels"])
+                baseline["baseline_mean_um"].append(chance["mean"])
+                baseline["baseline_median_um"].append(chance["median"])
+                baseline["baseline_hist_min_um"].append(chance["lo"])
+                baseline["baseline_hist_max_um"].append(chance["hi"])
+                baseline["baseline_hist_counts"].append(chance["counts"])
             for name in measured:
                 index = indexes[name]
                 values = flat[index.positions]
                 mins = np.minimum.reduceat(values, index.starts)
                 stats = _distance_stats(values, index) if cfg.distance_histograms else None
+                at_ends = _end_distances(flat, ends.get(name)) if ends else None
                 for position, label_id in enumerate(index.ids):
                     dist["distance_entity"].append(name)
                     dist["distance_label"].append(int(label_id))
@@ -396,8 +478,41 @@ class InstanceMeasurer:
                         dist["distance_hist_min_um"].append(stats["lo"])
                         dist["distance_hist_max_um"].append(stats["hi"])
                         dist["distance_hist_counts"].append(stats["counts"][position])
+                    if ends:
+                        near, far = (at_ends or {}).get(int(label_id),
+                                                        (float("nan"), float("nan")))
+                        dist["distance_end_min_um"].append(near)
+                        dist["distance_end_max_um"].append(far)
             del transform, flat
-        return dist
+        return dist, baseline
+
+    def _endpoint_indexes(
+        self,
+        views: Dict[str, np.ndarray],
+        label_names: List[str],
+        ids_by_entity: Dict[str, List[int]],
+        sample_size: Sequence[float],
+        object_id: str,
+    ) -> Dict[str, "_ForegroundIndex"]:
+        """Each skeletonised structure's tips, indexed like its foreground.
+
+        Only the structures that were skeletonised have tips, and the skeletons are the
+        ones the morphology pass already computed: the cache is keyed on the object and the
+        array, so this is a lookup rather than a second TEASAR run.
+        """
+        cfg = self._config
+        out: Dict[str, "_ForegroundIndex"] = {}
+        for name in label_names:
+            if not ids_by_entity.get(name):
+                continue
+            if not wants_skeletons(name, cfg.geometry_as, cfg.skeletons):
+                continue
+            skeletons = skeletons_for(object_id, name, views[name], sample_size,
+                                      cfg.max_skeleton_voxels, cfg.num_threads)
+            index = _endpoint_index(views[name], skeletons, sample_size)
+            if index is not None:
+                out[name] = index
+        return out
 
 
 @dataclass(frozen=True)
@@ -424,6 +539,170 @@ def _foreground_index(labels: np.ndarray) -> _ForegroundIndex:
     positions = positions[order]
     ids, starts = np.unique(ids_at[order], return_index=True)
     return _ForegroundIndex(positions=positions, starts=starts, ids=ids)
+
+
+def _endpoint_index(
+    labels: np.ndarray,
+    skeletons: Dict[int, Any],
+    sample_size: Sequence[float],
+) -> Optional[_ForegroundIndex]:
+    """One structure's skeleton tips as voxels, grouped by instance, or None if it has none.
+
+    The same shape as a foreground index, so a tip distance is read off a transform the
+    same way a whole-instance one is: gather, then reduce per instance. Vertices come back
+    in µm, so they are rounded to the voxel they sit in and clipped to the volume - a
+    skeleton is built inside it, and a rounded border vertex must not index outside it.
+    """
+    spacing = np.asarray(sample_size, dtype=float)
+    shape = np.asarray(labels.shape)
+    groups: List[Tuple[int, np.ndarray]] = []
+    for label_id, skeleton in skeletons.items():
+        tips = skeleton_endpoints_um(skeleton)
+        if not len(tips):
+            continue
+        voxels = np.clip(np.rint(tips / spacing).astype(np.int64), 0, shape - 1)
+        flat = np.ravel_multi_index(tuple(voxels.T), labels.shape)
+        groups.append((int(label_id), np.unique(flat)))
+    if not groups:
+        return None
+    groups.sort()
+    positions = np.concatenate([flat for _, flat in groups])
+    counts = np.array([len(flat) for _, flat in groups])
+    return _ForegroundIndex(
+        positions=positions,
+        starts=np.concatenate([[0], np.cumsum(counts)[:-1]]).astype(np.int64),
+        ids=np.array([label_id for label_id, _ in groups], dtype=np.int64),
+    )
+
+
+def _end_distances(
+    flat: np.ndarray, index: Optional[_ForegroundIndex],
+) -> Optional[Dict[int, Tuple[float, float]]]:
+    """``{label: (nearest tip, furthest tip)}`` for one structure against one transform."""
+    if index is None or not len(index.positions):
+        return None
+    values = flat[index.positions]
+    nearest = np.minimum.reduceat(values, index.starts)
+    furthest = np.maximum.reduceat(values, index.starts)
+    return {int(label_id): (float(near), float(far))
+            for label_id, near, far in zip(index.ids, nearest, furthest)}
+
+
+@dataclass(frozen=True)
+class _ReferenceRegion:
+    """Everywhere in the object a distance is read against.
+
+    The chance distribution: the same distance transform, over the object itself rather
+    than over one structure's instances. Without it a distance has no scale - granules
+    100 nm from the membrane are against it in a cell where half the volume is 1 µm away,
+    and unremarkable in one where half of it is 80 nm away - and the difference is the
+    object's shape, not anything about the granules.
+
+    ``mask`` bounds it; with no bounding mask the whole analysed region is the reference.
+    ``excluded`` are the structures --baseline-exclude named: ground an instance could
+    never have occupied, which would otherwise pad the reference with distances no instance
+    could ever have had. The target itself needs no excluding - its own distance to itself
+    is zero, and zero is what identifies it (every other sample is at least one voxel
+    away).
+    """
+
+    mask: Optional[np.ndarray]
+    excluded: Tuple[np.ndarray, ...]
+    excluded_names: Tuple[str, ...]
+    slab_rows: int
+
+    @classmethod
+    def of(cls, views: Dict[str, np.ndarray], object_mask_name: Optional[str],
+           exclude: Any) -> "_ReferenceRegion":
+        """The region for one object: what bounds it, and what is left out of it."""
+        wanted = {normalize_name(name) for name in (exclude or ())}
+        names = tuple(sorted(
+            name for name in views
+            if normalize_name(name) in wanted and name != object_mask_name
+        ))
+        shape = next(iter(views.values())).shape if views else (1,)
+        per_row = int(np.prod(shape[1:])) or 1
+        return cls(
+            mask=views.get(object_mask_name) if object_mask_name else None,
+            excluded=tuple(views[name] for name in names),
+            excluded_names=names,
+            slab_rows=max(1, _BASELINE_SLAB_VOXELS // per_row),
+        )
+
+    @property
+    def excluded_label(self) -> Optional[str]:
+        return ", ".join(self.excluded_names) or None
+
+    def _slabs(self, transform: np.ndarray):
+        """The region's distances, a slab of the object at a time.
+
+        Walked rather than gathered: ``transform[region]`` on a whole cell is another
+        gigabyte beside the transform itself, for a histogram that needs one pass.
+        """
+        for start in range(0, transform.shape[0], self.slab_rows):
+            piece = slice(start, min(transform.shape[0], start + self.slab_rows))
+            keep = (self.mask[piece] > 0 if self.mask is not None
+                    else np.ones(transform[piece].shape, dtype=bool))
+            for other in self.excluded:
+                keep &= other[piece] == 0
+            values = transform[piece][keep]
+            # Zero is the target itself: every sample outside it is at least one voxel
+            # away, so this is how the structure is kept out of its own reference.
+            yield values[values > 0]
+
+    def distribution(self, transform: np.ndarray) -> Optional[Dict[str, Any]]:
+        """Mean, median and a binned distribution of the region's distances, in two passes.
+
+        One pass to find the range and the mean, a second to bin it - the alternative is
+        holding every value to bin it afterwards, which is the allocation this exists to
+        avoid.
+        """
+        voxels, total = 0, 0.0
+        lo, hi = float("inf"), float("-inf")
+        for values in self._slabs(transform):
+            if not values.size:
+                continue
+            voxels += int(values.size)
+            total += float(values.sum(dtype=np.float64))
+            lo = min(lo, float(values.min()))
+            hi = max(hi, float(values.max()))
+        if not voxels or not math.isfinite(lo) or not math.isfinite(hi):
+            return None
+        if hi <= lo:
+            hi = lo + 1.0
+        counts = np.zeros(_BASELINE_FINE_BINS, dtype=np.int64)
+        for values in self._slabs(transform):
+            if not values.size:
+                continue
+            bins = np.clip(
+                ((values - lo) / (hi - lo) * _BASELINE_FINE_BINS).astype(np.int64),
+                0, _BASELINE_FINE_BINS - 1,
+            )
+            counts += np.bincount(bins, minlength=_BASELINE_FINE_BINS)
+        fine_width = (hi - lo) / _BASELINE_FINE_BINS
+        stored = counts.reshape(BASELINE_HISTOGRAM_BINS, -1).sum(axis=1)
+        return {
+            "voxels": voxels,
+            "mean": total / voxels,
+            "median": _median_from_counts(counts, lo, fine_width),
+            "lo": lo,
+            "hi": hi,
+            "counts": json.dumps([int(c) for c in stored]),
+        }
+
+
+def _median_from_counts(counts: np.ndarray, lo: float, width: float) -> float:
+    """The median of a binned population, interpolated inside the bin that holds it."""
+    total = int(counts.sum())
+    if total <= 0:
+        return float("nan")
+    cumulative = np.cumsum(counts)
+    half = total / 2.0
+    at = min(int(np.searchsorted(cumulative, half, side="left")), len(counts) - 1)
+    before = float(cumulative[at - 1]) if at else 0.0
+    within = float(counts[at])
+    share = (half - before) / within if within > 0 else 0.0
+    return lo + (at + share) * width
 
 
 def _distance_stats(values: np.ndarray, index: _ForegroundIndex) -> Dict[str, Any]:

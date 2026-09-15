@@ -219,3 +219,70 @@ def test_distance_histograms_share_their_bins_across_an_entity(monkeypatch):
         assert len(bins) == 20
         assert sum(bins) == 27          # every voxel of the instance is counted
         assert mean >= minimum          # the mean cannot beat the closest voxel
+
+
+# ── the distance a filament's ends sit at ─────────────────────────────────────
+
+
+def _rod(label: int, y: int, x0: int, x1: int) -> np.ndarray:
+    """One voxel-wide filament along X, which has two tips and nothing in between."""
+    vol = np.zeros(SHAPE, dtype=np.int32)
+    vol[5, y, x0:x1] = label
+    return vol
+
+
+def _distances(row, entity, target):
+    """One (entity, target) pair's distance row, as a dict."""
+    idx = [i for i, (e, t) in enumerate(zip(row["distance_entity"], row["distance_target"]))
+           if e == entity and t == target]
+    return [{k: v[i] for k, v in row.items() if k.startswith("distance_")} for i in idx]
+
+
+def test_end_distances_are_measured_at_the_skeleton_tips(monkeypatch):
+    """The nearest and furthest tip, which is a different reading from the whole instance.
+
+    The rod runs past the blob along its length, so the part of it that comes closest is
+    its middle - and neither of its ends is anywhere near as close.
+    """
+    monkeypatch.setenv("ORGANELLA_SKELETONS", "rods")
+    rods = _rod(1, 10, 2, 18)
+    blob = _blocks((1, (5, 6, 9), (1, 2, 2)))          # beside the middle of the rod
+    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")))
+
+    [to_blob] = _distances(row, "rods", "blob")
+    # Closest point of the rod to the blob: straight across, three voxels of Y.
+    assert to_blob["distance_um"] == pytest.approx(3 * VOXEL[1], abs=1e-6)
+    # Its tips are at x=2 and x=17, which are 7 and 8 voxels along X from the blob's
+    # nearest voxel as well as 3 across - so both ends sit further away than the middle.
+    assert to_blob["distance_end_min_um"] > to_blob["distance_um"]
+    assert to_blob["distance_end_max_um"] >= to_blob["distance_end_min_um"]
+    assert to_blob["distance_end_min_um"] == pytest.approx(
+        float(np.hypot(3 * VOXEL[1], 7 * VOXEL[2])), abs=1e-6)
+
+
+def test_one_end_against_a_structure_and_one_away_from_it(monkeypatch):
+    """The pair is the point: a tip on a structure and a tip far from it read differently."""
+    monkeypatch.setenv("ORGANELLA_SKELETONS", "rods")
+    rods = _rod(1, 10, 4, 18)
+    # Directly beyond the rod's left tip, so that end touches and the other does not.
+    blob = _blocks((1, (5, 10, 2), (1, 1, 2)))
+    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")))
+
+    [to_blob] = _distances(row, "rods", "blob")
+    assert to_blob["distance_end_min_um"] == pytest.approx(to_blob["distance_um"], abs=1e-6)
+    # The far tip is at x=17 and the blob reaches x=3: fourteen voxels of X, and nothing
+    # in Y or Z, since the rod runs straight at it.
+    assert to_blob["distance_end_max_um"] == pytest.approx(14 * VOXEL[2], abs=1e-6)
+
+
+def test_a_structure_with_no_skeleton_has_no_ends():
+    """Skeletons are opt-in, and without them the columns are not written at all.
+
+    Not written rather than written null: there are five distance rows per instance, and a
+    column no instance could fill is a column of nulls the length of the report.
+    """
+    mito = _blocks((1, (2, 2, 2), (3, 3, 3)))
+    nucleus = _blocks((1, (2, 2, 8), (3, 3, 3)))
+    row = _measure(_object(mito=(mito, "label"), nucleus=(nucleus, "mask")))
+
+    assert "distance_end_min_um" not in row

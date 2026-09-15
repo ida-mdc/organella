@@ -7,6 +7,8 @@ into the row above it:
     obs_level=1  row_type='entity'                          one row per structure, by name
     obs_level=2  row_type='instance'|'distance'|'contact'    one row per instance, per
                                                             instance-target pair, per touching pair
+                 row_type='baseline'                        one row per structure measured
+                                                            to, for the whole region
 
 Rows rather than list columns on the object row: the viewer materialises ``obs_level=0`` in
 memory (``pp_data``) and leaves the rest a lazy view over the parquet (``pp_all``), so an
@@ -14,8 +16,8 @@ edge list up there was loaded in full for every report whatever widget was open.
 are read column-pruned when a widget asks, and queried in plain SQL rather than several
 ``unnest()`` calls that have to stay row-aligned.
 
-Columns keep their prefixes (``instance_*``, ``distance_*``, ``contact_*``) to say which row
-kind they belong to, now that one table holds all of them.
+Columns keep their prefixes (``instance_*``, ``distance_*``, ``contact_*``, ``baseline_*``) to
+say which row kind they belong to, now that one table holds all of them.
 
 A deep row carries only what identifies it plus what was measured - no group, no provenance.
 ``object_id`` joins back to the object row for those, which is also how a widget picks up
@@ -32,6 +34,9 @@ ENTITY_ROW = "entity"
 INSTANCE_ROW = "instance"
 DISTANCE_ROW = "distance"
 CONTACT_ROW = "contact"
+# What a distance is read against: the same distances over the whole region rather than over
+# one structure's instances, so "closer than anywhere" can be told from "close".
+BASELINE_ROW = "baseline"
 
 # Below the entity rows: obs_level is how deep a row sits, and 2 keeps a deep row out of
 # both the object level (0) and the per-entity level (1).

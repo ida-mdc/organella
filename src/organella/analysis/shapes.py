@@ -328,6 +328,25 @@ def skeleton_graph_metrics(sk) -> Dict[str, float]:
     return {"branches": branches, "length_um": length_um, "tortuosity": tortuosity}
 
 
+def skeleton_endpoints_um(sk) -> np.ndarray:
+    """Where one instance's skeleton stops, in µm in the volume frame (array axis order).
+
+    The degree-1 vertices: a tip is a vertex with one edge, where a junction has three and
+    the middle of a branch two. What it is for is the distance a *tip* sits at, which is a
+    different question from the distance any part of the instance sits at - a microtubule
+    can run past a structure all along its length and end nowhere near it.
+
+    A closed loop has no tips and comes back empty rather than as an arbitrary vertex, and
+    so does anything with no edges: one vertex is not an end of anything.
+    """
+    verts = np.asarray(getattr(sk, "vertices", np.zeros((0, 3))), dtype=np.float64)
+    edges = np.asarray(getattr(sk, "edges", np.zeros((0, 2), dtype=int)))
+    if not len(verts) or not edges.size:
+        return verts[:0]
+    degree = np.bincount(edges.reshape(-1).astype(np.int64), minlength=len(verts))
+    return verts[degree == 1]
+
+
 # ── where the foreground is ───────────────────────────────────────────────────
 
 
