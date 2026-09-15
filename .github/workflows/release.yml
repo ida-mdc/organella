@@ -1,0 +1,80 @@
+name: Release
+
+# A tag is the trigger, so publishing is deliberate: `git tag v0.1.0 && git push --tags`.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Nothing is granted by default; the publish job asks for the one token it needs.
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The tag names the version that will be on PyPI forever, and pyproject names the
+      # version that is actually built. A mismatch means tagging v0.2.0 and shipping 0.1.0,
+      # or failing at the upload because 0.1.0 is already there.
+      - name: The tag and the version agree
+        if: github.ref_type == 'tag'
+        run: |
+          built=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          tagged="${GITHUB_REF_NAME#v}"
+          test "$built" = "$tagged" || {
+            echo "::error::tag $GITHUB_REF_NAME says $tagged, pyproject says $built"
+            exit 1
+          }
+          echo "releasing $built"
+
+      # A release should not be the first place a failure turns up, so the suite runs here
+      # too rather than trusting that CI ran on this commit.
+      - name: Test
+        run: |
+          uv venv --python 3.12 .venv
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote,test]'
+          .venv/bin/python -m pytest -q
+
+      - name: Build
+        run: uv build
+
+      # The report page is a data file inside the package: a wheel without it installs a CLI
+      # with nothing to open, and no test would notice.
+      - name: The wheel carries the page
+        run: unzip -l dist/*.whl | grep -q 'organella/report/organella_report.html'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Named so the publisher on PyPI can be pinned to it, and so a release can be gated on
+    # a review in the repository's settings.
+    environment: pypi
+    permissions:
+      id-token: write        # the only thing trusted publishing needs: no token is stored
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: astral-sh/setup-uv@v5
+
+      # `always`, so a misconfigured publisher fails loudly instead of quietly asking for a
+      # password. --check-url lets a re-run skip what is already uploaded rather than error.
+      - name: Publish
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/organella/
