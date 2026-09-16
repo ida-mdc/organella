@@ -6096,35 +6096,20 @@ function renderEntityStats() {
         if (at > 0) { by[name] = at; drawn.push(entry); } else collapsed.push(entry);
       });
       if (!drawn.length && !collapsed.length) return null;
-      var per = function(entries, pick) {
-        return entries.map(function(x) {
-          return (Object.keys(objectsOf).length > 1
-            ? escHtml(facets.labelOf(x.name)) + ' ' : '') + fmtGap(pick(x));
-        }).join(', ');
-      };
       var sentences = [];
       if (drawn.length) {
         // An allowance of zero is still an allowance - two structures that overlap leave
-        // one - but there is nothing to say about it, and saying it anyway is a number per
-        // facet that only reads as noise.
+        // one - but there is nothing to say about it.
         var anyAllowance = allowExtent && drawn.some(function(x){ return x.gap > 0; });
-        // Where the line is, once. With no allowance the line *is* that median, and this
-        // used to say it twice: "Dotted: 0.81 µm", which names no quantity, and then "Half
-        // the cell lies within 0.81 µm of membrane", which names the same number again.
-        sentences.push(anyAllowance
-          ? 'Dotted: ' + per(drawn, function(x){ return x.at; }) + ' µm - half the '
-            + noun() + ' lies within ' + per(drawn, function(x){ return x.median; })
-            + ' µm of ' + dataName(target) + ', less the '
-            + per(drawn, function(x){ return x.gap; })
-            + ' µm an instance of this size spans.'
-          : 'Dotted: half the ' + noun() + ' lies within '
-            + per(drawn, function(x){ return x.median; }) + ' µm of '
-            + dataName(target) + '.');
+        // What the line is, not where it is: where it is, is the line. Printing the
+        // number as well said the same thing twice, once in a form that named no quantity.
+        sentences.push('Dotted: the distance half the ' + noun() + ' lies within of '
+          + dataName(target)
+          + (anyAllowance ? ', less what an instance this size spans.' : '.'));
       }
       collapsed.forEach(function(x) {
-        sentences.push('No line for '
-          + escHtml(facets.labelOf(x.name)) + ': the allowance, ' + fmtGap(x.gap)
-          + ' µm, is larger than the ' + fmtGap(x.median) + ' µm distance.');
+        sentences.push('No line for ' + escHtml(facets.labelOf(x.name))
+          + ': what an instance this size spans is further than that distance.');
       });
       if (allowExtent && !measured) {
         sentences.push('No extent allowance was measured: re-run with'

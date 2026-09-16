@@ -7,6 +7,7 @@ the shape a report is read into, the maths the panels draw, the binary container
 are in and the SQL the geometry sections build are all pinned here instead.
 """
 
+import re
 import duckdb
 import pytest
 from conftest import (report_column_help as help_of, report_rows as rows_of,
@@ -834,15 +835,17 @@ def test_the_reader_is_told_what_the_dotted_line_is(drawn):
     said = " ".join(drawn["footnotes"])
     prose = " ".join(drawn["prose"])
 
-    assert "Dotted:" in said and "µm" in said
-    assert "lies within" in said, "a panel says the distance its line came from"
+    assert "Dotted:" in said
+    assert "lies within" in said, "a panel says what its line is the distance of"
     assert "The dotted line on each panel is chance" in prose
-    # Said once. It used to be "Dotted: 0.81 µm" - a number naming no quantity - and then
-    # the same number again after "half the cell lies within".
+    # And says it without a number in it. Where the line is, is the line; printing the
+    # value as well said the same thing twice, the first time in a form - "Dotted: 0.81
+    # µm" - that named no quantity at all.
     for note in drawn["footnotes"]:
-        if "Dotted:" not in note:
-            continue
-        assert note.count("lies within") <= 1, note
+        for sentence in note.split(". "):
+            if "Dotted:" not in sentence and "No line for" not in sentence:
+                continue
+            assert not re.search(r"\d", sentence), sentence
 
 
 # ── the ends of a filament, as against the whole of it ──────────────────────
@@ -1075,7 +1078,7 @@ def test_no_line_is_drawn_where_the_allowance_swallows_the_distance(report_path)
                       "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
 
     notes = " ".join(f for f in drawn["footnotes"] if "No line for" in f)
-    assert "is larger than the" in notes
+    assert "is further than that distance" in notes
     # And nothing was drawn at zero on those panels.
     for panel in drawn["references"]:
         if "angle to" in panel["title"]:
