@@ -16,13 +16,14 @@ from __future__ import annotations
 import http.server
 import os
 import socket
+import sys
 import threading
 import urllib.parse
 import webbrowser
 from functools import partial
 from http import HTTPStatus
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 PAGE_FILENAME = "organella_report.html"
 
@@ -89,11 +90,30 @@ def _parse_range(header: str, size: int) -> Optional[Tuple[int, int]]:
     return start, end - start + 1
 
 
+class _Server(http.server.ThreadingHTTPServer):
+    """The server :func:`serve` runs.
+
+    A client that hangs up part way through a file is ordinary here: a parquet reader asks
+    for the bytes its query needs and moves on. Not worth a traceback on the console of a
+    command whose own output is one line.
+    """
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        if not isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            super().handle_error(request, client_address)
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     """The report's folder at ``/``, the page and the geometry mounted beside it."""
 
-    page: Path
-    geometry: Optional[Path]
+    def __init__(self, *args: Any, page: Path, geometry: Optional[Path],
+                 **kwargs: Any) -> None:
+        # Per request, not per class: the base class handles the request inside __init__,
+        # so these are set first. On the class they were shared, and a second server in one
+        # process served the first one's geometry.
+        self.page = page
+        self.geometry = geometry
+        super().__init__(*args, **kwargs)
 
     def translate_path(self, path: str) -> str:
         clean = urllib.parse.unquote(path.split("?", 1)[0].split("#", 1)[0])
@@ -188,6 +208,23 @@ def open_url(report: Path, port: int, host: str = "127.0.0.1") -> str:
     return url
 
 
+def make_server(report: Path, port: int = 8052) -> _Server:
+    """The server :func:`serve` runs, bound and ready but not yet answering.
+
+    Separate from serve() so a caller can hold it and stop it again - and so it can be
+    given port 0 and asked which port it got, rather than finding a free one and hoping it
+    is still free by the time anything binds it.
+    """
+    report = report.resolve()
+    handler = partial(_Handler, directory=str(report.parent),
+                      page=report_page(), geometry=geometry_root(report))
+    try:
+        return _Server(("127.0.0.1", port), handler)
+    except OSError as exc:
+        raise SystemExit(f"Could not listen on port {port}: {exc}\n"
+                         "Another process is using it; pass --port.") from exc
+
+
 def serve(report: Path, port: int = 8052, open_browser: bool = True) -> str:
     """Serve the page, the report and its geometry from one origin; return the URL.
 
@@ -195,14 +232,7 @@ def serve(report: Path, port: int = 8052, open_browser: bool = True) -> str:
     it from another. Blocks until interrupted.
     """
     report = report.resolve()
-    handler = partial(_Handler, directory=str(report.parent))
-    _Handler.page = report_page()
-    _Handler.geometry = geometry_root(report)
-    try:
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    except OSError as exc:
-        raise SystemExit(f"Could not listen on port {port}: {exc}\n"
-                         "Another process is using it; pass --port.") from exc
+    server = make_server(report, port)
     url = open_url(report, server.server_address[1])
     if open_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()

@@ -44,6 +44,15 @@ jobs:
       - name: Test
         run: .venv/bin/python -m pytest -q
 
+      # Again in a different order. A test that leaves something behind passes every time
+      # in the order the files are named and fails for whoever runs one of them on its own,
+      # which is how this suite came to have an order it only worked in. The seed changes
+      # per run, so a dependence that survives one order does not survive for long.
+      - name: Test again, in another order
+        env:
+          ORGANELLA_TEST_SHUFFLE: ${{ github.run_number }}
+        run: .venv/bin/python -m pytest -q
+
   lint:
     runs-on: ubuntu-latest
     steps:

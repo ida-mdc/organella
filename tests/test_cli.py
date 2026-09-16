@@ -1,7 +1,6 @@
 import json
 import re
 import threading
-import time
 from pathlib import Path
 
 import polars as pl
@@ -348,39 +347,55 @@ def test_the_page_is_self_contained():
         assert url.startswith(allowed), url
 
 
-def test_view_serves_the_report_and_points_the_page_at_it(tmp_path, report_path):
-    """One origin for both, because the page reads the geometry over HTTP."""
+@pytest.fixture
+def served(tmp_path, report_path):
+    """A report on a server of its own, stopped again when the test is done.
+
+    Bound before it is answering, so there is nothing to poll for and no window in which
+    the port could be taken by something else; port 0 lets the OS pick and the server says
+    which it got. Stopped in teardown, because a daemon thread left running serves for the
+    rest of the session and sprays its own tracebacks through later tests' output.
+    """
     import shutil
+
+    from organella import report_page as page_mod
+
+    report = tmp_path / "report.parquet"
+    shutil.copy(report_path, report)
+    server = page_mod.make_server(report, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield report, server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_view_serves_the_report_and_points_the_page_at_it(served):
+    """One origin for both, because the page reads the geometry over HTTP."""
     import urllib.request
 
     from organella import report_page as page_mod
 
-    served = tmp_path / "report.parquet"
-    shutil.copy(report_path, served)
-    port = page_mod.free_port()
-
-    thread = threading.Thread(
-        target=page_mod.serve, args=(served,),
-        kwargs={"port": port, "open_browser": False}, daemon=True)
-    thread.start()
-    url = page_mod.open_url(served, port)
-    for _ in range(100):                       # the server needs a moment to bind
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/report.parquet").read(4)
-            break
-        except OSError:
-            time.sleep(0.05)
+    report, port = served
 
     # The page, the report, and the geometry, all reachable from where the page is opened.
-    assert "data=report.parquet" in url
+    assert "data=report.parquet" in page_mod.open_url(report, port)
     page = urllib.request.urlopen(
         f"http://127.0.0.1:{port}/{page_mod.PAGE_FILENAME}").read().decode()
     assert "Organella Report" in page
-    assert urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/report.parquet").read(4) == b"PAR1"
+    # By range, which is how a parquet reader asks: the magic is the first four bytes, and
+    # taking four of a nine-megabyte file is the whole point of the server answering ranges.
+    magic = urllib.request.Request(f"http://127.0.0.1:{port}/report.parquet",
+                                   headers={"Range": "bytes=0-3"})
+    with urllib.request.urlopen(magic) as answer:
+        assert answer.status == 206, answer.status
+        assert answer.read() == b"PAR1"
 
 
-def test_nothing_served_may_be_cached(tmp_path, report_path):
+def test_nothing_served_may_be_cached(served):
     """The same URL serves every run's copy of a file, so a kept one is a wrong one.
 
     A geometry file is /__geometry/<object_id>/geometry.parquet whichever run wrote it, and
@@ -388,24 +403,11 @@ def test_nothing_served_may_be_cached(tmp_path, report_path):
     cache hands DuckDB a glob of two schemas, and the reader is told "schema mismatch in
     glob" about files that are all correct on disk.
     """
-    import shutil
     import urllib.request
 
     from organella import report_page as page_mod
 
-    served = tmp_path / "report.parquet"
-    shutil.copy(report_path, served)
-    port = page_mod.free_port()
-    thread = threading.Thread(
-        target=page_mod.serve, args=(served,),
-        kwargs={"port": port, "open_browser": False}, daemon=True)
-    thread.start()
-    for _ in range(100):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/report.parquet").read(4)
-            break
-        except OSError:
-            time.sleep(0.05)
+    _report, port = served
 
     for path in (page_mod.PAGE_FILENAME, "report.parquet"):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/{path}") as answer:
