@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
+from organella import report_io
 from organella.cli import (
     FLAVOR,
     _apply_analysis_env,
@@ -104,6 +105,27 @@ def test_a_missing_colour_file_is_an_error_not_a_default(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="no such file"):
         RunConfig.from_env()
+
+
+def test_a_report_records_the_version_that_measured_it(report_path):
+    """The footer's version is what says which code produced a file somebody was sent.
+
+    There were two versions to bump - pyproject's and organella.__version__ - and only one
+    of them was, so 0.2.0 reports went out stamped 0.1.0. pyproject reads the module's now,
+    which is what this pins: a bump in one place cannot leave the other behind.
+    """
+    import tomllib
+
+    import organella
+
+    _, footer = report_io.read(report_path)
+    assert footer["organella_version"] == organella.__version__
+
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    assert "version" not in pyproject["project"], (
+        "pyproject carries a second version; it should read organella.__version__")
+    assert pyproject["project"]["dynamic"] == ["version"]
+    assert pyproject["tool"]["hatch"]["version"]["path"] == "src/organella/__init__.py"
 
 
 def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path):

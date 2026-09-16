@@ -1,7 +1,10 @@
 [project]
 name = "organella"
-version = "0.2.0"
-description = "Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
+# Read from organella.__version__ by hatchling (see [tool.hatch.version]), because that is
+# the string every report's footer records: a second copy here was bumped on its own and
+# reports went out stamped with the previous release.
+dynamic = ["version"]
+description ="Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -80,6 +83,9 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 package = true
+
+[tool.hatch.version]
+path = "src/organella/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/organella"]

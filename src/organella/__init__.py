@@ -28,4 +28,7 @@ its own, since an object cannot be split across chunks, and the report is writte
 here too.
 """
 
-__version__ = "0.1.0"
+# The one place the version is written. pyproject reads it from here to build the package,
+# and report_io stamps it into every report's footer, so the file says which version
+# measured it. Two copies drifted the first time one of them was bumped.
+__version__ = "0.2.0"
