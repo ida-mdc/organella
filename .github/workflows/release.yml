@@ -23,13 +23,14 @@ jobs:
         with:
           node-version: '20'
 
-      # The tag names the version that will be on PyPI forever, and pyproject names the
-      # version that is actually built. A mismatch means tagging v0.2.0 and shipping 0.1.0,
-      # or failing at the upload because 0.1.0 is already there.
+      # The tag names the version that will be on PyPI forever, and organella.__version__
+      # names the version that is actually built - pyproject reads it from there, and so does
+      # every report's footer. A mismatch means tagging v0.2.0 and shipping 0.1.0, or failing
+      # at the upload because 0.1.0 is already there.
       - name: The tag and the version agree
         if: github.ref_type == 'tag'
         run: |
-          built=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          built=$(grep -m1 '^__version__ = ' src/organella/__init__.py | cut -d'"' -f2)
           tagged="${GITHUB_REF_NAME#v}"
           test "$built" = "$tagged" || {
             echo "::error::tag $GITHUB_REF_NAME says $tagged, pyproject says $built"

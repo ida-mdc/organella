@@ -1,15 +1,20 @@
-"""Run configuration.
+"""Run configuration: what a run was asked for, as one value.
 
-Each object is measured in its own worker process, and a measurer is constructed with no
-arguments, so the knobs travel as environment variables - ``ORGANELLA_`` followed by the
-field name, read once per process and set by the CLI from its own flags. ``from_env`` below
-is the whole list; the fields carry why each default is what it is.
+:class:`RunConfig` is the whole list, and each field carries why its default is what it is.
+The CLI builds one from its flags and hands it to :func:`organella.pipeline.analyse`, which
+hands it to each object's worker along with the work.
+
+Passed rather than picked up: the settings used to travel as ``ORGANELLA_*`` environment
+variables, because a measurer was constructed with no arguments and a spawned worker
+inherits the environment. That made the defaults ambiguous - every one of them was written
+twice, once as a field here and once as a fallback where the variable was read - and it made
+a run depend on what an earlier one had left behind. This is plain data and pickles like any
+other argument, so there is nothing the environment was needed for.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,35 +134,10 @@ def parse_entity_filter(raw: Optional[str]) -> EntityFilter:
     return frozenset(part for part in (p.strip() for p in raw.split(",")) if part)
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    return default if raw is None else raw.strip().lower() in _TRUE
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
-def _colours_from(path: Path, name: str) -> Dict[str, str]:
+def colours_from_file(path: Path, flag: str = "--colours") -> Dict[str, str]:
     """Structure colours from a JSON file: ``{"mito": "#d62728", "er": "#2ca02c"}``.
 
     The report carries them, so a shared parquet arrives already coloured. Names the batch
@@ -167,17 +147,17 @@ def _colours_from(path: Path, name: str) -> Dict[str, str]:
     try:
         loaded = json.loads(path.read_text())
     except FileNotFoundError:
-        raise ValueError(f"{name}: no such file: {path}") from None
+        raise ValueError(f"{flag}: no such file: {path}") from None
     except json.JSONDecodeError as error:
-        raise ValueError(f"{name}: {path} is not valid JSON: {error}") from None
+        raise ValueError(f"{flag}: {path} is not valid JSON: {error}") from None
     if not isinstance(loaded, dict):
-        raise ValueError(f"{name}: {path} must hold an object of structure: colour pairs")
+        raise ValueError(f"{flag}: {path} must hold an object of structure: colour pairs")
 
     colours: Dict[str, str] = {}
     for entity, colour in loaded.items():
         if not isinstance(colour, str) or not _HEX.match(colour):
             raise ValueError(
-                f"{name}: {path} gives {entity!r} the colour {colour!r}; it has to be a hex "
+                f"{flag}: {path} gives {entity!r} the colour {colour!r}; it has to be a hex "
                 "colour like '#d62728' or '#d62'"
             )
         # One form only, so two spellings of the same colour compare equal.
@@ -188,22 +168,12 @@ def _colours_from(path: Path, name: str) -> Dict[str, str]:
     return colours
 
 
-def _env_colours(name: str) -> Dict[str, str]:
-    """The colours the settings file gives, read once per process."""
-    raw = os.environ.get(name)
-    return dict(_colours_from(Path(raw.strip()), name)) if raw and raw.strip() else {}
-
-
-def _env_label_map(name: str) -> Dict[int, str]:
+def label_map_from_file(path: Path) -> Dict[int, str]:
     """``{id: structure}`` from a JSON file: ``{"1": "liver", "2": "spleen"}``.
 
     Keys are label ids, so a key that is not an integer is named as a mistake rather than
     becoming a structure that never matches anything.
     """
-    raw = os.environ.get(name)
-    if not raw or not raw.strip():
-        return {}
-    path = Path(raw.strip())
     try:
         loaded = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
@@ -221,18 +191,18 @@ def _env_label_map(name: str) -> Dict[int, str]:
     return out
 
 
-def _env_voxel_size(name: str) -> Optional[Tuple[float, ...]]:
+def parse_voxel_size(raw: Optional[str],
+                     flag: str = "--voxel-size-um") -> Optional[Tuple[float, ...]]:
     """Sample size in µm: 'z,y,x' for volumes, 'y,x' for planes.
 
     A length that does not match the images is refused rather than padded or truncated,
     which would rescale every measurement.
     """
-    raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return None
     parts = [p for p in raw.replace(" ", "").split(",") if p]
     if len(parts) not in (2, 3):
-        raise ValueError(f"{name} must be 'z,y,x' (3D) or 'y,x' (2D) in µm, got {raw!r}")
+        raise ValueError(f"{flag} must be 'z,y,x' (3D) or 'y,x' (2D) in µm, got {raw!r}")
     return tuple(float(p) for p in parts)
 
 
@@ -331,40 +301,3 @@ class RunConfig:
             payload["extra"] = [plain(e) for e in extra]
         blob = json.dumps(payload, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
-
-    @classmethod
-    def from_env(cls) -> "RunConfig":
-        return cls(
-            object_mask=os.environ.get("ORGANELLA_OBJECT_MASK") or None,
-            object_noun=os.environ.get("ORGANELLA_OBJECT_NOUN") or None,
-            voxel_size_um=_env_voxel_size("ORGANELLA_VOXEL_SIZE_UM"),
-            clip=not _env_flag("ORGANELLA_NO_CLIP"),
-            auto_label_masks=_env_flag("ORGANELLA_AUTO_LABEL_MASKS"),
-            entities=parse_entity_filter(os.environ.get("ORGANELLA_ENTITIES")),
-            label_map=_env_label_map("ORGANELLA_LABEL_MAP"),
-            label_map_entity=(os.environ.get("ORGANELLA_LABEL_MAP_ENTITY") or None),
-            entity_colours=_env_colours("ORGANELLA_ENTITY_COLOURS"),
-            max_skeleton_voxels=_env_int("ORGANELLA_MAX_SKELETON_VOXELS", 500_000),
-            skeletons=parse_entity_filter(os.environ.get("ORGANELLA_SKELETONS")),
-            geometry_as=parse_geometry_as(os.environ.get("ORGANELLA_GEOMETRY_AS")),
-            num_threads=_env_int("ORGANELLA_NUM_THREADS", 1),
-            edt_threads=_env_int("ORGANELLA_EDT_THREADS", 0),
-            contact_max_um=_env_float("ORGANELLA_CONTACT_MAX_UM", 0.5),
-            polarity_spread=_env_flag("ORGANELLA_POLARITY_SPREAD"),
-            distance_histograms=_env_flag("ORGANELLA_DISTANCE_HISTOGRAMS"),
-            baseline_exclude=parse_entity_filter(
-                os.environ.get("ORGANELLA_BASELINE_EXCLUDE")),
-            mesh_dir=os.environ.get("ORGANELLA_MESH_DIR") or None,
-            mesh_smooth_sigma=_env_float("ORGANELLA_MESH_SMOOTH_SIGMA", 0.7),
-            mesh_step_size=_env_int("ORGANELLA_MESH_STEP_SIZE", 2),
-            mesh_target_reduction=_env_float("ORGANELLA_MESH_TARGET_REDUCTION", 0.8),
-            mesh_level=(
-                _env_float("ORGANELLA_MESH_LEVEL", 0.0)
-                if os.environ.get("ORGANELLA_MESH_LEVEL") else None
-            ),
-            mesh_workers=_env_int("ORGANELLA_MESH_WORKERS", 0),
-            mesh_max_vertices=_env_int("ORGANELLA_MESH_MAX_VERTICES", 200_000),
-            mesh_surface_method=(os.environ.get("ORGANELLA_MESH_SURFACE_METHOD")
-                                 or "marching-cubes"),
-            reuse_geometry=_env_flag("ORGANELLA_REUSE_GEOMETRY"),
-        )

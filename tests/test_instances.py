@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from organella.config import RunConfig
 from organella.measure.instances import InstanceMeasurer
 
 from conftest import object_stack
@@ -13,14 +14,19 @@ def _object(**entities: tuple[np.ndarray, str]):
     return object_stack(entities, voxel_size=VOXEL)
 
 
-def _measure(stack):
+def _skeletonising() -> RunConfig:
+    """The settings of a run that asked for the rods to be skeletonised."""
+    return RunConfig(skeletons=frozenset({"rods"}))
+
+
+def _measure(stack, config: RunConfig | None = None):
     """One object's instance and distance columns, plus what landed on the object row.
 
     The processor hands back columnar tables - one list per column, one element per row -
     which is the shape these assertions were always written against; what changed is that
     those columns are now rows of the report rather than lists on the object row.
     """
-    measured = InstanceMeasurer().measure(stack)
+    measured = InstanceMeasurer(config or RunConfig()).measure(stack)
     columns = {name: values for table in measured.tables.values()
                for name, values in table.items()}
     return {**columns, **measured.columns}
@@ -177,15 +183,15 @@ def test_polarity_spread_is_off_unless_asked_for():
     assert row["instance_polar_spread_deg"] == [None]
 
 
-def test_polarity_spread_grows_with_the_directions_an_instance_covers(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_POLARITY_SPREAD", "1")
+def test_polarity_spread_grows_with_the_directions_an_instance_covers():
     pm = np.zeros(SHAPE, dtype=np.int32)
     pm[1:9, 1:19, 1:19] = 1
     compact = _blocks((1, (4, 9, 15), (2, 2, 2)))                 # a blob off to one side
     sprawling = np.zeros(SHAPE, dtype=np.int32)
     sprawling[4:6, 2:18, 5:7] = 2                                 # a strand along Y, elsewhere
     row = _measure(
-        _object(pm=(pm, "mask"), mito=((compact + sprawling), "label"))
+        _object(pm=(pm, "mask"), mito=((compact + sprawling), "label")),
+        RunConfig(polarity_spread=True),
     )
 
     spreads = dict(zip(row["instance_label"], row["instance_polar_spread_deg"]))
@@ -201,13 +207,13 @@ def test_distance_histograms_are_off_unless_asked_for():
     assert "distance_mean_um" not in row
 
 
-def test_distance_histograms_share_their_bins_across_an_entity(monkeypatch):
+def test_distance_histograms_share_their_bins_across_an_entity():
     import json
 
-    monkeypatch.setenv("ORGANELLA_DISTANCE_HISTOGRAMS", "1")
     mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 14), (3, 3, 3)))
     nucleus = _blocks((1, (2, 2, 8), (3, 3, 3)))
-    row = _measure(_object(mito=(mito, "label"), nucleus=(nucleus, "mask")))
+    row = _measure(_object(mito=(mito, "label"), nucleus=(nucleus, "mask")),
+                   RunConfig(distance_histograms=True))
 
     # Shared bounds per entity/target pair, unlike the original standalone script's per-instance range:
     # shared bins are what makes two instances' distributions comparable.
@@ -238,16 +244,15 @@ def _distances(row, entity, target):
     return [{k: v[i] for k, v in row.items() if k.startswith("distance_")} for i in idx]
 
 
-def test_end_distances_are_measured_at_the_skeleton_tips(monkeypatch):
+def test_end_distances_are_measured_at_the_skeleton_tips():
     """The nearest and furthest tip, which is a different reading from the whole instance.
 
     The rod runs past the blob along its length, so the part of it that comes closest is
     its middle - and neither of its ends is anywhere near as close.
     """
-    monkeypatch.setenv("ORGANELLA_SKELETONS", "rods")
     rods = _rod(1, 10, 2, 18)
     blob = _blocks((1, (5, 6, 9), (1, 2, 2)))          # beside the middle of the rod
-    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")))
+    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")), _skeletonising())
 
     [to_blob] = _distances(row, "rods", "blob")
     # Closest point of the rod to the blob: straight across, three voxels of Y.
@@ -260,13 +265,12 @@ def test_end_distances_are_measured_at_the_skeleton_tips(monkeypatch):
         float(np.hypot(3 * VOXEL[1], 7 * VOXEL[2])), abs=1e-6)
 
 
-def test_one_end_against_a_structure_and_one_away_from_it(monkeypatch):
+def test_one_end_against_a_structure_and_one_away_from_it():
     """The pair is the point: a tip on a structure and a tip far from it read differently."""
-    monkeypatch.setenv("ORGANELLA_SKELETONS", "rods")
     rods = _rod(1, 10, 4, 18)
     # Directly beyond the rod's left tip, so that end touches and the other does not.
     blob = _blocks((1, (5, 10, 2), (1, 1, 2)))
-    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")))
+    row = _measure(_object(rods=(rods, "label"), blob=(blob, "mask")), _skeletonising())
 
     [to_blob] = _distances(row, "rods", "blob")
     assert to_blob["distance_end_min_um"] == pytest.approx(to_blob["distance_um"], abs=1e-6)

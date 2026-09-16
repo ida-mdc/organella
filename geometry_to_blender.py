@@ -329,11 +329,11 @@ def main():
 
     if out_blend:
         bpy.ops.wm.save_as_mainfile(filepath=out_blend)
-        print(f"[geometry_to_blender] Saved → {out_blend}")
+        print(f"[geometry_to_blender] Saved -> {out_blend}")
     if out_render:
         bpy.context.scene.render.filepath = out_render
         bpy.ops.render.render(write_still=True)
-        print(f"[geometry_to_blender] Rendered → {out_render}")
+        print(f"[geometry_to_blender] Rendered -> {out_render}")
 
 
 # Blender runs a script as __main__, both headless (--python) and from the Script

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from organella.analysis.shapes import region_metrics
+from organella.config import RunConfig
 from organella.measure import load_object
 from organella.measure.contacts import ContactMeasurer
 from organella.measure.instances import InstanceMeasurer
@@ -16,7 +17,7 @@ from organella.measure.morphology import MorphologyMeasurer
 from organella.analysis.meshes import MeshOptions, mesh_rows_for_object, payload_counts
 from synthetic import PIXEL_SIZE_UM, make_object_2d
 
-from conftest import object_stack
+from conftest import object_stack, settings
 
 PIXEL = PIXEL_SIZE_UM
 
@@ -47,7 +48,7 @@ def _blocks(*specs) -> np.ndarray:
 # ── loading ───────────────────────────────────────────────────────────────────
 
 def test_a_2d_folder_loads_as_a_cyx_record(object_2d):
-    record = load_object(object_2d)
+    record = load_object(object_2d, settings())
 
     # Not CZYX with Z=1: the axes are what tell every processor which geometry to use.
     assert record.dim_order == "CYX"
@@ -57,7 +58,7 @@ def test_a_2d_folder_loads_as_a_cyx_record(object_2d):
 
 
 def test_a_2d_object_has_no_z_pixel_size(object_2d):
-    record = load_object(object_2d)
+    record = load_object(object_2d, settings())
 
     # A made-up depth would silently turn every area into a volume.
     assert "pixel_size_Z" not in record.meta
@@ -65,17 +66,13 @@ def test_a_2d_object_has_no_z_pixel_size(object_2d):
     assert "object_center_z_um" not in record.meta
 
 
-def test_a_voxel_size_with_three_values_is_refused_for_2d(object_2d, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.1,0.02,0.02")
-
+def test_a_voxel_size_with_three_values_is_refused_for_2d(object_2d):
     with pytest.raises(ValueError, match="images are 2D"):
-        load_object(object_2d)
+        load_object(object_2d, settings(voxel_size_um=(0.1, 0.02, 0.02)))
 
 
-def test_a_2d_pixel_size_can_be_given_as_two_values(object_2d, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.05,0.05")
-
-    record = load_object(object_2d)
+def test_a_2d_pixel_size_can_be_given_as_two_values(object_2d):
+    record = load_object(object_2d, settings(voxel_size_um=(0.05, 0.05)))
 
     assert record.meta["voxel_size_source"] == "config"
     assert (record.meta["pixel_size_Y"], record.meta["pixel_size_X"]) == (0.05, 0.05)
@@ -130,9 +127,9 @@ def test_the_entity_row_of_a_2d_label_totals_area():
     assert "total_volume_um3" not in row
 
 
-def _instances(stack):
+def _instances(stack, config: RunConfig | None = None):
     """One plane's instance and distance columns, plus what landed on the object row."""
-    measured = InstanceMeasurer().measure(stack)
+    measured = InstanceMeasurer(config or RunConfig()).measure(stack)
     columns = {name: values for table in measured.tables.values()
                for name, values in table.items()}
     return {**columns, **measured.columns}
@@ -140,7 +137,7 @@ def _instances(stack):
 
 def _contacts(stack):
     """One plane's contact columns, plus its contact count."""
-    measured = ContactMeasurer().measure(stack)
+    measured = ContactMeasurer(RunConfig()).measure(stack)
     return {**measured.tables["contact"], **measured.columns}
 
 
@@ -199,12 +196,12 @@ def test_distances_and_contacts_work_in_a_plane():
     assert contacts["contact_gap_um"][0] == pytest.approx(4 * PIXEL[1])
 
 
-def test_a_2d_filament_gets_skeleton_metrics(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
+def test_a_2d_filament_gets_skeleton_metrics():
     filament = np.zeros((40, 40), np.int32)
     filament[20, 5:25] = 1
 
-    row = _instances(_record(mito=(filament, "label")))
+    row = _instances(_record(mito=(filament, "label")),
+                     RunConfig(geometry_as={"mito": "skeleton"}))
 
     # 20 pixels → 19 steps of one pixel each.
     assert row["instance_branches"][0] == 1
@@ -359,7 +356,7 @@ def test_a_report_can_hold_both_dimensionalities(tmp_path):
     make_object_2d(root / "planes" / "object_p", prefix="sample_p")
     out = tmp_path / "mixed.parquet"
     paths = ["volumes", "planes"]
-    report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1)
+    report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1, config=settings())
     assert not report.failures, report.failures
     table, _ = report_io.read(
         report_io.write(report, out, root=root, paths=paths, flavor=FLAVOR))

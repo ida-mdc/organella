@@ -18,7 +18,7 @@ morphology should do: finding the pairs is minutes on a large object.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -68,8 +68,8 @@ class ContactMeasurer:
     ROW_SCHEMAS: Dict[str, Dict[str, Any]] = {CONTACT_ROW: dict(_CONTACT_COLUMNS)}
     COLUMN_DESCRIPTIONS: Dict[str, str] = dict(_DESCRIPTIONS)
 
-    def __init__(self) -> None:
-        self._config = RunConfig.from_env()
+    def __init__(self, config: Optional[RunConfig] = None) -> None:
+        self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:
         # Views, not copies: a real entity volume is hundreds of megabytes.

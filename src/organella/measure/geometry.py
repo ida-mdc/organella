@@ -8,9 +8,9 @@ themselves go to one ``geometry.parquet`` per object, which the 3D widgets and
 That column is how the geometry is reachable at all: the 3D widgets read it off the object
 row, then query the sidecar for the handful of instances they are about to draw.
 
-It only runs with a destination configured (``ORGANELLA_MESH_DIR``, set by ``organella
-process --with-mesh``), so an ordinary run pays nothing for it - meshing every instance is
-the most expensive thing here.
+It only runs with a destination on the config (``mesh_dir``, which ``organella process
+--with-mesh`` sets), so an ordinary run pays nothing for it - meshing every instance is the
+most expensive thing here.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ class GeometryWriter:
         "Writes one geometry file per object - per-instance marching-cubes meshes and curve "
         "skeletons for the 3D widgets and the Blender export. Adds one "
         "column to the table, the path it wrote to: the payloads belong beside the report, "
-        "not inside it. Enabled by ORGANELLA_MESH_DIR (organella process --with-mesh)."
+        "not inside it. Written when a run asks for it with organella process --with-mesh."
     )
 
     # One column, and only a path: the geometry itself never enters the parquet.
@@ -109,8 +109,8 @@ class GeometryWriter:
     # the path to it.
     ROW_SCHEMAS: Dict[str, Dict[str, Any]] = {}
 
-    def __init__(self) -> None:
-        self._config = RunConfig.from_env()
+    def __init__(self, config: Optional[RunConfig] = None) -> None:
+        self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:
         cfg = self._config
@@ -136,18 +136,7 @@ class GeometryWriter:
             stack.sample_size,
             object_id=object_id,
             object_mask_name=stack.object_mask_name,
-            options=MeshOptions(
-                smooth_sigma=cfg.mesh_smooth_sigma,
-                step_size=cfg.mesh_step_size,
-                target_reduction=cfg.mesh_target_reduction,
-                level=cfg.mesh_level,
-                geometry_as=cfg.geometry_as,
-                skeletons=cfg.skeletons,
-                max_skeleton_voxels=cfg.max_skeleton_voxels,
-                num_threads=cfg.num_threads,
-                contact_max_um=cfg.contact_max_um,
-                mesh_workers=cfg.mesh_workers,
-            ),
+            options=MeshOptions.from_config(cfg),
             metrics=metrics,
         )
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)
@@ -163,7 +152,7 @@ class GeometryWriter:
             by_kind[kind] = by_kind.get(kind, 0) + 1
         breakdown = ", ".join(f"{n} {kind}" for kind, n in sorted(by_kind.items()))
         logger.info(
-            "organella: %s: %d/%d rows drawable%s → %s (%.1f MB)",
+            "organella: %s: %d/%d rows drawable%s -> %s (%.1f MB)",
             object_id, len(drawn), len(rows),
             f" ({breakdown})" if breakdown else "",
             path, path.stat().st_size / 1024**2,

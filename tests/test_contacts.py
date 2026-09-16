@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pytest
 
+from organella.config import RunConfig
 from organella.measure.contacts import ContactMeasurer
 
 from conftest import object_stack
@@ -22,14 +23,14 @@ def _blocks(*specs: tuple[int, tuple[int, int, int], tuple[int, int, int]]) -> n
     return vol
 
 
-def _measure(stack):
+def _measure(stack, config: RunConfig | None = None):
     """The contact rows as columns, plus what landed on the object row.
 
     One list per column, one element per contact row: the shape these assertions were
     written against, now that a contact is a row of the report instead of an element of a
     list column on the object row.
     """
-    measured = ContactMeasurer().measure(stack)
+    measured = ContactMeasurer(config or RunConfig()).measure(stack)
     return {**measured.tables["contact"], **measured.columns}
 
 
@@ -62,10 +63,9 @@ def test_the_step_size_follows_the_axis_of_approach():
     assert row["contact_gap_um"] == pytest.approx([2 * VOXEL[0]], abs=1e-6)
 
 
-def test_pairs_beyond_the_threshold_are_not_recorded(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_CONTACT_MAX_UM", "0.05")
+def test_pairs_beyond_the_threshold_are_not_recorded():
     mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 8), (3, 3, 3)))  # 3 empty = 0.08 µm
-    row = _measure(_object(mito=(mito, "label")))
+    row = _measure(_object(mito=(mito, "label")), RunConfig(contact_max_um=0.05))
 
     assert row["contact_count"] == 0
     # No pair, so no contact row: nothing is written rather than a row saying nothing.
@@ -134,15 +134,20 @@ def test_the_two_pools_share_the_machine_between_them(monkeypatch):
     time and the rest of the machine is free - which is why each object's own work is
     given a share rather than a single core. An explicit setting is left alone.
     """
+    from organella.config import RunConfig
     from organella.pipeline.batch import _plan_the_two_pools
 
-    for key in ("ORGANELLA_MESH_WORKERS", "ORGANELLA_EDT_THREADS"):
-        monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(os, "cpu_count", lambda: 16)
 
-    assert _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0) == 1
-    assert os.environ["ORGANELLA_EDT_THREADS"] == "16"
+    workers, planned = _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0,
+                                           config=RunConfig())
+    assert workers == 1
+    # One object at a time, so that object gets the whole machine for its own work.
+    assert planned.edt_threads == 16
+    assert planned.mesh_workers >= 1
 
-    monkeypatch.setenv("ORGANELLA_EDT_THREADS", "3")
-    _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0)
-    assert os.environ["ORGANELLA_EDT_THREADS"] == "3"
+    # The planning goes onto the config the workers are handed, and an explicit setting
+    # already on it is left alone.
+    _, planned = _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0,
+                                     config=RunConfig(edt_threads=3))
+    assert planned.edt_threads == 3

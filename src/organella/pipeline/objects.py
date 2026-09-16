@@ -26,6 +26,7 @@ import numpy as np
 import polars as pl
 
 from organella.analysis.cache import CACHE
+from organella.config import RunConfig
 from organella.measure import (
     ContactMeasurer,
     GeometryWriter,
@@ -66,16 +67,24 @@ class ObjectResult:
         return table.stacked([f for f in (shallow, *self.deep_rows) if f.height])
 
 
-def measure_object(folder: Path, group: str, excluded: Sequence[str] = ()) -> ObjectResult:
-    """Read one object folder and measure it, whole. Never raises."""
+def measure_object(folder: Path, group: str, excluded: Sequence[str] = (),
+                   config: Optional[RunConfig] = None) -> ObjectResult:
+    """Read one object folder and measure it, whole. Never raises.
+
+    ``config`` is what the run was asked for. It arrives as an argument because this
+    function is what a worker process is handed: the settings travel with the work rather
+    than being picked up out of the worker's surroundings.
+    """
     started = time.perf_counter()
+    cfg = config if config is not None else RunConfig()
     try:
-        stack = load_object(folder)
+        stack = load_object(folder, cfg)
         about_the_object = _what_the_object_is(folder, stack)
 
         morphology = MorphologyMeasurer()
         entity_rows = _entity_rows(stack, morphology, about_the_object, group)
-        whole_object_columns, deep_rows, per_entity = _measure_the_whole_object(stack, excluded)
+        whole_object_columns, deep_rows, per_entity = _measure_the_whole_object(
+            stack, excluded, cfg)
         _add_to_entity_rows(entity_rows, per_entity)
         object_row = _object_row(about_the_object, group,
                                  _rolled_up(morphology, entity_rows), whole_object_columns)
@@ -111,7 +120,7 @@ def _entity_rows(stack: ObjectStack, morphology: MorphologyMeasurer,
 
 
 def _measure_the_whole_object(
-    stack: ObjectStack, excluded: Sequence[str],
+    stack: ObjectStack, excluded: Sequence[str], config: RunConfig,
 ) -> Tuple[Dict[str, Any], List[pl.DataFrame], Dict[str, Dict[str, Any]]]:
     """What the measurers that see every entity at once produce.
 
@@ -124,7 +133,7 @@ def _measure_the_whole_object(
     columns: Dict[str, Any] = {}
     frames: List[pl.DataFrame] = []
     per_entity: Dict[str, Dict[str, Any]] = {}
-    for measurer in _measurers_of_whole_objects(excluded):
+    for measurer in _measurers_of_whole_objects(excluded, config):
         measured = measurer.measure(stack)
         columns.update(measured.columns)
         for name, values in measured.entity_columns.items():
@@ -165,10 +174,11 @@ def _rolled_up(morphology: MorphologyMeasurer,
     return rolled
 
 
-def _measurers_of_whole_objects(excluded: Iterable[str]) -> List[Any]:
+def _measurers_of_whole_objects(excluded: Iterable[str], config: RunConfig) -> List[Any]:
     """The measurers that need every entity at once, minus any the run asked to skip."""
     skip = set(excluded or ())
-    return [m for m in (InstanceMeasurer(), ContactMeasurer(), GeometryWriter())
+    return [m for m in (InstanceMeasurer(config), ContactMeasurer(config),
+                        GeometryWriter(config))
             if m.NAME not in skip]
 
 

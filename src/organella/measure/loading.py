@@ -48,11 +48,6 @@ def _cached_inspect(object_dir: str, object_mask: str | None = None):
     return inspect_object_dir(Path(object_dir), object_mask)
 
 
-def _source_header(source_path: Path) -> Tuple[Tuple[int, ...], str]:
-    """Spatial shape and dtype of the source image: (Z, Y, X) or (Y, X)."""
-    return read_header(source_path)
-
-
 def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
     """The narrowest integer type that holds every label id in this object.
 
@@ -304,8 +299,12 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     """Every entity volume of one object folder, as one stack.
 
     A 2D folder becomes a CYX stack, a 3D one CZYX. Nothing else differs between them.
+
+    No ``config`` means the defaults: nothing bounds the object, so it is measured where it
+    lies, with no clipping and no cropping. A run states its own - see
+    :class:`~organella.config.RunConfig`.
     """
-    cfg = config or RunConfig.from_env()
+    cfg = config or RunConfig()
     dataset = discover_dataset(object_dir, cfg.object_mask)
     # With a label map, the names --entities selects are the ones the *split* produces, so
     # there is nothing to match against yet and the filter is applied once it is done.
@@ -317,7 +316,8 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
         voxel_size_um=dataset.voxel_size_um,
     )
 
-    source_shape, source_dtype = _source_header(dataset.source)
+    # The shape only: the stack's own type comes from the label ids, in _label_dtype.
+    source_shape, _ = read_header(dataset.source)
     ndim = len(source_shape)
 
     if cfg.voxel_size_um is not None:

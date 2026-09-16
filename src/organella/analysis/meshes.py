@@ -38,7 +38,7 @@ from organella.analysis.cache import (
     regions_for,
     skeletons_for,
 )
-from organella.config import EntityFilter, forced_surface, wants_skeletons
+from organella.config import EntityFilter, RunConfig, forced_surface, wants_skeletons
 from organella.analysis.primitives import choose_surface, surface_counts, surface_of
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,29 @@ class MeshOptions:
     # Surface nets buys smoothness - 30% less radius noise on a sphere of known radius - for
     # 66% more time, and couples the axes, which shows on 5x-anisotropic alpha cells.
     surface_method: str = "marching-cubes"
+
+    @classmethod
+    def from_config(cls, cfg: "RunConfig") -> "MeshOptions":
+        """The --mesh-* settings of a run, in the shape the mesher takes them.
+
+        The one place the mapping is written, and where a new mesh setting belongs: both
+        ``process --with-mesh`` and the ``mesh`` command come through here, and two copies
+        of it drifted far enough that a flag stopped being read.
+        """
+        return cls(
+            smooth_sigma=cfg.mesh_smooth_sigma,
+            step_size=cfg.mesh_step_size,
+            target_reduction=cfg.mesh_target_reduction,
+            level=cfg.mesh_level,
+            geometry_as=cfg.geometry_as,
+            skeletons=cfg.skeletons,
+            max_skeleton_voxels=cfg.max_skeleton_voxels,
+            num_threads=cfg.num_threads,
+            contact_max_um=cfg.contact_max_um,
+            mesh_workers=cfg.mesh_workers,
+            max_vertices=cfg.mesh_max_vertices,
+            surface_method=cfg.mesh_surface_method,
+        )
 
 
 def sigma_for_shape(sphericity_value: float, fill_ratio: float,
@@ -490,7 +513,6 @@ def mesh_rows_for_object(
     ``row_type='instance'`` for label entities, ``row_type='file'`` for whole-structure
     masks, and every measurement of them alongside, as a sort key or a colour.
     """
-    rows: List[Dict[str, Any]] = []
     ndim = len(list(sample_size))
     planar = ndim == 2
     # The origin every instance's polarity is measured from. Measured here rather than only
@@ -503,14 +525,15 @@ def mesh_rows_for_object(
     pool = WorkPool(worker_share(options.mesh_workers), what="meshing")
     try:
         return _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
-                     object_mask_name, rows, ndim, planar, centre, pool)
+                     ndim, planar, centre, pool)
     finally:
         pool.shutdown()
 
 
 def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
-          object_mask_name, rows, ndim, planar, centre, pool):
+          ndim, planar, centre, pool):
     """The body of mesh_rows_for_object, with a pool open for the instance geometry."""
+    rows: List[Dict[str, Any]] = []
     for name, volume in volumes.items():
         kind = kinds[name]
         if kind != "label":

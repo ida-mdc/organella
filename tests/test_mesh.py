@@ -23,6 +23,7 @@ from organella.analysis.meshes import (
     sigma_for_shape,
     write_geometry,
 )
+from organella.config import RunConfig
 from organella.measure.geometry import GeometryWriter
 
 from conftest import object_stack
@@ -275,26 +276,75 @@ def _record(volumes, kinds):
                         voxel_size=VOXEL)
 
 
-def test_nothing_is_written_until_a_destination_is_configured(monkeypatch):
-    monkeypatch.delenv("ORGANELLA_MESH_DIR", raising=False)
+def test_nothing_is_written_until_a_destination_is_configured():
     volumes, kinds = _object_volumes()
 
     # The column is still declared, so a report written with the writer enabled but no
     # destination has it as null rather than missing.
-    measured = GeometryWriter().measure(_record(volumes, kinds))
+    measured = GeometryWriter(RunConfig()).measure(_record(volumes, kinds))
     assert measured.columns == {"mesh_geometry_file": None}
 
 
-def test_one_file_is_written_and_the_object_row_says_where(tmp_path, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_MESH_DIR", str(tmp_path / "meshes"))
+def test_one_file_is_written_and_the_object_row_says_where(tmp_path):
     volumes, kinds = _object_volumes()
+    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"))
 
-    row = GeometryWriter().measure(_record(volumes, kinds)).columns
+    row = GeometryWriter(cfg).measure(_record(volumes, kinds)).columns
 
     # Geometry belongs beside the report; the one column is the path the widgets follow.
     written = tmp_path / "meshes" / "object_a" / "geometry.parquet"
     assert written.is_file()
     assert row == {"mesh_geometry_file": str(written.resolve())}
+
+
+def test_every_mesh_setting_reaches_the_writer():
+    """One mapping from the run's settings, or a flag goes quiet.
+
+    There were two, and they had drifted: the writer's copy set mesh_workers and not
+    max_vertices or surface_method, so `process --with-mesh --mesh-surface-method
+    surface-nets` meshed with marching cubes and said nothing.
+    """
+    options = MeshOptions.from_config(RunConfig(
+        mesh_surface_method="surface-nets", mesh_max_vertices=999,
+        mesh_workers=3, mesh_step_size=1,
+    ))
+
+    assert options.surface_method == "surface-nets"
+    assert options.max_vertices == 999
+    assert options.mesh_workers == 3
+    assert options.step_size == 1
+    # Every knob the mesher has is filled from the run, so the next one added cannot be
+    # carried by one path and dropped by the other.
+    from dataclasses import fields
+
+    defaults = MeshOptions()
+    settings = {f.name for f in fields(MeshOptions)}
+    assert settings == {
+        "smooth_sigma", "step_size", "target_reduction", "level", "geometry_as",
+        "skeletons", "max_skeleton_voxels", "num_threads", "contact_max_um",
+        "mesh_workers", "max_vertices", "surface_method",
+    }, "a new mesh setting needs a line in MeshOptions.from_config and this list"
+    assert defaults.surface_method != options.surface_method
+
+
+def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypatch):
+    """The end of the same wire: what GeometryWriter hands the mesher."""
+    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"),
+                    mesh_surface_method="surface-nets", mesh_max_vertices=999)
+    volumes, kinds = _object_volumes()
+
+    handed = {}
+    import organella.measure.geometry as geometry_module
+
+    def spy(*args, **kwargs):
+        handed.update(kwargs)
+        return []
+
+    monkeypatch.setattr(geometry_module, "mesh_rows_for_object", spy)
+    GeometryWriter(cfg).measure(_record(volumes, kinds))
+
+    assert handed["options"].surface_method == "surface-nets"
+    assert handed["options"].max_vertices == 999
 
 
 def test_process_with_mesh_writes_geometry_beside_a_clean_report(tmp_path):
@@ -321,7 +371,15 @@ def test_the_mesh_command_produces_the_same_files_after_the_fact(tmp_path):
     assert result.exit_code == 0, result.output
     path = tmp_path / "geometry" / "object_a" / "geometry.parquet"
     assert path.is_file()
-    assert set(pl.read_parquet(path)["row_type"]) >= {"instance", "file"}
+    written = pl.read_parquet(path)
+    assert set(written["row_type"]) >= {"instance", "file"}
+
+    # And it says how much it drew. It counted a column called "mesh", which a geometry row
+    # has never had - so it reported "0/12 drawable" over a file with twelve rows and six
+    # surfaces in it, which reads as a run that failed.
+    drawn = written.filter(pl.col("surface").is_not_null()).height
+    assert drawn > 0, "nothing was drawn, so the count below proves nothing"
+    assert f"{drawn}/{written.height} drawable" in result.output, result.output
 
 
 def test_a_small_instance_is_not_smoothed_away():

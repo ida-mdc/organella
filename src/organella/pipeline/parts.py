@@ -29,9 +29,11 @@ logger = logging.getLogger(__name__)
 FINGERPRINT_COLUMN = "_organella_settings"
 
 
-def settings_fingerprint(excluded: Sequence[str] = ()) -> str:
-    """What the current settings would produce, as a digest a part can be checked against."""
-    return RunConfig.from_env().fingerprint(tuple(sorted(excluded)))
+def settings_fingerprint(excluded: Sequence[str] = (),
+                         config: Optional[RunConfig] = None) -> str:
+    """What these settings would produce, as a digest a part can be checked against."""
+    cfg = config if config is not None else RunConfig()
+    return cfg.fingerprint(tuple(sorted(excluded)))
 
 
 def part_path(parts_dir: Path, object_id: str) -> Path:

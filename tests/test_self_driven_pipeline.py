@@ -11,6 +11,7 @@ import pytest
 from organella import pipeline, report_io
 from organella.cli import FLAVOR
 from organella.measure import find_object_dirs
+from conftest import settings
 from synthetic import make_object
 
 
@@ -22,7 +23,7 @@ def batch(tmp_path):
 
 
 def test_every_object_is_measured_whole(batch):
-    report = pipeline.analyse(find_object_dirs(batch), batch, ["control", "treated"], workers=1)
+    report = pipeline.analyse(find_object_dirs(batch), batch, ["control", "treated"], workers=1, config=settings())
 
     assert not report.failures
     objects = report.rows.filter(pl.col("obs_level") == 0)
@@ -34,7 +35,7 @@ def test_every_object_is_measured_whole(batch):
 def test_one_bad_object_does_not_stop_the_batch(batch):
     (batch / "treated" / "object_b" / "sample_b_pm_mask.tif").write_bytes(b"not a tiff")
 
-    report = pipeline.analyse(find_object_dirs(batch), batch, ["control", "treated"], workers=1)
+    report = pipeline.analyse(find_object_dirs(batch), batch, ["control", "treated"], workers=1, config=settings())
 
     assert list(report.failures) == ["object_b"]
     assert report.rows.filter(pl.col("obs_level") == 0).height == 1
@@ -48,7 +49,7 @@ def test_workers_are_capped_by_what_an_object_costs():
 
 
 def test_the_report_describes_an_object_not_a_file(batch, tmp_path):
-    report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1)
+    report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1, config=settings())
     out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[], flavor=FLAVOR)
 
     columns = set(pl.read_parquet(out).columns)
@@ -62,7 +63,7 @@ def test_the_report_describes_an_object_not_a_file(batch, tmp_path):
 def test_the_footer_carries_the_flavour_and_the_paths(batch, tmp_path):
     import pyarrow.parquet as pq
 
-    report = pipeline.analyse(find_object_dirs(batch), batch, ["control"], workers=1)
+    report = pipeline.analyse(find_object_dirs(batch), batch, ["control"], workers=1, config=settings())
     out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=["control"],
                          flavor=FLAVOR)
 
@@ -90,7 +91,7 @@ def test_every_column_says_what_it_means(report_path):
 
 def test_measurements_are_stored_as_float32(batch, tmp_path):
     """The page loads the whole file; µm measurements do not need 15 digits."""
-    report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1)
+    report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1, config=settings())
     out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[], flavor=FLAVOR)
 
     schema = pl.read_parquet(out).schema

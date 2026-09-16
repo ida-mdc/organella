@@ -271,8 +271,8 @@ class InstanceMeasurer:
     }
     COLUMN_DESCRIPTIONS: Dict[str, str] = dict(_DESCRIPTIONS)
 
-    def __init__(self) -> None:
-        self._config = RunConfig.from_env()
+    def __init__(self, config: Optional[RunConfig] = None) -> None:
+        self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:
         volumes = stack.volumes()

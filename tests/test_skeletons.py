@@ -22,6 +22,11 @@ VOXEL = (0.1, 0.02, 0.02)
 SKELETONISE = {"mito": "skeleton"}
 
 
+def _skeletonising() -> RunConfig:
+    """The settings of a run that asked for mito to be skeletonised."""
+    return RunConfig(geometry_as=SKELETONISE)
+
+
 @pytest.fixture(autouse=True)
 def clean_cache():
     CACHE.clear()
@@ -90,50 +95,44 @@ def test_skeletons_and_geometry_as_are_two_questions_that_add_up():
     assert wants_skeletons("mt", parse_geometry_as("mt=tube"), None)
 
 
-def test_skeletons_travels_as_an_env_var(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_SKELETONS", "mito,ER")
-    cfg = RunConfig.from_env()
+def test_the_names_given_to_skeletons_are_the_run_setting():
+    cfg = RunConfig(skeletons=parse_entity_filter("mito,ER"))
     assert cfg.skeletons == frozenset({"mito", "ER"})
+    # Compared normalised, so --skeletons ER matches the entity discovered as 'er'.
     assert wants_skeletons("er", cfg.geometry_as, cfg.skeletons)
-    monkeypatch.delenv("ORGANELLA_SKELETONS")
-    assert RunConfig.from_env().skeletons is None
+    assert RunConfig().skeletons is None
 
 
-def test_skeletons_changes_what_a_run_produces(monkeypatch):
+def test_skeletons_changes_what_a_run_produces():
     """So --reuse-geometry and --resume do not hand back geometry with no skeletons in it."""
-    monkeypatch.delenv("ORGANELLA_SKELETONS", raising=False)
-    without = RunConfig.from_env().fingerprint()
-    monkeypatch.setenv("ORGANELLA_SKELETONS", "mito")
-    assert RunConfig.from_env().fingerprint() != without
+    without = RunConfig().fingerprint()
+    assert RunConfig(skeletons=frozenset({"mito"})).fingerprint() != without
 
 
-def test_excluded_entities_report_skeleton_metrics_as_not_measured(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
+def test_excluded_entities_report_skeleton_metrics_as_not_measured():
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
-    instances = InstanceMeasurer().measure(record).tables["instance"]
+    instances = InstanceMeasurer(_skeletonising()).measure(record).tables["instance"]
 
     by_entity = dict(zip(instances["instance_entity"], instances["instance_length_um"]))
     assert by_entity["mito"] > 0                    # asked for
     assert by_entity["granules"] is None            # not measured: null, not zero
 
 
-def test_nothing_is_skeletonised_unless_it_was_named(monkeypatch):
-    monkeypatch.delenv("ORGANELLA_GEOMETRY_AS", raising=False)
+def test_nothing_is_skeletonised_unless_it_was_named():
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
-    instances = InstanceMeasurer().measure(record).tables["instance"]
+    instances = InstanceMeasurer(RunConfig()).measure(record).tables["instance"]
 
     # No skeleton, so no skeleton metrics - left unmeasured rather than filled with a zero.
     assert all(length is None or math.isnan(length)
                for length in instances["instance_length_um"])
 
 
-def test_the_entities_named_are_the_ones_measured(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
+def test_the_entities_named_are_the_ones_measured():
     record = _object(mito=(_strand(), "label"), granules=(_strand(1, 12), "label"))
 
-    instances = InstanceMeasurer().measure(record).tables["instance"]
+    instances = InstanceMeasurer(_skeletonising()).measure(record).tables["instance"]
     by_entity = dict(zip(instances["instance_entity"], instances["instance_length_um"]))
 
     assert by_entity["mito"] > 0
@@ -151,11 +150,10 @@ def test_the_second_reader_of_an_object_gets_the_cached_skeletons(monkeypatch):
         return real(labels, voxel, **kwargs)
 
     monkeypatch.setattr(skeletons, "compute_skeletons", counting)
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
     record = _object(mito=(_strand(), "label"))
     volumes = {"mito": record.data[0]}
 
-    InstanceMeasurer().measure(record)                       # metrics
+    InstanceMeasurer(_skeletonising()).measure(record)       # metrics
     mesh_rows_for_object(volumes, {"mito": "label"}, VOXEL, object_id="object_a",
                        options=MeshOptions(contact_max_um=None,
                                            geometry_as=SKELETONISE))  # geometry
@@ -171,24 +169,21 @@ def test_a_different_object_is_not_served_from_the_cache(monkeypatch):
         skeletons, "compute_skeletons",
         lambda labels, voxel, **kw: (calls.append(1), real(labels, voxel, **kw))[1],
     )
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
-
-    InstanceMeasurer().measure(_object(mito=(_strand(), "label")))
-    InstanceMeasurer().measure(_object(mito=(_strand(1, 12), "label")))
+    InstanceMeasurer(_skeletonising()).measure(_object(mito=(_strand(), "label")))
+    InstanceMeasurer(_skeletonising()).measure(_object(mito=(_strand(1, 12), "label")))
 
     # Same object_id, different data: object folder names are not unique across groups, so
     # answering on the name alone would hand one object another object's skeletons.
     assert len(calls) == 2
 
 
-def test_geometry_matches_whether_it_was_cached_or_not(monkeypatch):
-    monkeypatch.setenv("ORGANELLA_GEOMETRY_AS", "mito=skeleton")
+def test_geometry_matches_whether_it_was_cached_or_not():
     volumes, kinds = {"mito": _strand()}, {"mito": "label"}
     options = MeshOptions(contact_max_um=None, geometry_as=SKELETONISE)
     fresh = mesh_rows_for_object(volumes, kinds, VOXEL, object_id="object_a",
                                options=options)
     CACHE.clear()
-    InstanceMeasurer().measure(_object(mito=(volumes["mito"], "label")))
+    InstanceMeasurer(_skeletonising()).measure(_object(mito=(volumes["mito"], "label")))
     cached = mesh_rows_for_object(volumes, kinds, VOXEL, object_id="object_a",
                                 options=options)
 
@@ -209,7 +204,7 @@ def test_contacts_are_found_once_however_many_readers_ask(monkeypatch):
     volumes, kinds = _two_strands_of_one_structure()
     record = _object(mito=(volumes["mito"], "label"))
 
-    ContactMeasurer().measure(record)                        # the report's contact rows
+    ContactMeasurer(RunConfig()).measure(record)                        # the report's contact rows
     mesh_rows_for_object({"mito": record.data[0]}, kinds, VOXEL, object_id="object_a",
                        options=MeshOptions(contact_max_um=0.5))  # the 3D viewer's copy
 

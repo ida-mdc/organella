@@ -13,7 +13,7 @@ import pytest
 from organella import pipeline
 from organella.pipeline import parts as parts_mod
 
-from conftest import MITO_COLOUR
+from conftest import MITO_COLOUR, settings
 
 def test_one_row_per_object_at_obs_level_0(table):
     objects = table.filter(pl.col("obs_level") == 0)
@@ -202,7 +202,7 @@ def test_voxel_size_lands_in_the_standard_pixel_size_columns(table):
 
 def _fake_dispatch(killed_by_worker_count):
     """A dispatch that kills the object named 'bad' unless few enough workers are running."""
-    def dispatch(work, excluded, n_workers, on_result=None):
+    def dispatch(work, excluded, n_workers, on_result=None, config=None):
         finished, unrun = [], []
         for folder, group in work:
             if folder.name == "bad" and n_workers >= killed_by_worker_count:
@@ -251,12 +251,11 @@ def test_an_object_that_always_kills_its_worker_is_reported_not_retried_forever(
 # object it had already measured. Each object's rows now go to a sidecar as it completes.
 # What matters is that resuming from those sidecars gives the same report as measuring.
 
-def _analysed(root, parts, resume):
-    import os
+def _analysed(root, parts, resume, config=None):
     from organella.cli import find_object_dirs
-    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
     return pipeline.analyse(find_object_dirs(root), root, ["control", "treated"],
-                            workers=1, parts_dir=parts, resume=resume)
+                            workers=1, parts_dir=parts, resume=resume,
+                            config=config or settings())
 
 
 def test_a_resumed_report_is_the_report_it_would_have_measured(tmp_path):
@@ -300,7 +299,6 @@ def test_resume_will_not_reuse_rows_measured_under_other_settings(tmp_path, monk
     Both caches used to key on the object's name alone, so changing what a run measures and
     resuming would hand back the old answer with nothing to say it no longer matched.
     """
-    import os
     from synthetic import make_dataset
     root = make_dataset(tmp_path / "objects")
     parts = tmp_path / "parts"
@@ -310,11 +308,7 @@ def test_resume_will_not_reuse_rows_measured_under_other_settings(tmp_path, monk
     assert list(parts.glob("*.parquet"))
 
     # Same objects, different question: measure outside the object mask too.
-    os.environ["ORGANELLA_NO_CLIP"] = "1"
-    try:
-        resumed = _analysed(root, parts, resume=True)
-    finally:
-        os.environ.pop("ORGANELLA_NO_CLIP", None)
+    resumed = _analysed(root, parts, resume=True, config=settings(clip=False))
 
     assert not resumed.failures, resumed.failures
     assert resumed.rows.shape[0] == fresh.rows.shape[0]
@@ -350,18 +344,13 @@ def test_a_part_carries_no_bookkeeping_into_the_report(tmp_path):
 
 
 def test_the_fingerprint_ignores_settings_that_change_nothing(tmp_path):
-    import os
     from organella import pipeline as pl_mod
-    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
-    os.environ.pop("ORGANELLA_MESH_WORKERS", None)
-    before = pl_mod.settings_fingerprint(())
-    os.environ["ORGANELLA_MESH_WORKERS"] = "3"     # how fast, not what
-    try:
-        assert pl_mod.settings_fingerprint(()) == before
-    finally:
-        os.environ.pop("ORGANELLA_MESH_WORKERS", None)
+
+    before = pl_mod.settings_fingerprint((), settings())
+    # How fast, not what: a part measured with a different mesh pool is still the same rows.
+    assert pl_mod.settings_fingerprint((), settings(mesh_workers=3)) == before
     # ...but excluding a processor changes which columns exist, so it must count.
-    assert pl_mod.settings_fingerprint(("organella-contacts",)) != before
+    assert pl_mod.settings_fingerprint(("organella-contacts",), settings()) != before
 
 
 # ── saying what it is doing while it does it ─────────────────────────────────
@@ -380,7 +369,7 @@ def test_every_object_is_counted_off_against_the_size_of_the_batch(tmp_path, cap
     folders = list(find_object_dirs(root))
 
     with caplog.at_level(logging.INFO, logger="organella"):
-        pipeline.analyse(folders, root, paths=("control", "treated"))
+        pipeline.analyse(folders, root, paths=("control", "treated"), config=settings())
 
     counted = [re.search(r"\[(\d+)/(\d+)\] (\S+) done", m) for m in caplog.messages]
     counted = [m for m in counted if m]
@@ -391,7 +380,7 @@ def test_every_object_is_counted_off_against_the_size_of_the_batch(tmp_path, cap
     assert {m.group(3) for m in counted} == {f.name for f in folders}
 
 
-def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
+def test_a_worker_takes_the_level_the_parent_set(monkeypatch):
     """A spawned worker never runs the CLI, so its own lines had nowhere to go.
 
     Which object is being read, how big it is and how many instances came out are all
@@ -406,15 +395,19 @@ def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
     before = (package.handlers[:], package.level, package.propagate)
     try:
         package.handlers[:] = []
-        monkeypatch.delenv(pool.LOG_LEVEL_ENV, raising=False)
-        pool.log_in_this_worker()
-        assert package.handlers == [], "nothing to inherit means nothing is installed"
+        pool.log_in_this_worker(None)
+        assert package.handlers == [], "nothing to pass on means nothing is installed"
 
-        monkeypatch.setenv(pool.LOG_LEVEL_ENV, str(logging.INFO))
-        pool.log_in_this_worker()
+        pool.log_in_this_worker(logging.INFO)
 
         assert len(package.handlers) == 1
         assert package.level == logging.INFO
         assert package.propagate is False
+
+        # And what the pool passes on is what the parent set, read off the logger the
+        # parent configured rather than out of its surroundings.
+        assert pool._level_to_pass_on() == logging.INFO
+        package.setLevel(logging.NOTSET)
+        assert pool._level_to_pass_on() is None
     finally:
         package.handlers[:], package.level, package.propagate = before
