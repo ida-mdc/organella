@@ -48,11 +48,6 @@ def _cached_inspect(object_dir: str, object_mask: str | None = None):
     return inspect_object_dir(Path(object_dir), object_mask)
 
 
-def _source_header(source_path: Path) -> Tuple[Tuple[int, ...], str]:
-    """Spatial shape and dtype of the source image: (Z, Y, X) or (Y, X)."""
-    return read_header(source_path)
-
-
 def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
     """The narrowest integer type that holds every label id in this object.
 
@@ -317,7 +312,10 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
         voxel_size_um=dataset.voxel_size_um,
     )
 
-    source_shape, source_dtype = _source_header(dataset.source)
+    # The shape only: what the entities are checked against, and how many spatial axes the
+    # object has. The header's dtype says nothing about the stack, which is narrowed to the
+    # labels it actually holds (see _label_dtype).
+    source_shape, _ = read_header(dataset.source)
     ndim = len(source_shape)
 
     if cfg.voxel_size_um is not None:
