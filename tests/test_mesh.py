@@ -297,6 +297,62 @@ def test_one_file_is_written_and_the_object_row_says_where(tmp_path, monkeypatch
     assert row == {"mesh_geometry_file": str(written.resolve())}
 
 
+def test_every_mesh_setting_reaches_the_writer(monkeypatch):
+    """One mapping from the run's settings, or a flag goes quiet.
+
+    There were two, and they had drifted: the writer's copy set mesh_workers and not
+    max_vertices or surface_method, so `process --with-mesh --mesh-surface-method
+    surface-nets` meshed with marching cubes and said nothing.
+    """
+    from organella.analysis.meshes import MeshOptions
+    from organella.config import RunConfig
+
+    monkeypatch.setenv("ORGANELLA_MESH_SURFACE_METHOD", "surface-nets")
+    monkeypatch.setenv("ORGANELLA_MESH_MAX_VERTICES", "999")
+    monkeypatch.setenv("ORGANELLA_MESH_WORKERS", "3")
+    monkeypatch.setenv("ORGANELLA_MESH_STEP_SIZE", "1")
+
+    options = MeshOptions.from_config(RunConfig.from_env())
+
+    assert options.surface_method == "surface-nets"
+    assert options.max_vertices == 999
+    assert options.mesh_workers == 3
+    assert options.step_size == 1
+    # Every knob the mesher has is filled from the run, so the next one added cannot be
+    # carried by one path and dropped by the other.
+    from dataclasses import fields
+
+    defaults = MeshOptions()
+    settings = {f.name for f in fields(MeshOptions)}
+    assert settings == {
+        "smooth_sigma", "step_size", "target_reduction", "level", "geometry_as",
+        "skeletons", "max_skeleton_voxels", "num_threads", "contact_max_um",
+        "mesh_workers", "max_vertices", "surface_method",
+    }, "a new mesh setting needs a line in MeshOptions.from_config and this list"
+    assert defaults.surface_method != options.surface_method
+
+
+def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypatch):
+    """The end of the same wire: what GeometryWriter hands the mesher."""
+    monkeypatch.setenv("ORGANELLA_MESH_DIR", str(tmp_path / "meshes"))
+    monkeypatch.setenv("ORGANELLA_MESH_SURFACE_METHOD", "surface-nets")
+    monkeypatch.setenv("ORGANELLA_MESH_MAX_VERTICES", "999")
+    volumes, kinds = _object_volumes()
+
+    handed = {}
+    import organella.measure.geometry as geometry_module
+
+    def spy(*args, **kwargs):
+        handed.update(kwargs)
+        return []
+
+    monkeypatch.setattr(geometry_module, "mesh_rows_for_object", spy)
+    GeometryWriter().measure(_record(volumes, kinds))
+
+    assert handed["options"].surface_method == "surface-nets"
+    assert handed["options"].max_vertices == 999
+
+
 def test_process_with_mesh_writes_geometry_beside_a_clean_report(tmp_path):
     root = make_dataset(tmp_path / "experiment")
     out = tmp_path / "report.parquet"

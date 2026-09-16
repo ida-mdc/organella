@@ -136,18 +136,7 @@ class GeometryWriter:
             stack.sample_size,
             object_id=object_id,
             object_mask_name=stack.object_mask_name,
-            options=MeshOptions(
-                smooth_sigma=cfg.mesh_smooth_sigma,
-                step_size=cfg.mesh_step_size,
-                target_reduction=cfg.mesh_target_reduction,
-                level=cfg.mesh_level,
-                geometry_as=cfg.geometry_as,
-                skeletons=cfg.skeletons,
-                max_skeleton_voxels=cfg.max_skeleton_voxels,
-                num_threads=cfg.num_threads,
-                contact_max_um=cfg.contact_max_um,
-                mesh_workers=cfg.mesh_workers,
-            ),
+            options=MeshOptions.from_config(cfg),
             metrics=metrics,
         )
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)

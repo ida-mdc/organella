@@ -84,21 +84,7 @@ def mesh_options(**overrides: Any) -> "MeshOptions":
     """MeshOptions from the environment, so both commands read one configuration."""
     from organella.analysis.meshes import MeshOptions
 
-    cfg = RunConfig.from_env()
-    return MeshOptions(
-        smooth_sigma=cfg.mesh_smooth_sigma,
-        step_size=cfg.mesh_step_size,
-        target_reduction=cfg.mesh_target_reduction,
-        level=cfg.mesh_level,
-        geometry_as=cfg.geometry_as,
-        skeletons=cfg.skeletons,
-        max_vertices=cfg.mesh_max_vertices,
-        surface_method=cfg.mesh_surface_method,
-        max_skeleton_voxels=cfg.max_skeleton_voxels,
-        num_threads=cfg.num_threads,
-        contact_max_um=cfg.contact_max_um,
-        **overrides,
-    )
+    return replace(MeshOptions.from_config(RunConfig.from_env()), **overrides)
 
 
 def _apply_mesh_env(
