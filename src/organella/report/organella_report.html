@@ -6004,7 +6004,9 @@ function renderEntityStats() {
         + ' end within one voxel of the structure, which is as close as two things can be'
         + ' measured to be without overlapping - what "connected to it" comes down to at this'
         + ' voxel size. The dotted line is chance again, and needs no allowance for extent'
-        + ' here: a tip is a point, like the samples it comes from.</p>'
+        + ' here: a tip is a point, like the samples it comes from. It is one number - the'
+        + ' distance half the ' + noun() + ' lies within - where the per-voxel panels'
+        + ' further down draw that whole distribution as a shape.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
@@ -6102,17 +6104,22 @@ function renderEntityStats() {
       };
       var sentences = [];
       if (drawn.length) {
-        sentences.push('Dotted: ' + per(drawn, function(x){ return x.at; }) + ' µm.');
         // An allowance of zero is still an allowance - two structures that overlap leave
         // one - but there is nothing to say about it, and saying it anyway is a number per
         // facet that only reads as noise.
-        var anyAllowance = drawn.some(function(x){ return x.gap > 0; });
-        sentences.push('Half the ' + noun() + ' lies within '
-          + per(drawn, function(x){ return x.median; }) + ' µm of ' + dataName(target)
-          + (allowExtent && anyAllowance
-              ? '; the extent allowance is '
-                + per(drawn, function(x){ return x.gap; }) + ' µm.'
-              : '.'));
+        var anyAllowance = allowExtent && drawn.some(function(x){ return x.gap > 0; });
+        // Where the line is, once. With no allowance the line *is* that median, and this
+        // used to say it twice: "Dotted: 0.81 µm", which names no quantity, and then "Half
+        // the cell lies within 0.81 µm of membrane", which names the same number again.
+        sentences.push(anyAllowance
+          ? 'Dotted: ' + per(drawn, function(x){ return x.at; }) + ' µm - half the '
+            + noun() + ' lies within ' + per(drawn, function(x){ return x.median; })
+            + ' µm of ' + dataName(target) + ', less the '
+            + per(drawn, function(x){ return x.gap; })
+            + ' µm an instance of this size spans.'
+          : 'Dotted: half the ' + noun() + ' lies within '
+            + per(drawn, function(x){ return x.median; }) + ' µm of '
+            + dataName(target) + '.');
       }
       collapsed.forEach(function(x) {
         sentences.push('No line for '
