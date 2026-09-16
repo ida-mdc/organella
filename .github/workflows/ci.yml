@@ -94,10 +94,12 @@ jobs:
       # wheel's own dependency list and nothing a development checkout happens to have.
       - name: An empty environment to install into
         run: |
-          uv venv --python 3.12 fresh
-          if [ -d fresh/Scripts ]; then bin="$PWD/fresh/Scripts"; else bin="$PWD/fresh/bin"; fi
-          echo "BIN=$bin" >> "$GITHUB_ENV"
-          echo "PY=$bin/python" >> "$GITHUB_ENV"
+          uv venv --seed --python 3.12 fresh
+          # Relative, with forward slashes, and .exe where there is one: bash here is MSYS
+          # and hands out $PWD as /d/a/..., which a native Windows binary cannot read.
+          if [ -d fresh/Scripts ]; then dir=fresh/Scripts; exe=.exe; else dir=fresh/bin; exe=; fi
+          echo "PY=$dir/python$exe" >> "$GITHUB_ENV"
+          echo "ORG=$dir/organella$exe" >> "$GITHUB_ENV"
 
       # The page is a data file inside the package, and the suite reads it out of the source
       # tree - so a wheel built without it passes every test and still installs a CLI whose
@@ -114,9 +116,13 @@ jobs:
 
       # The step the Windows report came down to. A dependency that cannot build on a
       # platform fails here and nowhere else.
+      #
+      # pip, run by the interpreter it is installing into, rather than uv with a --python
+      # path: `pip install organella` is what the README tells a reader to do, and nothing
+      # here then has to hand a path from MSYS bash to a native Windows binary.
       - name: Install it
         run: |
-          uv pip install --python "$PY" "$(ls dist/*.whl)"
+          "$PY" -m pip install --disable-pip-version-check "$(ls dist/*.whl)"
 
       - name: A batch to measure
         run: |
@@ -124,7 +130,7 @@ jobs:
 
       - name: Survey it
         run: |
-          "$BIN/organella" dry-run batch --object-mask pm
+          "$ORG" dry-run batch --object-mask pm
 
       # dry-run's whole job is to say what is wrong with a batch, so it is run against one
       # that has something wrong with it: a structure present in three objects of four.
@@ -132,7 +138,7 @@ jobs:
         run: |
           cp -r batch partial
           rm partial/control/object_a/*nucleus*
-          "$BIN/organella" dry-run partial --object-mask pm
+          "$ORG" dry-run partial --object-mask pm
 
       # Not only on Windows, so the check is the same everywhere and does not depend on
       # which code page a runner happens to boot with. A Windows console is the reason it
@@ -143,14 +149,14 @@ jobs:
         env:
           PYTHONIOENCODING: cp1252
         run: |
-          "$BIN/organella" dry-run partial --object-mask pm
-          "$BIN/organella" mesh batch/control/object_a -o geometry-cp1252 --object-mask pm
+          "$ORG" dry-run partial --object-mask pm
+          "$ORG" mesh batch/control/object_a -o geometry-cp1252 --object-mask pm
 
       # The whole pipeline: a spawned worker per object, a mesh pool inside each, kimimaro
       # for the skeletons, and a parquet at the end.
       - name: Measure it
         run: |
-          "$BIN/organella" process batch -o report.parquet \
+          "$ORG" process batch -o report.parquet \
             --object-mask pm --object-noun cell \
             --with-mesh --skeletons mito --distance-histograms
 
@@ -184,17 +190,17 @@ jobs:
       - name: Colour and describe the report in place
         run: |
           "$PY" -c "import json, pathlib; pathlib.Path('palette.json').write_text(json.dumps({'mito': '#d62728'}))"
-          "$BIN/organella" colours report.parquet palette.json
-          "$BIN/organella" describe report.parquet "Synthetic batch, from CI."
+          "$ORG" colours report.parquet palette.json
+          "$ORG" describe report.parquet "Synthetic batch, from CI."
 
       # --resume reads back the per-object parts, and a finished run removes the directory
       # they were in.
       - name: Measure it again, resuming
         run: |
-          "$BIN/organella" process batch -o resumed.parquet --object-mask pm --resume
-          "$BIN/organella" process batch -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -o resumed.parquet --object-mask pm --resume
 
       - name: The installed CLI finds its page
         run: |
-          "$BIN/organella" page
+          "$ORG" page
           "$PY" -c "from organella.report_page import report_page; p = report_page(); print(p); assert p.is_file()"
