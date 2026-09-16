@@ -30,4 +30,4 @@ here too.
 
 # The one place the version is written: pyproject reads it from here to build the package,
 # and report_io stamps it into every report's footer.
-__version__ = "0.2.0"
+__version__ = "0.2.1"
