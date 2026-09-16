@@ -1582,21 +1582,6 @@ function spanUnion(a, b) {
            srcWidth: a.srcWidth != null ? a.srcWidth : b.srcWidth };
 }
 
-/** How far apart two samples of an object are at their closest: the resolution of "touching". */
-function voxelDiagonalUm(objectIds) {
-  var wanted = new Set((objectIds || []).map(String));
-  var worst = null;
-  OBJECTS.forEach(function(o) {
-    if (wanted.size && !wanted.has(String(o.object_id))) return;
-    var sizes = ['pixel_size_Z', 'pixel_size_Y', 'pixel_size_X']
-      .map(function(k){ return o[k]; })
-      .filter(function(v){ return v != null && isFinite(v) && v > 0; });
-    if (!sizes.length) return;
-    var diagonal = Math.sqrt(sizes.reduce(function(a, v){ return a + v * v; }, 0));
-    if (worst == null || diagonal > worst) worst = diagonal;
-  });
-  return worst;
-}
 
 /**
  * How much of an instance's closeness is its own size, measured on the instances.
@@ -1629,12 +1614,6 @@ function extentGapUm(rows, target) {
   return quantileSorted(gaps, 0.5);
 }
 
-/** The share of these values at or below a threshold, as a percentage. */
-function shareWithin(values, threshold) {
-  if (!values.length || threshold == null) return null;
-  var n = values.filter(function(v){ return v <= threshold; }).length;
-  return 100 * n / values.length;
-}
 /**
  * What a measurement means, in the report's own words, for the caption under its chart.
  *
@@ -5991,7 +5970,7 @@ function renderEntityStats() {
         + ' reaches a structure from its surface where a sample of the ' + noun()
         + ' has none. A population below its line sits closer to that structure than the '
         + noun() + '\u2019s own shape puts anything; one on the line sits exactly as close'
-        + ' as anything would. The numbers under each panel are that panel\u2019s.</p>'
+        + ' as anything would.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="dist"></div>'
       + '<div class="subsection-label mt-3" data-slot="end-label" style="display:none">How far'
@@ -6000,13 +5979,11 @@ function renderEntityStats() {
         + ' the nearest <b>tip</b> of each ' + named + ' - where its skeleton stops - rather'
         + ' than of whichever part of it comes closest. A filament can run past a structure'
         + ' along its whole length and end nowhere near it, and the panels above cannot tell'
-        + ' that apart from being anchored to it by the tip. The share underneath is how many'
-        + ' end within one voxel of the structure, which is as close as two things can be'
-        + ' measured to be without overlapping - what "connected to it" comes down to at this'
-        + ' voxel size. The dotted line is chance again, and needs no allowance for extent'
-        + ' here: a tip is a point, like the samples it comes from. It is one number - the'
-        + ' distance half the ' + noun() + ' lies within - where the per-voxel panels'
-        + ' further down draw that whole distribution as a shape.</p>'
+        + ' that apart from being anchored to it by the tip. The dotted line is chance again,'
+        + ' and needs no allowance for extent here: a tip is a point, like the samples it'
+        + ' comes from. It is one number - the distance half the ' + noun() + ' lies'
+        + ' within - where the per-voxel panels further down draw that whole distribution'
+        + ' as a shape.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
@@ -6152,28 +6129,17 @@ function renderEntityStats() {
     if (eCols.length) {
       reveal('end-label'); reveal('end-desc');
       var ecEl = slot('end');
-      var touching = voxelDiagonalUm(allObjects);
       orderDistDims(eCols).forEach(function(col) {
         var endTarget = col.replace(/^distance_to_/, '').replace(/_end_um$/, '');
         // A tip is a point, so the reference needs no allowance for extent here.
         var endChance = chanceFor(endTarget, false);
-        var endSeries = facets.valuesOf(rows, col, fallback);
-        var shares = endSeries.map(function(f) {
-          var share = shareWithin(f.values, touching);
-          if (share == null) return null;
-          return (endSeries.length > 1 ? escHtml(f.label) + ' ' : '') + share.toFixed(1) + '%';
-        }).filter(Boolean);
-        var reached = (touching != null && shares.length)
-          ? '<b>' + shares.join(', ') + '</b> end within one voxel (' + fmtGap(touching)
-            + ' µm) of ' + dataName(endTarget) + '.'
-          : '';
         distributionPanel(ecEl, {
-          series: endSeries,
+          series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'end to ' + endTarget.replace(/_/g, ' ')), unit: 'µm',
           help: metricHelp(col, 'instance_'),
           noun: ent, showFacetTicks: !facets.many,
           chanceBy: endChance ? endChance.by : null,
-          footnote: [reached, endChance ? endChance.note : ''].filter(Boolean).join(' ')
+          footnote: endChance ? endChance.note : ''
         });
       });
     }
@@ -6268,9 +6234,8 @@ function renderEntityStats() {
       if (drewChance) {
         var reference = document.createElement('div');
         reference.className = 'chart-note';
-        reference.innerHTML = 'Dotted: the same distances over every sample of the '
-          + noun() + ', instead of over the ' + named + ' - the shape a population placed'
-          + ' without regard to that structure would have.';
+        reference.innerHTML = 'Dotted: the same distances over every voxel of the '
+          + noun() + ', instead of over the ' + named + '.';
         dhEl.appendChild(reference);
       }
       if (unbinnable.length) {
@@ -6279,7 +6244,7 @@ function renderEntityStats() {
         trouble.innerHTML = 'No distribution could be drawn to '
           + unbinnable.map(dataName).join(', ')
           + ': the recorded histograms for it are all at one distance, so there is no range '
-          + 'to bin over. Every voxel of every ' + named + ' is exactly that far from it.';
+          + 'to bin over.';
         dhEl.appendChild(trouble);
       }
     }
@@ -7074,7 +7039,6 @@ if (typeof globalThis !== 'undefined') {
     setPolarReference: function(name){ st.polarRef = name; },
     chanceRows: chanceRows, chanceStats: chanceStats, chanceCurve: chanceCurve,
     medianOfCounts: medianOfCounts, spanUnion: spanUnion,
-    voxelDiagonalUm: voxelDiagonalUm, shareWithin: shareWithin,
     nonDistMetricCols: nonDistMetricCols, correlationAxisCols: correlationAxisCols,
     orderDistDims: orderDistDims,
     contactClusters: contactClusters, contactStructures: contactStructures,

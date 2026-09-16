@@ -307,10 +307,6 @@ if (job.rows) {
         curve: curve && { bins: curve.counts.length,
                           density: curve.density.reduce((a, b) => a + b, 0) * curve.width,
                           min: curve.min, max: curve.max },
-        // The resolution at which "touching" can be told apart at all, and the share of
-        // the measured population inside it.
-        voxelDiagonal: R.voxelDiagonalUm(objects),
-        withinOneVoxel: R.shareWithin(vals, R.voxelDiagonalUm(objects)),
       };
     }
     const hist = R.histTargets(rows)[0];

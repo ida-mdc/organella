@@ -868,16 +868,20 @@ def test_the_ends_get_their_own_row_of_panels(drawn):
     assert sorted(end_panels) == ["mito end to nucleus", "mito end to pm"]
     said = " ".join(drawn["prose"])
     assert "where its skeleton stops" in said
-    assert "within one voxel" in said
 
 
-def test_an_end_panel_says_how_many_reach_the_structure(drawn):
-    """The share within one voxel: what "connected to it" comes down to at this voxel size."""
-    reaching = [f for f in drawn["footnotes"] if "end within one voxel" in f]
+def test_an_end_panel_says_what_it_shows_and_not_what_to_conclude(drawn):
+    """The note under a panel describes what was drawn; it works nothing out for you.
 
-    assert len(reaching) == 2
-    for note in reaching:
-        assert "%" in note and "µm" in note
+    It used to open with "4.2%, 9.9% end within one voxel (0.028 µm) of membrane" - a
+    statistic the panel had not drawn, framed as what "connected to it" comes down to.
+    """
+    ends = [f for f in drawn["footnotes"] if "Dotted" in f]
+
+    assert ends
+    for note in ends:
+        assert "%" not in note, note
+        assert not re.search(r"\d", note), note
 
 
 def test_the_reference_allows_for_the_extent_of_what_is_read_against_it(page_of, drawn):
