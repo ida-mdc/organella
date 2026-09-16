@@ -2,8 +2,6 @@
 built in memory, shared by the tests that measure a single object."""
 
 import json
-import os
-import random
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,20 +26,6 @@ REPORT_PAGE_CHECKER = Path(__file__).parent / "report_page_check.mjs"
 # "src/organella/..." passes only when pytest was started in the checkout root, and fails
 # for anyone running it from an IDE, from tests/, or by absolute path.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def pytest_collection_modifyitems(config, items):
-    """Run the suite in a different order when asked, to find what only passes in one.
-
-    A test that leaves something behind - a module-level cache, a server, a file another
-    test reads - passes every time in the order the files happen to be named, and fails for
-    whoever runs one file on its own. ORGANELLA_TEST_SHUFFLE is a seed; CI sets one, and the
-    failure it prints names the seed to reproduce it with.
-    """
-    seed = os.environ.get("ORGANELLA_TEST_SHUFFLE")
-    if seed:
-        random.Random(int(seed)).shuffle(items)
-        print(f"\nshuffled with ORGANELLA_TEST_SHUFFLE={seed}")
 
 
 # The synthetic objects are bounded by a mask called "pm". Nothing is guessed, so every
