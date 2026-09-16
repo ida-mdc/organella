@@ -146,6 +146,24 @@ def _given(parse, raw):
         raise click.ClickException(str(error)) from None
 
 
+def _printable_output() -> None:
+    """Let a command finish saying what it was saying, whatever the console can encode.
+
+    Python encodes stdout with the console's own encoding, which on Windows is the active
+    code page rather than UTF-8. Every measurement here is in µm and the report talks about
+    µm³, so output carries characters a legacy code page may not have - and the default is
+    to raise, which ended `dry-run` in a UnicodeEncodeError on the line it was using to
+    report what was wrong with a batch.
+
+    An unprintable character becomes its escape. The message is what matters, and a run
+    that cannot render "µ" should still be able to say how far apart two structures are.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        # Not every stream is a TextIOWrapper: a test runner hands click its own.
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
+
+
 @click.group()
 @click.option("-q", "--quiet", is_flag=True, help="Only warnings and errors.")
 @click.option("-v", "--verbose", is_flag=True, help="Everything, including per-entity detail.")
@@ -156,6 +174,7 @@ def cli(quiet: bool, verbose: bool) -> None:
     measured in a process pool, so nothing arrives in order and a batch that is working
     looks exactly like one that has hung.
     """
+    _printable_output()
     level = logging.WARNING if quiet else (logging.DEBUG if verbose else logging.INFO)
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(message)s"))
@@ -482,7 +501,7 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
     legend = "  (* = object mask)" if object_mask else ""
     click.echo(f"\n===== {len(objects)} object folder(s) ====={legend}")
     for key, count in sorted(entity_presence.items()):
-        missing = "" if count == len(objects) else "   ← missing in some objects"
+        missing = "" if count == len(objects) else "   <- missing in some objects"
         click.echo(f"  {key:24s} {count}/{len(objects)}{missing}")
     if not object_mask:
         # An auto entity is a candidate: naming one as the boundary settles that it is a
@@ -583,7 +602,7 @@ def mesh(
         drawable = "outline" if stack.spatial_dims == 2 else "mesh"
         drawn = sum(1 for row in rows if row.get(drawable))
         click.echo(f"{stack.object_id}: {drawn}/{len(rows)} "
-                   f"{'outlined' if drawable == 'outline' else 'meshed'} → {path} "
+                   f"{'outlined' if drawable == 'outline' else 'meshed'} -> {path} "
                    f"({path.stat().st_size / 1024**2:.1f} MB)")
 
 

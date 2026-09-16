@@ -408,4 +408,5 @@ def promote_multicomponent_masks(
         volumes[key] = labeled.astype(np.int32)
         entities[key] = Entity(name=entity.name, kind="label", path=entity.path,
                                ref=entity.ref)
-        logger.info("organella: auto-label '%s': %d components → label entity", entity.name, n)
+        logger.info("organella: auto-label '%s': %d components -> label entity",
+                    entity.name, n)

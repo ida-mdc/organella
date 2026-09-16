@@ -154,7 +154,7 @@ class GeometryWriter:
             by_kind[kind] = by_kind.get(kind, 0) + 1
         breakdown = ", ".join(f"{n} {kind}" for kind, n in sorted(by_kind.items()))
         logger.info(
-            "organella: %s: %d/%d rows drawable%s → %s (%.1f MB)",
+            "organella: %s: %d/%d rows drawable%s -> %s (%.1f MB)",
             object_id, len(drawn), len(rows),
             f" ({breakdown})" if breakdown else "",
             path, path.stat().st_size / 1024**2,

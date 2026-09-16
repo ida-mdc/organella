@@ -241,6 +241,24 @@ def test_dry_run_reports_a_folder_missing_the_mask_it_was_given(dataset):
     assert "No mask named 'pm'" in result.output
 
 
+def test_what_the_cli_prints_survives_a_console_that_is_not_utf_8(dataset, tmp_path):
+    """Windows encodes stdout with the active code page, and cp1252 has no arrow.
+
+    `dry-run` used the line reporting a structure missing from some objects to print one,
+    so the command that exists to say what is wrong with a batch ended in a
+    UnicodeEncodeError instead of saying it. Every character it prints has to survive the
+    narrowest console somebody runs this on.
+    """
+    (dataset / "control" / "object_a" / "sample_a_nucleus_mask.tif").unlink()
+
+    result = CliRunner().invoke(cli, ["dry-run", str(dataset), "--object-mask", "pm"])
+
+    assert result.exit_code == 0, result.output
+    assert "missing in some objects" in result.output
+    # The assertion is the encode: anything outside cp1252 raises here, as it would there.
+    result.output.encode("cp1252")
+
+
 def test_dry_run_says_so_when_nothing_looks_like_an_object(tmp_path):
     result = CliRunner().invoke(cli, ["dry-run", str(tmp_path)])
 
