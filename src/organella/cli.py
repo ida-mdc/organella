@@ -2,26 +2,30 @@
 
 ``process`` drives the pipeline in :mod:`organella.pipeline`, which loads each
 object whole: an object cannot be split, because a distance is *to* another structure and a
-contact is between two of them. Measurer options travel as environment variables, since a
-measurer is constructed with no arguments; every flag here sets one.
+contact is between two of them. Every flag here goes into one :class:`~organella.config.RunConfig`,
+which is handed to the pipeline and travels from there to each object's worker.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-import os
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import Any, Tuple
 
 import click
 
-if TYPE_CHECKING:                      # analysis.meshes pulls in scikit-image
-    from organella.analysis.meshes import MeshOptions
-
-from organella.config import RunConfig
+from organella.config import (
+    EntityFilter,
+    RunConfig,
+    colours_from_file,
+    label_map_from_file,
+    parse_entity_filter,
+    parse_geometry_as,
+    parse_voxel_size,
+)
 from organella import pipeline, report_io
 from organella.measure.discovery import inspect_object_dir
 from organella.measure.readers import read_header
@@ -40,8 +44,12 @@ FLAVOR = "organella"
 _PEAK_OVERHEAD = 3.5
 
 
-def _object_extent(object_dir: Path) -> Tuple[int, int]:
-    """(voxels per entity, entity count) for one object, from TIFF headers only."""
+def _object_extent(object_dir: Path, wanted: EntityFilter = None) -> Tuple[int, int]:
+    """(voxels per entity, entity count) for one object, from TIFF headers only.
+
+    ``wanted`` is --entities: only the entities the run will stack are budgeted for, since
+    counting all 117 of a subject would send a seven-entity run to one worker.
+    """
     d = inspect_object_dir(object_dir)
     if d.source is None:
         return 0, 0
@@ -49,70 +57,31 @@ def _object_extent(object_dir: Path) -> Tuple[int, int]:
         shape, _ = read_header(d.source)
     except Exception:
         return 0, 0
-    # Only the entities the run will stack: budgeting for all 117 of a subject would send
-    # a seven-entity run to one worker.
-    wanted = RunConfig.from_env().entities
     names = [e.name for e in d.entities.values()]
     if wanted:
         names = [n for n in names if n in wanted or n == d.object_mask_name]
     return math.prod(int(s) for s in shape), max(1, len(names))
 
 
-def _stacked_mb(object_dir: Path) -> float:
+def _stacked_mb(object_dir: Path, wanted: EntityFilter = None) -> float:
     """Megabytes one object occupies as a CZYX stack, worst case (4 bytes per label id).
 
     The stack is narrowed to the smallest integer type the labels need, usually uint16, so
     this is an over-estimate - the safe direction for a budget whose only job is to stay
     above the real size.
     """
-    voxels, entities = _object_extent(object_dir)
+    voxels, entities = _object_extent(object_dir, wanted)
     return voxels * entities * 4 / 1024 / 1024
 
 
-def estimate_peak_gb(object_dir: Path) -> float:
+def estimate_peak_gb(object_dir: Path, wanted: EntityFilter = None) -> float:
     """Rough peak resident memory for processing one object, in GB.
 
     The stack (2 bytes per voxel per entity) plus one whole-volume float32 distance
     transform - the measurers keep only one alive - times measured overhead.
     """
-    voxels, entities = _object_extent(object_dir)
+    voxels, entities = _object_extent(object_dir, wanted)
     return voxels * (2 * entities + 4) * _PEAK_OVERHEAD / 1024**3
-
-
-def mesh_options(**overrides: Any) -> "MeshOptions":
-    """MeshOptions from the environment, so both commands read one configuration."""
-    from organella.analysis.meshes import MeshOptions
-
-    return replace(MeshOptions.from_config(RunConfig.from_env()), **overrides)
-
-
-def _apply_mesh_env(
-    mesh_dir: Path | None,
-    smooth_sigma: float | None,
-    step_size: int | None,
-    target_reduction: float | None,
-    level: float | None,
-    mesh_format: str | None = None,
-    mesh_workers: int | None = None,
-    mesh_max_vertices: int | None = None,
-    mesh_surface_method: str | None = None,
-    reuse_geometry: bool = False,
-) -> None:
-    settings = {
-        "ORGANELLA_MESH_MAX_VERTICES": mesh_max_vertices,
-        "ORGANELLA_MESH_SURFACE_METHOD": mesh_surface_method,
-        "ORGANELLA_MESH_DIR": mesh_dir,
-        "ORGANELLA_MESH_FORMAT": mesh_format,
-        "ORGANELLA_MESH_WORKERS": mesh_workers,
-        "ORGANELLA_REUSE_GEOMETRY": 1 if reuse_geometry else None,
-        "ORGANELLA_MESH_SMOOTH_SIGMA": smooth_sigma,
-        "ORGANELLA_MESH_STEP_SIZE": step_size,
-        "ORGANELLA_MESH_TARGET_REDUCTION": target_reduction,
-        "ORGANELLA_MESH_LEVEL": level,
-    }
-    for key, value in settings.items():
-        if value is not None:
-            os.environ[key] = str(value)
 
 
 def _mesh_flags(fn):
@@ -151,53 +120,28 @@ def _mesh_flags(fn):
     return fn
 
 
-def _apply_analysis_env(
-    object_mask: str | None,
-    object_noun: str | None,
-    voxel_size_um: str | None,
-    no_clip: bool,
-    auto_label_masks: bool,
-    contact_max_um: float | None,
-    max_skeleton_voxels: int | None,
-    num_threads: int | None,
-    polarity_spread: bool = False,
-    distance_histograms: bool = False,
-    baseline_exclude: str | None = None,
-    skeletons: str | None = None,
-    geometry_as: str | None = None,
-    entities: str | None = None,
-    label_map: Path | None = None,
-    label_map_entity: str | None = None,
-) -> None:
-    """Plugin options travel as environment variables; see config.RunConfig."""
-    settings = {
-        "ORGANELLA_OBJECT_MASK": object_mask,
-        "ORGANELLA_OBJECT_NOUN": object_noun,
-        "ORGANELLA_VOXEL_SIZE_UM": voxel_size_um,
-        "ORGANELLA_NO_CLIP": "1" if no_clip else None,
-        "ORGANELLA_AUTO_LABEL_MASKS": "1" if auto_label_masks else None,
-        "ORGANELLA_CONTACT_MAX_UM": contact_max_um,
-        "ORGANELLA_MAX_SKELETON_VOXELS": max_skeleton_voxels,
-        "ORGANELLA_NUM_THREADS": num_threads,
-        "ORGANELLA_POLARITY_SPREAD": "1" if polarity_spread else None,
-        "ORGANELLA_DISTANCE_HISTOGRAMS": "1" if distance_histograms else None,
-        "ORGANELLA_BASELINE_EXCLUDE": baseline_exclude,
-        "ORGANELLA_SKELETONS": skeletons,
-        "ORGANELLA_GEOMETRY_AS": geometry_as,
-        "ORGANELLA_ENTITIES": entities,
-        "ORGANELLA_LABEL_MAP": label_map,
-        "ORGANELLA_LABEL_MAP_ENTITY": label_map_entity,
-    }
-    for key, value in settings.items():
-        if value is not None:
-            os.environ[key] = str(value)
+def _settings(**given: Any) -> RunConfig:
+    """A RunConfig from the flags that were actually given.
+
+    A flag that was left off is None, and None here means "whatever the default is" - which
+    is the one written on the field in config.RunConfig. Spelling the defaults out again
+    would be a second copy of every one of them, and the copies drift: that is how
+    --mesh-surface-method came to be parsed and then dropped.
+    """
+    return RunConfig(**{name: value for name, value in given.items() if value is not None})
 
 
-def _colours_from_file(path: Path) -> dict[str, str]:
-    """The palette in a settings file, validated. See config.entity_colours for the format."""
-    os.environ["ORGANELLA_ENTITY_COLOURS"] = str(path)
+def _given(parse, raw):
+    """What a flag parses to, or a message naming the flag.
+
+    A value that will not parse is the reader's mistake, not the run's, so it is said here
+    and now rather than raised out of a worker once the batch is an hour in. Nothing if the
+    flag was not given: the default then stands.
+    """
+    if raw is None:
+        return None
     try:
-        return RunConfig.from_env().entity_colours
+        return parse(raw)
     except ValueError as error:
         raise click.ClickException(str(error)) from None
 
@@ -238,7 +182,7 @@ def colours(report: Path, palette: Path) -> None:
     draws that structure the same. Unnamed structures keep the built-in palette, and running
     it again with another file touches nothing else.
     """
-    named = report_io.recolour(report, _colours_from_file(palette))
+    named = report_io.recolour(report, _given(colours_from_file, palette) or {})
     click.echo(f"{report}: coloured {named} entity row(s) from {palette}")
 
 
@@ -387,18 +331,37 @@ def process(
             "plus <prefix>_<name>_label.tif / _mask.tif volumes; run 'dry-run' to see "
             "what was rejected and why."
         )
-    _apply_analysis_env(object_mask, object_noun, voxel_size_um, no_clip, auto_label_masks,
-                        contact_max_um, max_skeleton_voxels, num_threads,
-                        polarity_spread, distance_histograms, baseline_exclude,
-                        skeletons, geometry_as, entities, label_map,
-                        label_map_entity)
-
     meshes_to = (mesh_dir or output.with_name(output.stem + "_meshes")) if with_mesh else None
-    _apply_mesh_env(meshes_to, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
-                    mesh_level, mesh_workers=mesh_workers,
-                    mesh_max_vertices=mesh_max_vertices,
-                    mesh_surface_method=mesh_surface_method,
-                    reuse_geometry=reuse_geometry)
+    # What this run was asked for, as one value. Built here and handed down: nothing below
+    # goes back to the settings for itself.
+    cfg = _settings(
+        object_mask=object_mask,
+        object_noun=object_noun,
+        voxel_size_um=_given(parse_voxel_size, voxel_size_um),
+        clip=False if no_clip else None,
+        auto_label_masks=auto_label_masks or None,
+        entities=parse_entity_filter(entities),
+        label_map=_given(label_map_from_file, label_map),
+        label_map_entity=label_map_entity,
+        entity_colours=_given(colours_from_file, colours),
+        max_skeleton_voxels=max_skeleton_voxels,
+        skeletons=parse_entity_filter(skeletons),
+        geometry_as=_given(parse_geometry_as, geometry_as),
+        num_threads=num_threads,
+        contact_max_um=contact_max_um,
+        polarity_spread=polarity_spread or None,
+        distance_histograms=distance_histograms or None,
+        baseline_exclude=parse_entity_filter(baseline_exclude),
+        mesh_dir=str(meshes_to) if meshes_to else None,
+        mesh_smooth_sigma=mesh_smooth_sigma,
+        mesh_step_size=mesh_step_size,
+        mesh_target_reduction=mesh_target_reduction,
+        mesh_level=mesh_level,
+        mesh_workers=mesh_workers,
+        mesh_max_vertices=mesh_max_vertices,
+        mesh_surface_method=mesh_surface_method,
+        reuse_geometry=reuse_geometry or None,
+    )
 
     excluded = {"organella-contacts"} if no_contacts else set()
     if not with_mesh:
@@ -406,10 +369,7 @@ def process(
     if no_instances:
         excluded.add("organella-instances")
 
-    # Read once, here, and handed down: everything below measures against this object
-    # rather than going back to the settings for itself.
-    cfg = RunConfig.from_env()
-    peak = max((estimate_peak_gb(d) for d in objects), default=0.0)
+    peak = max((estimate_peak_gb(d, cfg.entities) for d in objects), default=0.0)
     workers = pipeline.worker_count(max_workers, len(objects), peak)
     click.echo(f"{len(objects)} object folder(s); {workers} worker(s) "
                f"(largest object needs ~{peak:.1f} GB each)")
@@ -438,7 +398,7 @@ def process(
     if colours:
         # The same call the `colours` command makes, so it can be run again later without
         # redoing the measuring.
-        named = report_io.recolour(output, _colours_from_file(colours))
+        named = report_io.recolour(output, cfg.entity_colours)
         click.echo(f"Coloured {named} entity row(s) from {colours}")
     click.echo(f"Report written to {output} "
                f"({report.n_objects} object(s) in {report.seconds:.0f} s)")
@@ -583,22 +543,34 @@ def mesh(
     The same geometry `process --with-mesh` writes, for when you already have a report and
     only want the 3D files - or want to re-mesh with different settings.
     """
-    from organella.analysis.meshes import mesh_rows_for_object, write_geometry
+    from organella.analysis.meshes import MeshOptions, mesh_rows_for_object, write_geometry
 
     objects = find_object_dirs(object_dir)
     if not objects:
         raise click.ClickException(f"No object folders found under {object_dir}.")
-    _apply_analysis_env(object_mask, None, voxel_size_um, no_clip, False, contact_max_um,
-                        None, None, skeletons=skeletons, geometry_as=geometry_as)
-    _apply_mesh_env(None, mesh_smooth_sigma, mesh_step_size, mesh_target_reduction,
-                    mesh_level, mesh_workers=mesh_workers,
-                    mesh_max_vertices=mesh_max_vertices,
-                    mesh_surface_method=mesh_surface_method,
-                    reuse_geometry=reuse_geometry)
-    options = mesh_options(**({"contact_max_um": None} if no_contacts else {}))
+    cfg = _settings(
+        object_mask=object_mask,
+        voxel_size_um=_given(parse_voxel_size, voxel_size_um),
+        clip=False if no_clip else None,
+        skeletons=parse_entity_filter(skeletons),
+        geometry_as=_given(parse_geometry_as, geometry_as),
+        contact_max_um=None if no_contacts else contact_max_um,
+        mesh_smooth_sigma=mesh_smooth_sigma,
+        mesh_step_size=mesh_step_size,
+        mesh_target_reduction=mesh_target_reduction,
+        mesh_level=mesh_level,
+        mesh_workers=mesh_workers,
+        mesh_max_vertices=mesh_max_vertices,
+        mesh_surface_method=mesh_surface_method,
+        reuse_geometry=reuse_geometry or None,
+    )
+    # --no-contacts is the one setting that is not "leave it at the default": None means
+    # leave the contact rows out, where the default is to find them.
+    options = replace(MeshOptions.from_config(cfg),
+                      **({"contact_max_um": None} if no_contacts else {}))
 
     for folder in objects:
-        stack = load_object(folder)
+        stack = load_object(folder, cfg)
         rows = mesh_rows_for_object(
             stack.volumes(),
             stack.kinds,

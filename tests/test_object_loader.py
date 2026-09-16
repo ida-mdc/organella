@@ -1,6 +1,7 @@
 import pytest
 
 from organella.measure import find_object_dirs, is_object_dir, load_object
+from conftest import settings
 from synthetic import VOXEL_SIZE_UM, make_object, make_dataset
 
 
@@ -11,7 +12,7 @@ def object_dir(tmp_path):
 
 
 def test_loads_object_folder_as_one_czyx_stack(object_dir):
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings())
 
     assert record.dim_order == "CZYX"
     assert record.data.shape[0] == 3          # pm, nucleus, mito
@@ -21,14 +22,14 @@ def test_loads_object_folder_as_one_czyx_stack(object_dir):
 
 
 def test_the_object_mask_is_the_first_channel_then_alphabetical(object_dir):
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings())
 
     assert record.meta["channel_names"] == ["pm", "mito", "nucleus"]
     assert record.meta["entity_kinds"] == ["mask", "label", "mask"]
 
 
 def test_voxel_size_read_from_tiff_metadata(object_dir):
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings())
 
     assert record.meta["voxel_size_source"] == "tiff-metadata"
     assert record.meta["pixel_size_Z"] == pytest.approx(VOXEL_SIZE_UM[0])
@@ -36,16 +37,15 @@ def test_voxel_size_read_from_tiff_metadata(object_dir):
     assert record.meta["pixel_size_X"] == pytest.approx(VOXEL_SIZE_UM[2])
 
 
-def test_voxel_size_override_from_env(object_dir, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.5,0.25,0.25")
-    record = load_object(object_dir)
+def test_a_given_voxel_size_overrides_the_one_in_the_file(object_dir):
+    record = load_object(object_dir, settings(voxel_size_um=(0.5, 0.25, 0.25)))
 
     assert record.meta["voxel_size_source"] == "config"
     assert record.meta["pixel_size_Z"] == pytest.approx(0.5)
 
 
 def test_the_region_is_cropped_to_the_object_mask_bbox(object_dir):
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings())
 
     # The membrane ellipsoid is inset from the image border, so the analysed volume
     # is smaller than the source image and object_shape reports what was measured.
@@ -82,53 +82,45 @@ def test_folder_without_entity_volumes_is_not_an_object(tmp_path, object_dir):
 
 # ── which mask bounds the object ──────────────────────────────────────────────
 
-def test_the_named_mask_is_the_one_that_bounds_the_object(object_dir, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "nucleus")
-
-    record = load_object(object_dir)
+def test_the_named_mask_is_the_one_that_bounds_the_object(object_dir):
+    record = load_object(object_dir, settings(object_mask="nucleus"))
 
     # Everything downstream follows: the region is cropped to the nucleus, and polarity is
     # measured from its centroid.
     assert record.meta["object_mask_name"] == "nucleus"
 
 
-def test_cropping_follows_the_named_mask(object_dir, monkeypatch):
-    to_membrane = load_object(object_dir).meta["object_shape"]
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "nucleus")
+def test_cropping_follows_the_named_mask(object_dir):
+    to_membrane = load_object(object_dir, settings()).meta["object_shape"]
 
-    to_nucleus = load_object(object_dir).meta["object_shape"]
+    to_nucleus = load_object(object_dir,
+                             settings(object_mask="nucleus")).meta["object_shape"]
 
     # The nucleus is a small blob inside the membrane, so naming it shrinks the analysed
     # volume - which is the point: the object mask decides what "inside" means.
     assert all(n < m for n, m in zip(to_nucleus, to_membrane))
 
 
-def test_naming_a_mask_the_folder_does_not_have_is_an_error(object_dir, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "cortex")
-
+def test_naming_a_mask_the_folder_does_not_have_is_an_error(object_dir):
     with pytest.raises(FileNotFoundError, match="No mask named 'cortex'"):
-        load_object(object_dir)
+        load_object(object_dir, settings(object_mask="cortex"))
 
 
-def test_a_label_entity_cannot_be_the_object_mask(object_dir, monkeypatch):
+def test_a_label_entity_cannot_be_the_object_mask(object_dir):
     # mito is instance-segmented, so it is not a boundary: asking for it is the same
     # mistake as asking for a mask that is not there, and gets the same refusal.
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "mito")
-
     with pytest.raises(FileNotFoundError, match="No mask named 'mito'"):
-        load_object(object_dir)
+        load_object(object_dir, settings(object_mask="mito"))
 
 
-def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir, monkeypatch):
+def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir):
     """No object mask is a choice, not an omission.
 
     Nothing is guessed either way - a mask called "pm" is no more self-explanatory than one
     called "cortex" - so without a name nothing bounds the object, and the columns that need
     a boundary are simply not filled.
     """
-    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
-
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings(object_mask=None))
 
     assert record.meta["object_mask_name"] is None
     # The extent of the object is one of those columns: nothing encloses it, so there is
@@ -136,8 +128,7 @@ def test_naming_no_mask_measures_the_entities_where_they_lie(object_dir, monkeyp
     assert "object_volume_um3" not in record.meta
 
 
-def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_dir,
-                                                                      monkeypatch):
+def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_dir):
     """A polarity origin does not need a boundary, only a middle.
 
     The mask's centroid is the origin when a mask is named. When none is, the origin is the
@@ -147,9 +138,7 @@ def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_di
     """
     import numpy as np
 
-    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
-
-    record = load_object(object_dir)
+    record = load_object(object_dir, settings(object_mask=None))
 
     axes = "ZYX"
     centre = [record.meta.get(f"object_center_{ax.lower()}_um") for ax in axes]
@@ -164,17 +153,15 @@ def test_without_a_mask_the_centre_is_the_middle_of_what_was_segmented(object_di
         assert found[0] * size <= centre[i] <= (found[-1] + 1) * size
 
 
-def test_without_a_mask_nothing_is_cropped_or_clipped_away(tmp_path, monkeypatch):
+def test_without_a_mask_nothing_is_cropped_or_clipped_away(tmp_path):
     """The same folder, with and without a mask named: the full field versus the object."""
     import numpy as np
 
     folder = _object_with_something_outside(tmp_path)
-    monkeypatch.setenv("ORGANELLA_VOXEL_SIZE_UM", "0.1,0.02,0.02")
+    voxel = (0.1, 0.02, 0.02)
 
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", "pm")
-    bounded = load_object(folder)
-    monkeypatch.delenv("ORGANELLA_OBJECT_MASK", raising=False)
-    whole = load_object(folder)
+    bounded = load_object(folder, settings(object_mask="pm", voxel_size_um=voxel))
+    whole = load_object(folder, settings(object_mask=None, voxel_size_um=voxel))
 
     # Cropped to the mask's bounding box when there is one, the full field when there is not.
     assert bounded.data.shape[1:] != whole.data.shape[1:]
@@ -214,13 +201,9 @@ def _object_with_something_outside(root):
 
 
 def _labels_seen(folder, no_clip):
-    import os, numpy as np
-    os.environ["ORGANELLA_OBJECT_MASK"] = "pm"
-    os.environ["ORGANELLA_VOXEL_SIZE_UM"] = "0.1,0.02,0.02"
-    os.environ.pop("ORGANELLA_NO_CLIP", None)
-    if no_clip:
-        os.environ["ORGANELLA_NO_CLIP"] = "1"
-    record = load_object(folder)
+    import numpy as np
+    record = load_object(folder, settings(object_mask="pm", clip=not no_clip,
+                                          voxel_size_um=(0.1, 0.02, 0.02)))
     c = record.dim_order.index("C")
     names = list(record.meta["channel_names"])
     mito = np.take(record.data, names.index("mito"), axis=c)

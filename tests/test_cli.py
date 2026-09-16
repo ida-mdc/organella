@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import threading
 import time
@@ -13,12 +12,12 @@ from click.testing import CliRunner
 from organella import report_io
 from organella.cli import (
     FLAVOR,
-    _apply_analysis_env,
+    _settings,
     cli,
     estimate_peak_gb,
     find_object_dirs,
 )
-from organella.config import RunConfig
+from organella.config import RunConfig, colours_from_file
 from synthetic import make_object, make_dataset
 
 
@@ -55,33 +54,41 @@ def test_a_folder_with_no_source_estimates_nothing(tmp_path):
     assert estimate_peak_gb(tmp_path / "empty") == 0.0
 
 
-def test_analysis_flags_travel_as_environment_variables(monkeypatch):
-    # Writes land in a throwaway copy: a leaked ORGANELLA_* here would silently
-    # reconfigure every later test, since that is exactly how plugins read their options.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ORGANELLA_")}
-    monkeypatch.setattr(os, "environ", env)
+def test_the_flags_given_become_the_run_settings():
+    """What the reader typed, as one value the whole run is measured under."""
+    cfg = _settings(object_mask="pm", object_noun="cell", voxel_size_um=(0.5, 0.1, 0.1),
+                    clip=False, contact_max_um=0.25,
+                    baseline_exclude=frozenset({"nucleus"}))
 
-    _apply_analysis_env("pm", "cell", "0.5,0.1,0.1", True, False, 0.25, None, None,
-                        baseline_exclude="nucleus")
-
-    assert env["ORGANELLA_OBJECT_MASK"] == "pm"
-    assert env["ORGANELLA_OBJECT_NOUN"] == "cell"
-    assert env["ORGANELLA_VOXEL_SIZE_UM"] == "0.5,0.1,0.1"
-    assert env["ORGANELLA_NO_CLIP"] == "1"
-    assert env["ORGANELLA_CONTACT_MAX_UM"] == "0.25"
-    assert env["ORGANELLA_BASELINE_EXCLUDE"] == "nucleus"
-    # Flags left alone must not be forced to a default here - config.py owns those.
-    assert "ORGANELLA_AUTO_LABEL_MASKS" not in env
-    assert "ORGANELLA_MAX_SKELETON_VOXELS" not in env
+    assert cfg.object_mask == "pm"
+    assert cfg.object_noun == "cell"
+    assert cfg.voxel_size_um == (0.5, 0.1, 0.1)
+    assert cfg.clip is False
+    assert cfg.contact_max_um == 0.25
+    assert cfg.baseline_exclude == frozenset({"nucleus"})
 
 
-def test_a_colour_settings_file_is_read_and_expanded(tmp_path, monkeypatch):
+def test_a_flag_left_off_keeps_the_one_default_there_is():
+    """None means "whatever the default is", and the default is written on the field.
+
+    Spelling them out at the command line too would be a second copy of every one, and the
+    copies drift: that is how --mesh-surface-method came to be read and then dropped.
+    """
+    cfg = _settings(object_mask="pm", max_skeleton_voxels=None, contact_max_um=None,
+                    auto_label_masks=None)
+
+    assert cfg.max_skeleton_voxels == RunConfig.max_skeleton_voxels
+    assert cfg.contact_max_um == RunConfig.contact_max_um
+    assert cfg.auto_label_masks == RunConfig.auto_label_masks
+    assert cfg.clip is True
+
+
+def test_a_colour_settings_file_is_read_and_expanded(tmp_path):
     """One file per study, hand-edited: short hex and any case have to work."""
-    settings = tmp_path / "colours.json"
-    settings.write_text(json.dumps({"mito": "#D62728", "er": "#2c3"}))
-    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(settings))
+    palette = tmp_path / "colours.json"
+    palette.write_text(json.dumps({"mito": "#D62728", "er": "#2c3"}))
 
-    assert RunConfig.from_env().entity_colours == {"mito": "#d62728", "er": "#22cc33"}
+    assert colours_from_file(palette) == {"mito": "#d62728", "er": "#22cc33"}
 
 
 @pytest.mark.parametrize("contents,complaint", [
@@ -90,21 +97,18 @@ def test_a_colour_settings_file_is_read_and_expanded(tmp_path, monkeypatch):
     ('["mito"]', "structure: colour pairs"),
     ('{"mito": ', "not valid JSON"),
 ])
-def test_a_broken_colour_file_says_what_is_wrong(tmp_path, monkeypatch, contents, complaint):
-    settings = tmp_path / "colours.json"
-    settings.write_text(contents)
-    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(settings))
+def test_a_broken_colour_file_says_what_is_wrong(tmp_path, contents, complaint):
+    palette = tmp_path / "colours.json"
+    palette.write_text(contents)
 
     with pytest.raises(ValueError, match=complaint):
-        RunConfig.from_env()
+        colours_from_file(palette)
 
 
-def test_a_missing_colour_file_is_an_error_not_a_default(tmp_path, monkeypatch):
+def test_a_missing_colour_file_is_an_error_not_a_default(tmp_path):
     """Silently ignoring it would produce a report coloured nothing like the study asked."""
-    monkeypatch.setenv("ORGANELLA_ENTITY_COLOURS", str(tmp_path / "nope.json"))
-
     with pytest.raises(ValueError, match="no such file"):
-        RunConfig.from_env()
+        colours_from_file(tmp_path / "nope.json")
 
 
 def test_a_report_records_the_version_that_measured_it(report_path):

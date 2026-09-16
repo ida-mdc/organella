@@ -23,6 +23,7 @@ from organella.analysis.meshes import (
     sigma_for_shape,
     write_geometry,
 )
+from organella.config import RunConfig
 from organella.measure.geometry import GeometryWriter
 
 from conftest import object_stack
@@ -275,21 +276,20 @@ def _record(volumes, kinds):
                         voxel_size=VOXEL)
 
 
-def test_nothing_is_written_until_a_destination_is_configured(monkeypatch):
-    monkeypatch.delenv("ORGANELLA_MESH_DIR", raising=False)
+def test_nothing_is_written_until_a_destination_is_configured():
     volumes, kinds = _object_volumes()
 
     # The column is still declared, so a report written with the writer enabled but no
     # destination has it as null rather than missing.
-    measured = GeometryWriter().measure(_record(volumes, kinds))
+    measured = GeometryWriter(RunConfig()).measure(_record(volumes, kinds))
     assert measured.columns == {"mesh_geometry_file": None}
 
 
-def test_one_file_is_written_and_the_object_row_says_where(tmp_path, monkeypatch):
-    monkeypatch.setenv("ORGANELLA_MESH_DIR", str(tmp_path / "meshes"))
+def test_one_file_is_written_and_the_object_row_says_where(tmp_path):
     volumes, kinds = _object_volumes()
+    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"))
 
-    row = GeometryWriter().measure(_record(volumes, kinds)).columns
+    row = GeometryWriter(cfg).measure(_record(volumes, kinds)).columns
 
     # Geometry belongs beside the report; the one column is the path the widgets follow.
     written = tmp_path / "meshes" / "object_a" / "geometry.parquet"
@@ -297,22 +297,17 @@ def test_one_file_is_written_and_the_object_row_says_where(tmp_path, monkeypatch
     assert row == {"mesh_geometry_file": str(written.resolve())}
 
 
-def test_every_mesh_setting_reaches_the_writer(monkeypatch):
+def test_every_mesh_setting_reaches_the_writer():
     """One mapping from the run's settings, or a flag goes quiet.
 
     There were two, and they had drifted: the writer's copy set mesh_workers and not
     max_vertices or surface_method, so `process --with-mesh --mesh-surface-method
     surface-nets` meshed with marching cubes and said nothing.
     """
-    from organella.analysis.meshes import MeshOptions
-    from organella.config import RunConfig
-
-    monkeypatch.setenv("ORGANELLA_MESH_SURFACE_METHOD", "surface-nets")
-    monkeypatch.setenv("ORGANELLA_MESH_MAX_VERTICES", "999")
-    monkeypatch.setenv("ORGANELLA_MESH_WORKERS", "3")
-    monkeypatch.setenv("ORGANELLA_MESH_STEP_SIZE", "1")
-
-    options = MeshOptions.from_config(RunConfig.from_env())
+    options = MeshOptions.from_config(RunConfig(
+        mesh_surface_method="surface-nets", mesh_max_vertices=999,
+        mesh_workers=3, mesh_step_size=1,
+    ))
 
     assert options.surface_method == "surface-nets"
     assert options.max_vertices == 999
@@ -334,9 +329,8 @@ def test_every_mesh_setting_reaches_the_writer(monkeypatch):
 
 def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypatch):
     """The end of the same wire: what GeometryWriter hands the mesher."""
-    monkeypatch.setenv("ORGANELLA_MESH_DIR", str(tmp_path / "meshes"))
-    monkeypatch.setenv("ORGANELLA_MESH_SURFACE_METHOD", "surface-nets")
-    monkeypatch.setenv("ORGANELLA_MESH_MAX_VERTICES", "999")
+    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"),
+                    mesh_surface_method="surface-nets", mesh_max_vertices=999)
     volumes, kinds = _object_volumes()
 
     handed = {}
@@ -347,7 +341,7 @@ def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypat
         return []
 
     monkeypatch.setattr(geometry_module, "mesh_rows_for_object", spy)
-    GeometryWriter().measure(_record(volumes, kinds))
+    GeometryWriter(cfg).measure(_record(volumes, kinds))
 
     assert handed["options"].surface_method == "surface-nets"
     assert handed["options"].max_vertices == 999

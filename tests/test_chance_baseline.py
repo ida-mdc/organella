@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from organella.analysis.distances import distance_target, distance_transform_um
+from organella.config import RunConfig
 from organella.measure.instances import BASELINE_HISTOGRAM_BINS, InstanceMeasurer
 
 from conftest import object_stack
@@ -38,9 +39,9 @@ def _blob(label: int, origin, size) -> np.ndarray:
     return vol
 
 
-def _baseline(stack) -> dict:
+def _baseline(stack, config: RunConfig | None = None) -> dict:
     """The chance rows of one object, keyed by the target they are of."""
-    table = InstanceMeasurer().measure(stack).tables["baseline"]
+    table = InstanceMeasurer(config or RunConfig()).measure(stack).tables["baseline"]
     return {
         target: {name: values[i] for name, values in table.items()}
         for i, target in enumerate(table["baseline_target"])
@@ -88,20 +89,19 @@ def test_the_region_is_the_object_and_not_the_structure_measured_to():
     assert rows["nucleus"]["baseline_hist_min_um"] > 0
 
 
-def test_named_structures_are_left_out_of_the_region(monkeypatch):
+def test_named_structures_are_left_out_of_the_region():
     """--baseline-exclude: ground an instance could never occupy is not a fair reference."""
     pm, nucleus = _interior(), _blob(1, (3, 3, 3), (3, 6, 6))
     mito = _blob(1, (4, 10, 10), (2, 3, 3))
     entities = dict(pm=(pm, "mask"), nucleus=(nucleus, "mask"), mito=(mito, "label"))
 
-    monkeypatch.setenv("ORGANELLA_BASELINE_EXCLUDE", "nucleus")
-    excluded = _baseline(_object(**entities))
+    excluded = _baseline(_object(**entities),
+                         RunConfig(baseline_exclude=frozenset({"nucleus"})))
 
     assert excluded["pm"]["baseline_voxels"] == int((pm > 0).sum()) - int((nucleus > 0).sum())
     assert excluded["pm"]["baseline_excluded"] == "nucleus"
     # Leaving the nucleus out takes the deepest part of this object with it, so what is
     # left sits nearer the boundary than the whole of it did.
-    monkeypatch.delenv("ORGANELLA_BASELINE_EXCLUDE")
     whole = _baseline(_object(**entities))
     assert whole["pm"]["baseline_excluded"] is None
     assert excluded["pm"]["baseline_mean_um"] < whole["pm"]["baseline_mean_um"]
@@ -161,7 +161,7 @@ def test_a_structure_carries_the_depth_of_its_own_centre():
     pm[2:8, 4:16, 4:16] = 1
     nucleus = _blob(1, (4, 5, 5), (2, 3, 3))       # tucked into a corner
     middle = _blob(1, (4, 9, 9), (2, 2, 2))        # in the middle of the object
-    measured = InstanceMeasurer().measure(
+    measured = InstanceMeasurer(RunConfig()).measure(
         object_stack({"pm": (pm, "mask"), "nucleus": (nucleus, "mask"),
                       "middle": (middle, "label")}, voxel_size=VOXEL, object_mask="pm"))
 

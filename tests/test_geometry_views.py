@@ -12,7 +12,6 @@ expose once reached the browser.
 """
 
 import base64
-import os
 import struct
 
 import duckdb
@@ -308,12 +307,14 @@ def test_a_run_writes_geometry_the_explode_slider_can_use(tmp_path):
     from organella.measure.geometry import GeometryWriter
     from synthetic import make_object
 
-    os.environ["ORGANELLA_MESH_DIR"] = str(tmp_path)
+    from conftest import settings
+
+    cfg = settings(mesh_dir=str(tmp_path))
     folder = tmp_path / "src" / "object_a"
     make_object(folder, prefix="s", n_mito=3, mito_radii=(2.0, 3.0, 3.0))
-    stack = load_object(folder)
-    InstanceMeasurer().measure(stack)             # publishes the per-instance metrics
-    written = GeometryWriter().measure(stack).columns["mesh_geometry_file"]
+    stack = load_object(folder, cfg)
+    InstanceMeasurer(cfg).measure(stack)          # publishes the per-instance metrics
+    written = GeometryWriter(cfg).measure(stack).columns["mesh_geometry_file"]
 
     rows = duckdb.connect().execute(
         f"""SELECT "polar_dist_um", "polar_nx", "polar_ny", "polar_nz"

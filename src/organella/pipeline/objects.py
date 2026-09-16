@@ -76,7 +76,7 @@ def measure_object(folder: Path, group: str, excluded: Sequence[str] = (),
     than being picked up out of the worker's surroundings.
     """
     started = time.perf_counter()
-    cfg = config if config is not None else RunConfig.from_env()
+    cfg = config if config is not None else RunConfig()
     try:
         stack = load_object(folder, cfg)
         about_the_object = _what_the_object_is(folder, stack)

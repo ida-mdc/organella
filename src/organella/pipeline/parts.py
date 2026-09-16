@@ -32,7 +32,7 @@ FINGERPRINT_COLUMN = "_organella_settings"
 def settings_fingerprint(excluded: Sequence[str] = (),
                          config: Optional[RunConfig] = None) -> str:
     """What these settings would produce, as a digest a part can be checked against."""
-    cfg = config if config is not None else RunConfig.from_env()
+    cfg = config if config is not None else RunConfig()
     return cfg.fingerprint(tuple(sorted(excluded)))
 
 

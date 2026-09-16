@@ -49,7 +49,7 @@ def analyse(
     something it goes looking for.
     """
     started = time.perf_counter()
-    cfg = config if config is not None else RunConfig.from_env()
+    cfg = config if config is not None else RunConfig()
     work = [(folder, group_of(folder, root, paths)) for folder in folders]
     n_workers, cfg = _plan_the_two_pools(workers, len(folders), peak_gb, cfg)
 

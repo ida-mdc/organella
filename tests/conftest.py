@@ -2,7 +2,6 @@
 built in memory, shared by the tests that measure a single object."""
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,6 +13,7 @@ import pytest
 
 from organella import pipeline, report_io
 from organella.cli import FLAVOR
+from organella.config import RunConfig
 from organella.measure import find_object_dirs
 from organella.model import ObjectStack
 from organella.analysis.cache import CACHE
@@ -29,19 +29,25 @@ OBJECT_MASK = "pm"
 
 
 @pytest.fixture(autouse=True)
-def isolated_state(monkeypatch):
-    """No ORGANELLA_* setting and no cached per-object work crosses a test boundary.
+def isolated_state():
+    """No cached per-object work crosses a test boundary.
 
-    Plugin options travel through the environment and the per-object cache is module-level,
-    so without this the suite's result depends on the order it happens to run in. The object
-    mask is then set back, because it is not a tuning knob: without it nothing loads at all.
+    The per-object cache is module-level, so without this the suite's result depends on the
+    order it happens to run in. Settings need no such fixture: a test states them, in the
+    RunConfig it hands to whatever it is measuring with.
     """
-    for key in [k for k in os.environ if k.startswith("ORGANELLA_")]:
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("ORGANELLA_OBJECT_MASK", OBJECT_MASK)
     CACHE.clear()
     yield
     CACHE.clear()
+
+
+def settings(**overrides) -> RunConfig:
+    """The settings a test measures under: the synthetic object mask, plus its own.
+
+    The mask is not a tuning knob - without one nothing is bounded and half the columns go
+    unfilled - so it is the default here, the way --object-mask is on a real run.
+    """
+    return RunConfig(**{"object_mask": OBJECT_MASK, **overrides})
 
 
 # One structure gets a colour from a settings file and the others do not, so both halves of
@@ -52,21 +58,20 @@ MITO_COLOUR = "#d62728"
 def _run(root: Path, out: Path) -> Path:
     """One batch through the real pipeline, exactly as `process` runs it.
 
-    Every setting the run depends on is set here rather than inherited. A module-scoped
-    fixture is built before the per-test isolation below has run, so without this a voxel
-    size left in the environment by an earlier test reaches this batch - and a 3D one is
-    refused outright by a 2D batch.
+    Every setting the run depends on is stated here rather than inherited, which is the
+    whole of what this batch was measured under - a 2D batch handed a 3D voxel size, say,
+    is refused outright.
     """
-    os.environ.pop("ORGANELLA_VOXEL_SIZE_UM", None)
-    os.environ["ORGANELLA_OBJECT_MASK"] = OBJECT_MASK
-    # The per-voxel distance distributions, because one section of the report is about them
-    # and without them the shared report cannot exercise it at all.
-    os.environ["ORGANELLA_DISTANCE_HISTOGRAMS"] = "1"
-    # And skeletons for the filaments, which is what a real run names: skeletonising is
-    # opt-in, so without this the report carries no branches, length or tortuosity.
-    os.environ["ORGANELLA_GEOMETRY_AS"] = "mito=skeleton"
+    cfg = settings(
+        # The per-voxel distance distributions, because one section of the report is about
+        # them and without them the shared report cannot exercise it at all.
+        distance_histograms=True,
+        # And skeletons for the filaments, which is what a real run names: skeletonising is
+        # opt-in, so without this the report carries no branches, length or tortuosity.
+        geometry_as={"mito": "skeleton"},
+    )
     paths = ["control", "treated"]
-    report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1)
+    report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1, config=cfg)
     assert not report.failures, report.failures
     written = report_io.write(report, out, root=root, paths=paths, flavor=FLAVOR)
     # `process --colours` does exactly this, and so does the `colours` command afterwards.

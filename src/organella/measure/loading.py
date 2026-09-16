@@ -299,8 +299,12 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     """Every entity volume of one object folder, as one stack.
 
     A 2D folder becomes a CYX stack, a 3D one CZYX. Nothing else differs between them.
+
+    No ``config`` means the defaults: nothing bounds the object, so it is measured where it
+    lies, with no clipping and no cropping. A run states its own - see
+    :class:`~organella.config.RunConfig`.
     """
-    cfg = config or RunConfig.from_env()
+    cfg = config or RunConfig()
     dataset = discover_dataset(object_dir, cfg.object_mask)
     # With a label map, the names --entities selects are the ones the *split* produces, so
     # there is nothing to match against yet and the filter is applied once it is done.

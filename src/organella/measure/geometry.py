@@ -8,9 +8,9 @@ themselves go to one ``geometry.parquet`` per object, which the 3D widgets and
 That column is how the geometry is reachable at all: the 3D widgets read it off the object
 row, then query the sidecar for the handful of instances they are about to draw.
 
-It only runs with a destination configured (``ORGANELLA_MESH_DIR``, set by ``organella
-process --with-mesh``), so an ordinary run pays nothing for it - meshing every instance is
-the most expensive thing here.
+It only runs with a destination on the config (``mesh_dir``, which ``organella process
+--with-mesh`` sets), so an ordinary run pays nothing for it - meshing every instance is the
+most expensive thing here.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ class GeometryWriter:
         "Writes one geometry file per object - per-instance marching-cubes meshes and curve "
         "skeletons for the 3D widgets and the Blender export. Adds one "
         "column to the table, the path it wrote to: the payloads belong beside the report, "
-        "not inside it. Enabled by ORGANELLA_MESH_DIR (organella process --with-mesh)."
+        "not inside it. Written when a run asks for it with organella process --with-mesh."
     )
 
     # One column, and only a path: the geometry itself never enters the parquet.
@@ -112,7 +112,7 @@ class GeometryWriter:
     def __init__(self, config: Optional[RunConfig] = None) -> None:
         # Handed the run's settings rather than reaching for them: one object is measured in
         # a worker process of its own, and what it was told is an argument like any other.
-        self._config = config if config is not None else RunConfig.from_env()
+        self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:
         cfg = self._config
