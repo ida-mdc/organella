@@ -11,6 +11,7 @@ import duckdb
 import pytest
 from conftest import (report_column_help as help_of, report_rows as rows_of,
                       run_report_page as run_page)
+from organella.report_page import report_page
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +40,7 @@ def test_the_description_is_put_on_the_page_as_text_and_not_as_markup():
     The load path itself only runs in a browser, which is why this reads the source: what it
     is guarding is that nobody later reaches for innerHTML to get a link in the credits.
     """
-    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+    page = report_page().read_text(encoding="utf-8")
     body = page.split("function renderDescription")[1].split("\n}")[0]
 
     assert "report-description" in page, "the page has somewhere to put a description"

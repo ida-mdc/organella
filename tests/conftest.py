@@ -24,6 +24,11 @@ from synthetic import make_dataset, make_dataset_2d
 
 REPORT_PAGE_CHECKER = Path(__file__).parent / "report_page_check.mjs"
 
+# Found from this file, never from the working directory: a test that reads
+# "src/organella/..." passes only when pytest was started in the checkout root, and fails
+# for anyone running it from an IDE, from tests/, or by absolute path.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def pytest_collection_modifyitems(config, items):
     """Run the suite in a different order when asked, to find what only passes in one.

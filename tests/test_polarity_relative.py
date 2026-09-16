@@ -22,6 +22,7 @@ import pytest
 from conftest import _run
 from conftest import (report_column_help as help_of, report_rows as rows_of,
                       run_report_page as run_page)
+from organella.report_page import report_page
 from synthetic import make_object, make_object_2d
 
 
@@ -243,7 +244,7 @@ def test_the_radius_can_be_read_to_the_boundary_instead(report_path):
     The depth is a distance row, which only instances have, so this view drops the masks -
     and says so rather than quietly drawing fewer structures.
     """
-    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+    page = report_page().read_text(encoding="utf-8")
 
     # Reversed on purpose: the boundary belongs at the rim, with deeper further in.
     assert "range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02]" in page

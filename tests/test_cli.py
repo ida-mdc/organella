@@ -17,6 +17,7 @@ from organella.cli import (
     find_object_dirs,
 )
 from organella.config import RunConfig, colours_from_file
+from conftest import REPO_ROOT
 from synthetic import make_object, make_dataset
 
 
@@ -124,7 +125,7 @@ def test_a_report_records_the_version_that_measured_it(report_path):
     _, footer = report_io.read(report_path)
     assert footer["organella_version"] == organella.__version__
 
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert "version" not in pyproject["project"], (
         "pyproject carries a second version; it should read organella.__version__")
     assert pyproject["project"]["dynamic"] == ["version"]
