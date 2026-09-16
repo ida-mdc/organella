@@ -371,7 +371,15 @@ def test_the_mesh_command_produces_the_same_files_after_the_fact(tmp_path):
     assert result.exit_code == 0, result.output
     path = tmp_path / "geometry" / "object_a" / "geometry.parquet"
     assert path.is_file()
-    assert set(pl.read_parquet(path)["row_type"]) >= {"instance", "file"}
+    written = pl.read_parquet(path)
+    assert set(written["row_type"]) >= {"instance", "file"}
+
+    # And it says how much it drew. It counted a column called "mesh", which a geometry row
+    # has never had - so it reported "0/12 drawable" over a file with twelve rows and six
+    # surfaces in it, which reads as a run that failed.
+    drawn = written.filter(pl.col("surface").is_not_null()).height
+    assert drawn > 0, "nothing was drawn, so the count below proves nothing"
+    assert f"{drawn}/{written.height} drawable" in result.output, result.output
 
 
 def test_a_small_instance_is_not_smoothed_away():
