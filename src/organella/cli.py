@@ -23,7 +23,6 @@ if TYPE_CHECKING:                      # analysis.meshes pulls in scikit-image
 
 from organella.config import RunConfig
 from organella import pipeline, report_io
-from organella.pipeline.pool import LOG_LEVEL_ENV
 from organella.measure.discovery import inspect_object_dir
 from organella.measure.readers import read_header
 from organella.measure import find_object_dirs, load_object
@@ -220,10 +219,9 @@ def cli(quiet: bool, verbose: bool) -> None:
     package_logger.handlers[:] = [handler]
     package_logger.setLevel(level)
     # Ours only: a dependency's INFO stream would bury the one line per object that matters.
+    # Spawned workers never reach this function. The pool reads the level back off this
+    # logger when it starts one, so their side of the run is not silent.
     package_logger.propagate = False
-    # Spawned workers never reach this function; they read the level back out of the
-    # environment, and without it their side of the run is silent.
-    os.environ[LOG_LEVEL_ENV] = str(level)
 
 
 @cli.command()

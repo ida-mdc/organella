@@ -391,7 +391,7 @@ def test_every_object_is_counted_off_against_the_size_of_the_batch(tmp_path, cap
     assert {m.group(3) for m in counted} == {f.name for f in folders}
 
 
-def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
+def test_a_worker_takes_the_level_the_parent_set(monkeypatch):
     """A spawned worker never runs the CLI, so its own lines had nowhere to go.
 
     Which object is being read, how big it is and how many instances came out are all
@@ -406,15 +406,19 @@ def test_a_worker_takes_the_level_the_parent_left_for_it(monkeypatch):
     before = (package.handlers[:], package.level, package.propagate)
     try:
         package.handlers[:] = []
-        monkeypatch.delenv(pool.LOG_LEVEL_ENV, raising=False)
-        pool.log_in_this_worker()
-        assert package.handlers == [], "nothing to inherit means nothing is installed"
+        pool.log_in_this_worker(None)
+        assert package.handlers == [], "nothing to pass on means nothing is installed"
 
-        monkeypatch.setenv(pool.LOG_LEVEL_ENV, str(logging.INFO))
-        pool.log_in_this_worker()
+        pool.log_in_this_worker(logging.INFO)
 
         assert len(package.handlers) == 1
         assert package.level == logging.INFO
         assert package.propagate is False
+
+        # And what the pool passes on is what the parent set, read off the logger the
+        # parent configured rather than out of its surroundings.
+        assert pool._level_to_pass_on() == logging.INFO
+        package.setLevel(logging.NOTSET)
+        assert pool._level_to_pass_on() is None
     finally:
         package.handlers[:], package.level, package.propagate = before

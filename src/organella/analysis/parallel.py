@@ -77,18 +77,12 @@ def mesh_worker_budget(cores: int) -> int:
 def worker_share(requested: int = 0) -> int:
     """How many processes one object may use for its own per-instance work.
 
-    An explicit --mesh-workers is taken at its word. Otherwise the batch has already worked
-    out a bounded share and passed it down in ORGANELLA_MESH_WORKERS; running one object on
-    its own (the `mesh` command) works one out here.
+    A count is taken at its word: it is either --mesh-workers, or the bounded share the
+    batch worked out per object and put on the config. 0 means nobody has decided - one
+    object on its own, the `mesh` command - so one is worked out from this machine.
     """
     if requested:
         return max(1, int(requested))
-    raw = os.environ.get("ORGANELLA_MESH_WORKERS")
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            logger.warning("organella: ORGANELLA_MESH_WORKERS=%r is not a number; ignoring", raw)
     return mesh_worker_budget(os.cpu_count() or 1)
 
 

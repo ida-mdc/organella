@@ -32,19 +32,17 @@ Work = Tuple[Path, str]
 OnResult = Optional[Callable[[ObjectResult], None]]
 
 
-# The level the parent is logging at, left in the environment for the workers to pick up.
-LOG_LEVEL_ENV = "ORGANELLA_LOG_LEVEL"
-
-
-def log_in_this_worker() -> None:
+def log_in_this_worker(level: Optional[int] = None) -> None:
     """Give a spawned worker the same log handler the parent set up.
 
     A spawned worker re-imports the package but never runs the CLI, so everything it wrote
-    about the object it was reading went to a logger with no handler. The parent leaves its
-    level in the environment and this reads it back, which is what makes a long run say what
-    it is doing. Lines from several workers interleave, so each names its object.
+    about the object it was reading went to a logger with no handler. The level is handed
+    over when the pool starts the worker, which is what makes a long run say what it is
+    doing. Lines from several workers interleave, so each names its object.
+
+    No level means the parent never configured one - a library caller rather than the CLI -
+    and this installs nothing rather than deciding for them.
     """
-    level = os.environ.get(LOG_LEVEL_ENV)
     if not level:
         return
     handler = logging.StreamHandler()
@@ -53,6 +51,15 @@ def log_in_this_worker() -> None:
     package_logger.handlers[:] = [handler]
     package_logger.setLevel(int(level))
     package_logger.propagate = False
+
+
+def _level_to_pass_on() -> Optional[int]:
+    """The level the parent set for the package, or None if it never set one.
+
+    Read off the logger rather than out of the environment: the parent is the process that
+    configured it, so it already knows. NOTSET is how "never configured" reads.
+    """
+    return logging.getLogger("organella").level or None
 
 
 def worker_count(requested: Optional[int], n_objects: int, peak_gb: float) -> int:
@@ -109,7 +116,8 @@ def measure_in_pool(work: Sequence[Work], excluded: Sequence[str], n_workers: in
     finished: List[ObjectResult] = []
     unrun: List[Tuple[int, Path, str]] = []
     with ProcessPoolExecutor(max_workers=n_workers, mp_context=context,
-                             initializer=log_in_this_worker) as pool:
+                             initializer=log_in_this_worker,
+                             initargs=(_level_to_pass_on(),)) as pool:
         submitted = {
             pool.submit(measure_object, folder, group, tuple(excluded), config):
                 (i, folder, group)
