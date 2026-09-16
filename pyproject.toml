@@ -40,19 +40,14 @@ dependencies = [
     # a Crofton boundary estimator built for the smooth surfaces a segmented organelle has.
     "SimpleITK>=2.3",
     "tifffile>=2024.5.0",
+    # tifffile requires only numpy, so without this an LZW or zstd TIFF will not read.
     "imagecodecs",
     "edt>=2.4.0",
     "fast-simplification>=0.1.6",
     "kimimaro>=4.0.0",
-    "crackle-codec",
-    # kimimaro's multi-process skeletoniser, which --num-threads turns on, reaches for
-    # these two. POSIX IPC is POSIX only - no Windows wheel and no Windows in its own
-    # classifiers - so naming it unconditionally is what made `pip install organella` fail
-    # on Windows before it had installed anything. kimimaro marks it the same way.
-    "posix-ipc; sys_platform != 'win32'",
-    # psutil, unlike posix-ipc, runs everywhere, and is not only kimimaro's: the memory a
-    # machine has left is what sizes both pools here (pipeline.pool.worker_count and
-    # analysis.parallel.mesh_worker_budget), so it is wanted on Windows too.
+    # posix_ipc and crackle are kimimaro's, and it asks for them itself. psutil is here
+    # because this package imports it, and unmarked because it runs on Windows - where
+    # kimimaro's own marker leaves it out.
     "psutil",
 ]
 
