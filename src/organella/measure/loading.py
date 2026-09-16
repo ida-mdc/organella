@@ -316,9 +316,7 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
         voxel_size_um=dataset.voxel_size_um,
     )
 
-    # The shape only: what the entities are checked against, and how many spatial axes the
-    # object has. The header's dtype says nothing about the stack, which is narrowed to the
-    # labels it actually holds (see _label_dtype).
+    # The shape only: the stack's own type comes from the label ids, in _label_dtype.
     source_shape, _ = read_header(dataset.source)
     ndim = len(source_shape)
 

@@ -599,10 +599,8 @@ def mesh(
             options=options,
         )
         path = write_geometry(out_dir / stack.object_id, rows)
-        # The column the payload is in, which for a volume is "surface" whatever kind of
-        # surface it holds - a mesh, an ellipsoid or a tube. "mesh" is not a column on a
-        # geometry row at all, so counting it reported 0 of however many were written.
-        # GeometryWriter counts the same column.
+        # The column the payload is in, whatever kind of surface it holds; GeometryWriter
+        # counts the same one.
         drawable = "outline" if stack.spatial_dims == 2 else "surface"
         drawn = sum(1 for row in rows if row.get(drawable))
         click.echo(f"{stack.object_id}: {drawn}/{len(rows)} "

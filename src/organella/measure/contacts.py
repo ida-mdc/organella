@@ -69,8 +69,6 @@ class ContactMeasurer:
     COLUMN_DESCRIPTIONS: Dict[str, str] = dict(_DESCRIPTIONS)
 
     def __init__(self, config: Optional[RunConfig] = None) -> None:
-        # Handed the run's settings rather than reaching for them: one object is measured in
-        # a worker process of its own, and what it was told is an argument like any other.
         self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:

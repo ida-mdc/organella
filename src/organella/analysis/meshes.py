@@ -115,11 +115,9 @@ class MeshOptions:
     def from_config(cls, cfg: "RunConfig") -> "MeshOptions":
         """The --mesh-* settings of a run, in the shape the mesher takes them.
 
-        The one place the mapping is written. Both paths that mesh - ``process --with-mesh``
-        through :class:`~organella.measure.geometry.GeometryWriter`, and the standalone
-        ``mesh`` command - go through here, because two copies of it drifted: one set
-        mesh_workers and not max_vertices, the other the reverse, so --mesh-surface-method
-        was silently ignored by whichever command had lost it.
+        The one place the mapping is written, and where a new mesh setting belongs: both
+        ``process --with-mesh`` and the ``mesh`` command come through here, and two copies
+        of it drifted far enough that a flag stopped being read.
         """
         return cls(
             smooth_sigma=cfg.mesh_smooth_sigma,

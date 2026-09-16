@@ -68,9 +68,7 @@ def mesh_worker_budget(cores: int) -> int:
         free_gb = psutil.virtual_memory().available / 1024**3
         share = min(share, max(1, int(free_gb * _MEMORY_SHARE / _WORKER_GB)))
     except Exception:  # noqa: BLE001 - no psutil is a reason to be careful, not to stop
-        # No memory reading, so the cap below is the whole budget - which is what being
-        # careful comes down to here, and is applied either way.
-        pass
+        pass       # no memory reading, so the cap below is the whole budget
     return max(1, min(share, _WORKER_CAP))
 
 
