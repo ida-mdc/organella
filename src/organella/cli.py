@@ -408,6 +408,9 @@ def process(
     if no_instances:
         excluded.add("organella-instances")
 
+    # Read once, here, and handed down: everything below measures against this object
+    # rather than going back to the settings for itself.
+    cfg = RunConfig.from_env()
     peak = max((estimate_peak_gb(d) for d in objects), default=0.0)
     workers = pipeline.worker_count(max_workers, len(objects), peak)
     click.echo(f"{len(objects)} object folder(s); {workers} worker(s) "
@@ -416,7 +419,7 @@ def process(
     parts = output.with_name(output.stem + "_parts")
     report = pipeline.analyse(objects, object_dir, list(paths),
                               excluded=sorted(excluded), workers=workers, peak_gb=peak,
-                              parts_dir=parts, resume=resume)
+                              parts_dir=parts, resume=resume, config=cfg)
     try:
         report_io.write(report, output, root=object_dir, paths=list(paths), flavor=FLAVOR,
                         description=description,

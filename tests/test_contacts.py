@@ -134,15 +134,20 @@ def test_the_two_pools_share_the_machine_between_them(monkeypatch):
     time and the rest of the machine is free - which is why each object's own work is
     given a share rather than a single core. An explicit setting is left alone.
     """
+    from organella.config import RunConfig
     from organella.pipeline.batch import _plan_the_two_pools
 
-    for key in ("ORGANELLA_MESH_WORKERS", "ORGANELLA_EDT_THREADS"):
-        monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(os, "cpu_count", lambda: 16)
 
-    assert _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0) == 1
-    assert os.environ["ORGANELLA_EDT_THREADS"] == "16"
+    workers, planned = _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0,
+                                           config=RunConfig())
+    assert workers == 1
+    # One object at a time, so that object gets the whole machine for its own work.
+    assert planned.edt_threads == 16
+    assert planned.mesh_workers >= 1
 
-    monkeypatch.setenv("ORGANELLA_EDT_THREADS", "3")
-    _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0)
-    assert os.environ["ORGANELLA_EDT_THREADS"] == "3"
+    # The planning goes onto the config the workers are handed, and an explicit setting
+    # already on it is left alone.
+    _, planned = _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0,
+                                     config=RunConfig(edt_threads=3))
+    assert planned.edt_threads == 3

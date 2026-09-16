@@ -202,7 +202,7 @@ def test_voxel_size_lands_in_the_standard_pixel_size_columns(table):
 
 def _fake_dispatch(killed_by_worker_count):
     """A dispatch that kills the object named 'bad' unless few enough workers are running."""
-    def dispatch(work, excluded, n_workers, on_result=None):
+    def dispatch(work, excluded, n_workers, on_result=None, config=None):
         finished, unrun = [], []
         for folder, group in work:
             if folder.name == "bad" and n_workers >= killed_by_worker_count:

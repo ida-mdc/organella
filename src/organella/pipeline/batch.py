@@ -13,12 +13,14 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import polars as pl
 
 from organella.analysis.parallel import mesh_worker_budget
+from organella.config import RunConfig
 from organella.model.report import Report
 from organella.pipeline.objects import ObjectResult
 from organella.pipeline.parts import PartsCache, settings_fingerprint
@@ -38,13 +40,20 @@ def analyse(
     peak_gb: float = 4.0,
     parts_dir: Optional[Path] = None,
     resume: bool = False,
+    config: Optional[RunConfig] = None,
 ) -> Report:
-    """Measure every object folder and return the rows plus whatever failed."""
-    started = time.perf_counter()
-    work = [(folder, group_of(folder, root, paths)) for folder in folders]
-    n_workers = _plan_the_two_pools(workers, len(folders), peak_gb)
+    """Measure every object folder and return the rows plus whatever failed.
 
-    parts = PartsCache(parts_dir, settings_fingerprint(excluded), resume=resume)
+    ``config`` is what the run was asked for, and it travels with the work: each object is
+    measured in a worker process, and what that worker is told is an argument rather than
+    something it goes looking for.
+    """
+    started = time.perf_counter()
+    cfg = config if config is not None else RunConfig.from_env()
+    work = [(folder, group_of(folder, root, paths)) for folder in folders]
+    n_workers, cfg = _plan_the_two_pools(workers, len(folders), peak_gb, cfg)
+
+    parts = PartsCache(parts_dir, settings_fingerprint(excluded, cfg), resume=resume)
     reused, remaining = _split_off_what_is_already_measured(work, parts, len(work))
     progress = _progress(len(work), already_done=len(reused))
 
@@ -58,7 +67,7 @@ def analyse(
         progress(result)
 
     results = measure_every_object(remaining, excluded, n_workers,
-                                   on_result=landed) if remaining else []
+                                   on_result=landed, config=cfg) if remaining else []
     measured, failures = _rows_and_failures(results)
 
     return Report(
@@ -81,29 +90,32 @@ def group_of(folder: Path, root: Path, paths: Sequence[str]) -> str:
     return relative.parts[0] if len(relative.parts) > 1 else ""
 
 
-def _plan_the_two_pools(requested: Optional[int], n_objects: int, peak_gb: float) -> int:
+def _plan_the_two_pools(requested: Optional[int], n_objects: int, peak_gb: float,
+                        config: RunConfig) -> Tuple[int, RunConfig]:
     """How many objects at once, and how many mesh processes each of them gets.
 
-    Two levels of parallelism, so they have to be decided together; the object pool is the
-    one returned, and the mesh budget travels to the workers in the environment.
+    Two levels of parallelism, so they have to be decided together: the object pool is the
+    count returned, and the per-object budgets go back on the config the workers are handed.
     """
     n_workers = worker_count(requested, n_objects, peak_gb)
     # This pool is sized by memory rather than cores, so on big objects most of the machine
-    # would sit idle; each object gets the share left over. setdefault, so an explicit
-    # --mesh-workers is left alone.
+    # would sit idle; each object gets the share left over. An explicit --mesh-workers is
+    # left alone, which is what a non-zero setting already on the config means.
     share = max(1, (os.cpu_count() or 1) // n_workers)
-    os.environ.setdefault("ORGANELLA_MESH_WORKERS", str(mesh_worker_budget(share)))
-    # The same share for the distance transforms, which are the other thing in a run that
-    # can use a whole machine: one per object at a time, threaded inside. Left at one core
-    # they were most of a large object's wall time - the contact gaps alone walk every
-    # instance - and given every core in every worker they would oversubscribe as soon as
-    # the pool is wider than one.
-    os.environ.setdefault("ORGANELLA_EDT_THREADS", str(share))
-    logger.info("organella: %d object(s), %d worker(s), %s mesh process(es) and "
-                "%s transform thread(s) each",
-                n_objects, n_workers, os.environ["ORGANELLA_MESH_WORKERS"],
-                os.environ["ORGANELLA_EDT_THREADS"])
-    return n_workers
+    planned = replace(
+        config,
+        mesh_workers=config.mesh_workers or mesh_worker_budget(share),
+        # The same share for the distance transforms, which are the other thing in a run
+        # that can use a whole machine: one per object at a time, threaded inside. Left at
+        # one core they were most of a large object's wall time - the contact gaps alone
+        # walk every instance - and given every core in every worker they would
+        # oversubscribe as soon as the pool is wider than one.
+        edt_threads=config.edt_threads or share,
+    )
+    logger.info("organella: %d object(s), %d worker(s), %d mesh process(es) and "
+                "%d transform thread(s) each",
+                n_objects, n_workers, planned.mesh_workers, planned.edt_threads)
+    return n_workers, planned
 
 
 def _progress(total: int, already_done: int = 0):
