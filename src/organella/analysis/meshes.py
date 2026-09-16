@@ -515,7 +515,6 @@ def mesh_rows_for_object(
     ``row_type='instance'`` for label entities, ``row_type='file'`` for whole-structure
     masks, and every measurement of them alongside, as a sort key or a colour.
     """
-    rows: List[Dict[str, Any]] = []
     ndim = len(list(sample_size))
     planar = ndim == 2
     # The origin every instance's polarity is measured from. Measured here rather than only
@@ -528,14 +527,15 @@ def mesh_rows_for_object(
     pool = WorkPool(worker_share(options.mesh_workers), what="meshing")
     try:
         return _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
-                     object_mask_name, rows, ndim, planar, centre, pool)
+                     ndim, planar, centre, pool)
     finally:
         pool.shutdown()
 
 
 def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
-          object_mask_name, rows, ndim, planar, centre, pool):
+          ndim, planar, centre, pool):
     """The body of mesh_rows_for_object, with a pool open for the instance geometry."""
+    rows: List[Dict[str, Any]] = []
     for name, volume in volumes.items():
         kind = kinds[name]
         if kind != "label":
