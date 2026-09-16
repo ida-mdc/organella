@@ -59,8 +59,26 @@ jobs:
       - name: Ruff
         run: uvx ruff check --select F,E9 src tests
 
-  package:
-    runs-on: ubuntu-latest
+  install:
+    # The three platforms the package claims - pyproject says "Operating System ::
+    # OS Independent" - built, installed and run the way somebody installing it gets it.
+    # Added because an install on Windows failed: the test job runs on Linux against the
+    # source tree, which is the one arrangement that cannot see a dependency with no
+    # Windows wheel, a path built the wrong way round, or a console that cannot print an
+    # arrow.
+    name: install and run (${{ matrix.os }})
+    strategy:
+      # Every platform reports. The question this job answers is *which* ones differ, so
+      # one of them failing must not cancel the rest.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # One shell for all three, so there is one script here to read rather than three.
+    # Windows runners provide bash, and every path below is written the way it accepts.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -68,18 +86,115 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build
+      - name: Build the wheel
         run: uv build
 
-      # The report page is a data file inside the package, and the suite reads it out of the
-      # source tree, so a wheel built without it would pass every test and still install a
-      # CLI whose `view` and `page` have nothing to open. Checked from a fresh environment,
-      # the way someone installing it gets it.
-      - name: The wheel carries the page, and the CLI can find it
+      # 3.12 only: the test job covers 3.11 as well, and what this one is about is the
+      # platform rather than the interpreter. `fresh` is empty, so what lands in it is the
+      # wheel's own dependency list and nothing a development checkout happens to have.
+      - name: An empty environment to install into
         run: |
-          unzip -l dist/*.whl | grep -q 'organella/report/organella_report.html'
           uv venv --python 3.12 fresh
-          VIRTUAL_ENV=$PWD/fresh uv pip install dist/*.whl
-          page=$(fresh/bin/organella page)
-          test -f "$page"
-          echo "the installed CLI finds its page at $page"
+          if [ -d fresh/Scripts ]; then bin="$PWD/fresh/Scripts"; else bin="$PWD/fresh/bin"; fi
+          echo "BIN=$bin" >> "$GITHUB_ENV"
+          echo "PY=$bin/python" >> "$GITHUB_ENV"
+
+      # The page is a data file inside the package, and the suite reads it out of the source
+      # tree - so a wheel built without it passes every test and still installs a CLI whose
+      # `view` and `page` have nothing to open.
+      - name: The wheel carries the report page
+        run: |
+          "$PY" - <<'EOF'
+          import glob, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          inside = zipfile.ZipFile(wheel).namelist()
+          assert "organella/report/organella_report.html" in inside, inside
+          print(f"{wheel} carries the page")
+          EOF
+
+      # The step the Windows report came down to. A dependency that cannot build on a
+      # platform fails here and nowhere else.
+      - name: Install it
+        run: |
+          uv pip install --python "$PY" "$(ls dist/*.whl)"
+
+      - name: A batch to measure
+        run: |
+          "$PY" tests/synthetic.py batch
+
+      - name: Survey it
+        run: |
+          "$BIN/organella" dry-run batch --object-mask pm
+
+      # dry-run's whole job is to say what is wrong with a batch, so it is run against one
+      # that has something wrong with it: a structure present in three objects of four.
+      - name: Survey a batch with a structure missing from one object
+        run: |
+          cp -r batch partial
+          rm partial/control/object_a/*nucleus*
+          "$BIN/organella" dry-run partial --object-mask pm
+
+      # Not only on Windows, so the check is the same everywhere and does not depend on
+      # which code page a runner happens to boot with. A Windows console is the reason it
+      # is here: Python encodes stdout with the active code page, and cp1252 has no arrow,
+      # so a line carrying one ends the command in a UnicodeEncodeError rather than saying
+      # what it was about to say.
+      - name: The same, on a console that is not UTF-8
+        env:
+          PYTHONIOENCODING: cp1252
+        run: |
+          "$BIN/organella" dry-run partial --object-mask pm
+          "$BIN/organella" mesh batch/control/object_a -o geometry-cp1252 --object-mask pm
+
+      # The whole pipeline: a spawned worker per object, a mesh pool inside each, kimimaro
+      # for the skeletons, and a parquet at the end.
+      - name: Measure it
+        run: |
+          "$BIN/organella" process batch -o report.parquet \
+            --object-mask pm --object-noun cell \
+            --with-mesh --skeletons mito --distance-histograms
+
+      - name: The report is a report
+        run: |
+          "$PY" - <<'EOF'
+          import pathlib
+          import polars as pl
+          from organella import report_io
+
+          rows, footer = report_io.read("report.parquet")
+          objects = rows.filter(pl.col("obs_level") == 0)
+          assert objects.height == 4, f"{objects.height} object rows"
+          assert sorted(objects["object_id"]) == ["object_a", "object_b", "object_c",
+                                                  "object_d"]
+          # Measured, not merely written: a batch that read no pixels still has rows.
+          assert rows.filter(pl.col("row_type") == "instance").height > 0, "no instances"
+          assert objects["object_volume_um3"].min() > 0, "nothing was measured"
+          assert footer["organella_object_noun"] == "cell"
+
+          # The geometry goes beside the report, one file per object, and the object row is
+          # how a reader finds it - an absolute path, which is the part that differs by
+          # platform.
+          for path in objects["mesh_geometry_file"]:
+              assert pathlib.Path(path).is_file(), path
+          print(f"{rows.height} rows, {objects.height} objects, geometry for each")
+          EOF
+
+      # Both rewrite the parquet where it already is. On Windows a file cannot be replaced
+      # while something still holds it open, which is a failure no Linux run can produce.
+      - name: Colour and describe the report in place
+        run: |
+          "$PY" -c "import json, pathlib; pathlib.Path('palette.json').write_text(json.dumps({'mito': '#d62728'}))"
+          "$BIN/organella" colours report.parquet palette.json
+          "$BIN/organella" describe report.parquet "Synthetic batch, from CI."
+
+      # --resume reads back the per-object parts, and a finished run removes the directory
+      # they were in.
+      - name: Measure it again, resuming
+        run: |
+          "$BIN/organella" process batch -o resumed.parquet --object-mask pm --resume
+          "$BIN/organella" process batch -o resumed.parquet --object-mask pm --resume
+
+      - name: The installed CLI finds its page
+        run: |
+          "$BIN/organella" page
+          "$PY" -c "from organella.report_page import report_page; p = report_page(); print(p); assert p.is_file()"
