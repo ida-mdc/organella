@@ -86,12 +86,13 @@ def split_kind_suffix(stem: str) -> tuple[str, str] | None:
     return m.group(1), ("label" if m.group(2).startswith("label") else "mask")
 
 
-def entity_name_from_body(body: str, source_norm: str, shared: int) -> str | None:
+def entity_name_from_body(body: str, shared: int) -> str | None:
     """The entity's own name: the body with the object's prefix taken off the front.
 
-    ``shared`` is how much of the body the source name accounts for. Splitting there rather
-    than at the last underscore keeps names with underscores in them: ``s0011_rib_left_11``
-    is ``rib_left_11``, not ``11``, which would collide with ``rib_right_11``.
+    ``shared`` is how much of the body the source name accounts for, from
+    :func:`shared_prefix_len`. Splitting there rather than at the last underscore keeps
+    names with underscores in them: ``s0011_rib_left_11`` is ``rib_left_11``, not ``11``,
+    which would collide with ``rib_right_11``.
     """
     name = normalize_name(body[shared:])
     return name or None
@@ -291,7 +292,7 @@ def inspect_object_dir(object_dir: Path, object_mask: str | None = None) -> Disc
             if sl < len(longer) and longer[sl] != "_":
                 rejected.append((p, f"'{body}' is not a word-boundary match for source '{source_norm}'"))
                 continue
-        name = entity_name_from_body(body, source_norm, sl)
+        name = entity_name_from_body(body, sl)
         if name is None:
             rejected.append((p, f"'{body}' is the source name with no entity name after it"))
             continue
