@@ -434,6 +434,25 @@ def test_turning_significance_off_removes_them(report_path):
     assert off["notes"] == []
 
 
+def test_a_share_axis_names_the_structure_once(report_path):
+    """A histogram's y axis said "% of microtubuless": an s added to an already plural noun.
+
+    No structure in the synthetic batch is named in the plural, so mito is renamed to one
+    that is. The rename is every value, so it stays consistent whichever column carries the
+    name.
+    """
+    renamed = [{k: ('granules' if v == 'mito' else v) for k, v in row.items()}
+               for row in rows_of(report_path)]
+    drawn = run_page({"rows": renamed, "columnHelp": help_of(report_path),
+                      "structure": "granules", "render": True, "groupBy": "group",
+                      "plotStyle": "histogram"})["render"]
+
+    shares = [p["y"] for p in drawn["axisTitles"] if p["y"] and p["y"].startswith("% of")]
+    assert shares, "no share axis was drawn, so this proves nothing"
+    assert "% of granules" in shares, shares
+    assert not any(label.endswith("ss") for label in shares), shares
+
+
 def test_histograms_carry_the_same_comparison_as_text(as_histograms):
     """A histogram's facets share one x axis, so there is no position to bracket between."""
     assert as_histograms["brackets"] == []

@@ -5581,7 +5581,7 @@ function distributionPanel(host, opts) {
       xaxis:{ title: opts.unit || null, rangemode:'tozero',
               range: flatRange(histSpanOf, opts)
                 || (opts.range ? opts.range.slice() : undefined) },
-      yaxis:{ title:'% of ' + (opts.noun || 'them') + 's', rangemode:'tozero',
+      yaxis:{ title:'% of ' + (opts.noun ? pluralise(opts.noun) : 'them'), rangemode:'tozero',
               ticksuffix:'%' } };
     if (!traces.length) {
       // Nothing to bin: fall back to the boxes, which can always draw a single value.
