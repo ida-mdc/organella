@@ -7,7 +7,6 @@ the shape a report is read into, the maths the panels draw, the binary container
 are in and the SQL the geometry sections build are all pinned here instead.
 """
 
-import re
 import duckdb
 import pytest
 from conftest import (report_column_help as help_of, report_rows as rows_of,
@@ -781,40 +780,6 @@ def test_the_binned_median_is_interpolated_inside_the_bin_that_holds_it():
     assert got[2] is None                    # nothing to take a median of
 
 
-def test_every_distance_panel_carries_its_chance_line(drawn):
-    """One dotted line per facet, across the boxes: the whole of "closer than chance".
-
-    Without it a distance panel can only say that two conditions differ, which is not the
-    question - a structure can sit closer to the membrane in one condition and be further
-    from it than that condition's own shape puts anything.
-    """
-    referenced = {r["title"]: r for r in drawn["references"]}
-    # The distance row's own panels: "<structure> to <target>". The polarity section's
-    # panels are angles rather than distances and are read against their own reference.
-    distance_panels = [t for t in drawn["titles"] if " to " in t
-                       and "every voxel" not in t and "angle to" not in t]
-
-    assert distance_panels, "the report should draw distance panels at all"
-    for title in distance_panels:
-        if "nearest of the same kind" in title:
-            # A distance to another instance of the same structure has no such reference:
-            # the region is not made of that structure.
-            assert title not in referenced
-            continue
-        assert title in referenced, f"{title} was drawn without a reference line"
-        assert referenced[title]["axis"] == ["y"], "on the axis the distance is on"
-
-
-def test_the_chance_line_follows_the_distance_onto_the_other_axis(report_path):
-    """A histogram puts the distance on x, so the line that reads against it goes vertical."""
-    drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
-                      "structure": "mito", "render": True,
-                      "plotStyle": "histogram"})["render"]
-
-    axes = {a for r in drawn["references"] for a in r["axis"]}
-    assert axes == {"x"}
-
-
 def test_the_per_voxel_panels_draw_the_chance_distribution_beside_the_measured_one(drawn):
     """The paper-shaped reading: the measured curve against the same distances everywhere."""
     voxel_panels = [p for p in drawn["seriesNames"] if "every voxel" in (p["title"] or "")]
@@ -824,28 +789,6 @@ def test_the_per_voxel_panels_draw_the_chance_distribution_beside_the_measured_o
         measured = [n for n in panel["names"] if not n.endswith("(chance)")]
         chance = [n for n in panel["names"] if n.endswith("(chance)")]
         assert len(chance) == len(measured) > 0, panel
-
-
-def test_the_reader_is_told_what_the_dotted_line_is(drawn):
-    """A line nobody can name is noise - but a panel's own note is numbers, not prose.
-
-    What the line *means* is said once, in the row's description; under each panel are that
-    panel's numbers, and every number in them is labelled.
-    """
-    said = " ".join(drawn["footnotes"])
-    prose = " ".join(drawn["prose"])
-
-    assert "Dotted:" in said
-    assert "lies within" in said, "a panel says what its line is the distance of"
-    assert "The dotted line on each panel is chance" in prose
-    # And says it without a number in it. Where the line is, is the line; printing the
-    # value as well said the same thing twice, the first time in a form - "Dotted: 0.81
-    # µm" - that named no quantity at all.
-    for note in drawn["footnotes"]:
-        for sentence in note.split(". "):
-            if "Dotted:" not in sentence and "No line for" not in sentence:
-                continue
-            assert not re.search(r"\d", sentence), sentence
 
 
 # ── the ends of a filament, as against the whole of it ──────────────────────
@@ -870,56 +813,6 @@ def test_the_ends_get_their_own_row_of_panels(drawn):
     assert "where its skeleton stops" in said
 
 
-def test_an_end_panel_says_what_it_shows_and_not_what_to_conclude(drawn):
-    """The note under a panel describes what was drawn; it works nothing out for you.
-
-    It used to open with "4.2%, 9.9% end within one voxel (0.028 µm) of membrane" - a
-    statistic the panel had not drawn, framed as what "connected to it" comes down to.
-    """
-    ends = [f for f in drawn["footnotes"] if "Dotted" in f]
-
-    assert ends
-    for note in ends:
-        assert "%" not in note, note
-        assert not re.search(r"\d", note), note
-
-
-def test_the_reference_allows_for_the_extent_of_what_is_read_against_it(page_of, drawn):
-    """A point has no surface; an instance touches from one, and the line has to know.
-
-    Measured rather than assumed: the allowance is the gap between an instance's body
-    average and its closest point, which is its radius for a sphere and something quite
-    different for a filament - so no shape is taken on faith and no threshold decides
-    which instances qualify.
-    """
-    chance = page_of["chance"]
-
-    assert chance["extentGap"] > 0
-    assert chance["corrected"] == pytest.approx(chance["median"] - chance["extentGap"])
-    # And that is the number the panels draw, not the raw median.
-    drawn_at = [at for r in drawn["references"]
-                if " to " in r["title"] and "end to" not in r["title"]
-                and "angle to" not in r["title"] for at in r["at"]]
-    assert drawn_at, "no reference line was drawn to check"
-    for at in drawn_at:
-        assert at < chance["median"] + chance["extentGap"]
-
-
-def test_a_tip_is_a_point_so_its_reference_is_left_alone(report_path):
-    """The end panels read a tip against the same samples the reference is made of."""
-    drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
-                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
-    by_title = {r["title"]: r for r in drawn["references"]}
-
-    for target in ("pm", "nucleus"):
-        whole = by_title["mito to " + target]["at"]
-        tips = by_title["mito end to " + target]["at"]
-        # The same structure, the same objects: the tip reference is the uncorrected one,
-        # so it sits further out than the one the whole instance is read against.
-        assert min(tips) > min(whole)
-    assert "needs no allowance for extent" in " ".join(drawn["prose"])
-
-
 def test_a_sparse_target_is_not_flagged_for_the_reader(drawn):
     """The count, where there is one to state, instead of a threshold on some panels.
 
@@ -930,41 +823,6 @@ def test_a_sparse_target_is_not_flagged_for_the_reader(drawn):
     """
     assert not [t for t in drawn["titles"] if "target n=" in t]
     assert not [f for f in drawn["footnotes"] if "Nearest of" in f]
-
-
-def test_without_body_averages_the_reference_says_it_is_uncorrected(report_path):
-    """The allowance is measured, so a run that did not measure it must not be corrected.
-
-    `distance_mean_um` is what --distance-histograms adds; dropping it is what the page
-    sees from a run without the flag. Silence there would be the worst outcome: the line
-    would sit where it sits and read as if the extent had been allowed for.
-    """
-    rows = [{k: v for k, v in row.items() if k != "distance_mean_um"} for row in
-            rows_of(report_path)]
-    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
-                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
-    said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
-
-    assert "No extent allowance was measured" in said
-    assert "--distance-histograms" in said
-    assert "the extent allowance is" not in said
-
-
-def test_an_overlapping_structure_is_an_allowance_of_zero_and_not_a_missing_one(report_path):
-    """Zero is a measurement: two structures that overlap leave no gap to allow for.
-
-    Read as "not measured" it would tell a reader to re-run with a flag they already used.
-    """
-    rows = [dict(row) for row in rows_of(report_path)]
-    for row in rows:
-        if row.get("row_type") == "distance" and row.get("distance_um") is not None:
-            row["distance_mean_um"] = row["distance_um"]
-    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
-                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
-    said = " ".join(f for f in drawn["footnotes"] if "Dotted" in f)
-
-    assert "No extent allowance was measured" not in said
-    assert "the extent allowance is" not in said
 
 
 # ── what a metric colours ───────────────────────────────────────────────────
@@ -1063,31 +921,6 @@ def test_how_to_make_a_report_is_shown_when_the_page_is_opened_bare(report_path)
                      "render": True})["landing"]
 
     assert bare["afterBoot"] is True
-
-
-def test_no_line_is_drawn_where_the_allowance_swallows_the_distance(report_path):
-    """An allowance larger than the distance itself leaves nothing to read against.
-
-    A structure whose own body reaches further than the typical distance to the target
-    would be touching wherever it was put, so "closer than chance" has no content - and a
-    line pinned at zero reads as a measurement of something. The panel says why instead.
-    """
-    rows = [dict(row) for row in rows_of(report_path)]
-    # Make every instance's body average sit a long way outside its closest point, which is
-    # what a large, spread-out structure does.
-    for row in rows:
-        if row.get("row_type") == "distance" and row.get("distance_um") is not None:
-            row["distance_mean_um"] = row["distance_um"] + 50.0
-    drawn = run_page({"rows": rows, "columnHelp": help_of(report_path),
-                      "structure": "mito", "render": True, "objectNoun": "cell"})["render"]
-
-    notes = " ".join(f for f in drawn["footnotes"] if "No line for" in f)
-    assert "is further than that distance" in notes
-    # And nothing was drawn at zero on those panels.
-    for panel in drawn["references"]:
-        if "angle to" in panel["title"]:
-            continue
-        assert all(at > 0 for at in panel["at"]), panel["title"]
 
 
 def test_every_test_on_the_page_counts_objects(by_group):

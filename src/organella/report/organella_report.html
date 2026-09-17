@@ -5929,14 +5929,7 @@ function renderEntityStats() {
         + ' each ' + named + ' from other structures?</div>'
       + '<p class="subsection-desc" data-slot="dist-desc" style="display:none">Distance from'
         + ' the closest point of each ' + named + ' to the nearest instance of each structure.'
-        + ' Near 0 means that ' + named + ' sits right against it.'
-        + ' <b>The dotted line on each panel is chance</b>: the distance half the ' + noun()
-        + ' lies within of that structure, less what an instance\u2019s own extent gives it'
-        + ' - its body average sits that much further out than its closest point, because it'
-        + ' reaches a structure from its surface where a sample of the ' + noun()
-        + ' has none. A population below its line sits closer to that structure than the '
-        + noun() + '\u2019s own shape puts anything; one on the line sits exactly as close'
-        + ' as anything would.</p>'
+        + ' Near 0 means that ' + named + ' sits right against it.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="dist"></div>'
       + '<div class="subsection-label mt-3" data-slot="end-label" style="display:none">How far'
@@ -5945,11 +5938,7 @@ function renderEntityStats() {
         + ' the nearest <b>tip</b> of each ' + named + ' - where its skeleton stops - rather'
         + ' than of whichever part of it comes closest. A filament can run past a structure'
         + ' along its whole length and end nowhere near it, and the panels above cannot tell'
-        + ' that apart from being anchored to it by the tip. The dotted line is chance again,'
-        + ' and needs no allowance for extent here: a tip is a point, like the samples it'
-        + ' comes from. It is one number - the distance half the ' + noun() + ' lies'
-        + ' within - where the per-voxel panels further down draw that whole distribution'
-        + ' as a shape.</p>'
+        + ' that apart from being anchored to it by the tip.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
@@ -6016,6 +6005,10 @@ function renderEntityStats() {
     /**
      * The dotted reference for one target, per facet, and the sentence that explains it.
      *
+     * No panel asks for one at present: chance is drawn where it is drawn as a
+     * distribution, beside the per-voxel curves, and nowhere as a median collapsed to a
+     * line. Hand the result to a panel as `chanceBy` to put the line back.
+     *
      * `allowExtent` says whether what is being read against it has extent. A whole
      * instance does, and the reference has to allow for it (see extentGapUm); a skeleton
      * tip does not - it is a point, like the samples the reference is made of - and
@@ -6075,17 +6068,13 @@ function renderEntityStats() {
         // counts as too few, in a report whose whole point is that the numbers are there.
         var targets = col === 'distance_to_closest_same_type_um' ? 0
           : instRows.filter(function(r){ return r.entity_name === target; }).length;
-        var chance = col === 'distance_to_closest_same_type_um' ? null
-          : chanceFor(target, true);
         distributionPanel(dcEl, {
           series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'to ' + title), unit: 'µm',
           help: metricHelp(col, 'instance_'),
           noun: ent, showFacetTicks: !facets.many,
-          chanceBy: chance ? chance.by : null,
-          footnote: [targets ? 'Nearest of ' + targets.toLocaleString() + ' '
-                                 + dataName(target) + ' instances.' : '',
-                     chance ? chance.note : ''].filter(Boolean).join(' ') || null
+          footnote: targets ? 'Nearest of ' + targets.toLocaleString() + ' '
+                                + dataName(target) + ' instances.' : null
         });
       });
     }
@@ -6097,15 +6086,11 @@ function renderEntityStats() {
       var ecEl = slot('end');
       orderDistDims(eCols).forEach(function(col) {
         var endTarget = col.replace(/^distance_to_/, '').replace(/_end_um$/, '');
-        // A tip is a point, so the reference needs no allowance for extent here.
-        var endChance = chanceFor(endTarget, false);
         distributionPanel(ecEl, {
           series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'end to ' + endTarget.replace(/_/g, ' ')), unit: 'µm',
           help: metricHelp(col, 'instance_'),
-          noun: ent, showFacetTicks: !facets.many,
-          chanceBy: endChance ? endChance.by : null,
-          footnote: endChance ? endChance.note : ''
+          noun: ent, showFacetTicks: !facets.many
         });
       });
     }
