@@ -321,7 +321,7 @@ def test_every_mesh_setting_reaches_the_writer():
     settings = {f.name for f in fields(MeshOptions)}
     assert settings == {
         "smooth_sigma", "step_size", "target_reduction", "level", "geometry_as",
-        "skeletons", "max_skeleton_voxels", "num_threads", "contact_max_um",
+        "skeletons", "max_skeleton_voxels", "contact_max_um",
         "mesh_workers", "max_vertices", "surface_method",
     }, "a new mesh setting needs a line in MeshOptions.from_config and this list"
     assert defaults.surface_method != options.surface_method

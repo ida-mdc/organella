@@ -73,8 +73,7 @@ def decode_mesh(payload):
     nV, nF = struct.unpack_from("<II", raw, 0)
     if nV == 0 or nF == 0:
         return None, None
-    # The length follows from the header, so a payload of another kind is caught here
-    # rather than in numpy. An ellipsoid is 60 bytes whose first eight read as nV = 1.09
+    # The length follows from the header. An ellipsoid is 60 bytes whose first eight read as nV = 1.09
     # billion, which used to raise "buffer is smaller than requested size" from inside the
     # merge - a crash, in the middle of an import, saying nothing about the cause.
     index_bytes = 2 if nV < 65536 else 4
@@ -84,9 +83,7 @@ def decode_mesh(payload):
     min_xyz   = np.frombuffer(raw, dtype=np.float32, count=3, offset=8)
     scale_xyz = np.frombuffer(raw, dtype=np.float32, count=3, offset=20)
     verts_q   = np.frombuffer(raw, dtype=np.uint16,  count=nV * 3, offset=32).reshape(nV, 3)
-    # Indices are 2 bytes unless the surface has more vertices than that can address. The
-    # width follows from nV rather than being recorded, so every reader agrees by
-    # construction - see analysis/meshes.index_dtype.
+    # Indices are 2 bytes unless the surface has more vertices than that can address.
     index_dt  = np.uint16 if nV < 65536 else np.uint32
     faces     = np.frombuffer(raw, dtype=index_dt, count=nF * 3, offset=32 + nV * 6).reshape(nF, 3)
 
@@ -265,8 +262,8 @@ def main():
     df = df[df["surface"].notna()]
     # A round instance is stored as the ellipsoid of its own moments and a filament as its
     # centre line, neither of which holds triangles - the report page tessellates them as
-    # it draws. Nothing here does, so they are counted and left out rather than fed to a
-    # decoder that cannot read them. A run that is headed for Blender can ask for meshes:
+    # it draws. Nothing here does, so they are counted and left out.
+    # A run that is headed for Blender can ask for meshes:
     # organella process --with-mesh --geometry-as NAME=mesh.
     kinds = df["surface_kind"].fillna("mesh")
     parametric = kinds[kinds != "mesh"].value_counts().to_dict()
@@ -276,8 +273,6 @@ def main():
         print(f"[geometry_to_blender]   {n} {kind} instance(s) left out: no triangles are "
               f"stored for one. Re-run with --geometry-as NAME=mesh to import them.")
     if df.empty:
-        # A 2D object has outlines rather than meshes: there is no surface to import, and
-        # a flat polygon in Blender would be a worse view of it than the report's own.
         print("[geometry_to_blender] Nothing to import. (2D objects carry outlines, not "
               "meshes — look at those in the report's instance gallery instead.)")
         return

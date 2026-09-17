@@ -1,7 +1,6 @@
 import json
 import re
 import threading
-import time
 from pathlib import Path
 
 import polars as pl
@@ -11,13 +10,13 @@ from click.testing import CliRunner
 
 from organella import report_io
 from organella.cli import (
-    FLAVOR,
     _settings,
     cli,
     estimate_peak_gb,
     find_object_dirs,
 )
 from organella.config import RunConfig, colours_from_file
+from conftest import REPO_ROOT
 from synthetic import make_object, make_dataset
 
 
@@ -125,7 +124,7 @@ def test_a_report_records_the_version_that_measured_it(report_path):
     _, footer = report_io.read(report_path)
     assert footer["organella_version"] == organella.__version__
 
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert "version" not in pyproject["project"], (
         "pyproject carries a second version; it should read organella.__version__")
     assert pyproject["project"]["dynamic"] == ["version"]
@@ -149,8 +148,6 @@ def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path
     assert result.exit_code == 0, result.output
     after = pq.read_table(coloured)
     assert after.num_rows == before.num_rows
-    assert (after.schema.metadata[b"organella_flavour"]
-            == before.schema.metadata[b"organella_flavour"])
     assert (after.schema.metadata[b"organella_paths"]
             == before.schema.metadata[b"organella_paths"])
     entities = pl.from_arrow(after).filter(pl.col("obs_level") == 1)
@@ -280,17 +277,6 @@ def test_process_writes_a_report_without_being_told_how_to_slice(dataset, tmp_pa
     assert table.filter(pl.col("obs_level") == 0)["instance_count"].sum() == 14
 
 
-def test_the_report_says_what_kind_of_analysis_it_is(dataset, tmp_path):
-    out = tmp_path / "report.parquet"
-    result = CliRunner().invoke(cli, ["process", str(dataset), "-o", str(out), "--object-mask", "pm"])
-
-    assert result.exit_code == 0, result.output
-    # The viewer shows the flavour as a chip beside the title, so a report is recognisable
-    # as this analysis before a widget is read.
-    metadata = pq.read_metadata(out).metadata
-    assert metadata[b"organella_flavour"].decode() == FLAVOR == "organella"
-
-
 def test_process_can_skip_the_expensive_processors(dataset, tmp_path):
     out = tmp_path / "lean.parquet"
     result = CliRunner().invoke(
@@ -348,39 +334,55 @@ def test_the_page_is_self_contained():
         assert url.startswith(allowed), url
 
 
-def test_view_serves_the_report_and_points_the_page_at_it(tmp_path, report_path):
-    """One origin for both, because the page reads the geometry over HTTP."""
+@pytest.fixture
+def served(tmp_path, report_path):
+    """A report on a server of its own, stopped again when the test is done.
+
+    Bound before it is answering, so there is nothing to poll for and no window in which
+    the port could be taken by something else; port 0 lets the OS pick and the server says
+    which it got. Stopped in teardown, because a daemon thread left running serves for the
+    rest of the session and sprays its own tracebacks through later tests' output.
+    """
     import shutil
+
+    from organella import report_page as page_mod
+
+    report = tmp_path / "report.parquet"
+    shutil.copy(report_path, report)
+    server = page_mod.make_server(report, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield report, server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_view_serves_the_report_and_points_the_page_at_it(served):
+    """One origin for both, because the page reads the geometry over HTTP."""
     import urllib.request
 
     from organella import report_page as page_mod
 
-    served = tmp_path / "report.parquet"
-    shutil.copy(report_path, served)
-    port = page_mod.free_port()
-
-    thread = threading.Thread(
-        target=page_mod.serve, args=(served,),
-        kwargs={"port": port, "open_browser": False}, daemon=True)
-    thread.start()
-    url = page_mod.open_url(served, port)
-    for _ in range(100):                       # the server needs a moment to bind
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/report.parquet").read(4)
-            break
-        except OSError:
-            time.sleep(0.05)
+    report, port = served
 
     # The page, the report, and the geometry, all reachable from where the page is opened.
-    assert "data=report.parquet" in url
+    assert "data=report.parquet" in page_mod.open_url(report, port)
     page = urllib.request.urlopen(
         f"http://127.0.0.1:{port}/{page_mod.PAGE_FILENAME}").read().decode()
     assert "Organella Report" in page
-    assert urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/report.parquet").read(4) == b"PAR1"
+    # By range, which is how a parquet reader asks: the magic is the first four bytes, and
+    # taking four of a nine-megabyte file is the whole point of the server answering ranges.
+    magic = urllib.request.Request(f"http://127.0.0.1:{port}/report.parquet",
+                                   headers={"Range": "bytes=0-3"})
+    with urllib.request.urlopen(magic) as answer:
+        assert answer.status == 206, answer.status
+        assert answer.read() == b"PAR1"
 
 
-def test_nothing_served_may_be_cached(tmp_path, report_path):
+def test_nothing_served_may_be_cached(served):
     """The same URL serves every run's copy of a file, so a kept one is a wrong one.
 
     A geometry file is /__geometry/<object_id>/geometry.parquet whichever run wrote it, and
@@ -388,24 +390,11 @@ def test_nothing_served_may_be_cached(tmp_path, report_path):
     cache hands DuckDB a glob of two schemas, and the reader is told "schema mismatch in
     glob" about files that are all correct on disk.
     """
-    import shutil
     import urllib.request
 
     from organella import report_page as page_mod
 
-    served = tmp_path / "report.parquet"
-    shutil.copy(report_path, served)
-    port = page_mod.free_port()
-    thread = threading.Thread(
-        target=page_mod.serve, args=(served,),
-        kwargs={"port": port, "open_browser": False}, daemon=True)
-    thread.start()
-    for _ in range(100):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/report.parquet").read(4)
-            break
-        except OSError:
-            time.sleep(0.05)
+    _report, port = served
 
     for path in (page_mod.PAGE_FILENAME, "report.parquet"):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/{path}") as answer:

@@ -1,15 +1,3 @@
-"""The brackets: the test behind them, against scipy.
-
-A p-value drawn on a chart is worth exactly as much as the test under it, and this one is
-JavaScript in a page nobody imports. So it is run against ``scipy.stats.mannwhitneyu`` -
-the same alternative, the same method - rather than against a second implementation of the
-same idea written here.
-
-Two branches, because a batch is often three or four objects per condition: exact where
-both samples are small and nothing ties, and the tie-corrected normal approximation
-otherwise, which is the same split scipy makes.
-"""
-
 import random
 
 import pytest

@@ -22,25 +22,9 @@
 <style>
 /* ══════════════════════════════════════════════════════════════════════
    Organella report — editorial stylesheet.
-
-   The report is read like a paper, not scanned like a dashboard: serif
-   headings, one warm paper surface, hairline rules instead of boxed cards,
-   and body text at a size you can actually read. The section "questions"
-   ("How big is each mito?") are real headings — they carry the narrative,
-   so they get heading treatment rather than 11px grey uppercase.
-
-   Series colours live in --series-1…8 and are mirrored in JS (CS.series) so
-   page chrome and Plotly charts draw from one palette. That set is validated
-   for colour-vision deficiency on this surface (adjacent CVD ΔE ≥ 8); if you
-   re-colour, re-validate rather than eyeballing it.
    ══════════════════════════════════════════════════════════════════════ */
 :root {
-  /* The organella mark. A custom property so the bytes sit in the file once, however many
-     places draw it. */
   --logo: url("data:image/png;base64,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");
-  /* Cool neutrals. Each step holds the lightness of the warm one it replaced, so every
-     contrast the page relied on is unchanged - except --ink-3, which was below AA for small
-     text on both backgrounds it is used on (4.30 and 3.94) and now clears it (4.95, 4.57). */
   --paper:      #ffffff;   /* page surface */
   --surface:    #ffffff;   /* raised: table bodies, chart wells - the rules separate them */
   --surface-2:  #eef1f5;   /* sunken: table heads, callouts, code */
@@ -150,9 +134,6 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .cs-chip-kind { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em;
   padding: 0 .38rem; color: var(--ink-3); }
 
-/* A structure's name comes out of the segmentation, not out of this page, and a sentence
-   like "How far is each mito from other structures?" reads oddly until you know that.
-   Marked, so it is legible as a name rather than as a word the report chose. */
 .data-name { font-family: var(--sans); font-weight: 600; color: var(--ink);
   background: var(--surface-2); box-shadow: 0 0 0 .16em var(--surface-2);
   border-radius: 1px; white-space: nowrap; }
@@ -180,8 +161,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .colour-ramp .ramp-label { color: var(--ink-3); }
 .colour-ramp .ramp-bar { display: inline-block; width: 92px; height: 9px;
   border-radius: 5px; border: 1px solid rgba(0,0,0,.12); }
-/* Under what it explains rather than among the controls: a scale reads the picture, it
-   does not set it. */
 .metric-scale { margin-top: .5rem; }
 .metric-scale .colour-ramp .ramp-bar { width: 160px; height: 11px; }
 .fit-note { display: flex; flex-wrap: wrap; gap: .1rem .85rem; font-size: .74rem;
@@ -204,8 +183,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .metric-help { font-size: .73rem; line-height: 1.45; color: var(--ink-3);
   margin-top: .35rem; }
 .metric-help .data-name { font-weight: 600; }
-/* One panel per structure pair, side by side and each at a readable size, rather than a
-   subplot matrix squeezed into a triangle. */
 .pair-panels { display: flex; flex-wrap: wrap; gap: 18px 22px; }
 .callout { background: var(--surface-2); border-left: 2px solid var(--accent);
   padding: .7rem 1rem; font-size: .9rem; color: var(--ink); margin: .2rem 0 1.4rem; }
@@ -286,11 +263,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   <span class="brand"><i class="brand-mark" aria-hidden="true"></i>Organella Report</span>
   <button class="btn btn-sm btn-outline-dark d-none" id="load-btn">&#128194; Open Report</button>
   <input type="file" id="file-input" accept=".parquet" class="d-none">
-  <!-- The geometry sits beside the report, one geometry.parquet per object, so it is
-       picked up as a folder rather than as a file. webkitdirectory is how a browser
-       hands over a whole directory tree without a server. -->
-  <!-- Two pickers, because one input cannot offer both: webkitdirectory hands over a whole
-       tree, and without it a file dialogue will not descend into a folder. -->
   <div class="btn-group btn-group-sm d-none" id="geom-btn">
     <button type="button" class="btn btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown"
             aria-expanded="false">&#128230; Add geometry</button>
@@ -336,8 +308,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
            style="gap:.35rem;color:var(--ink-3);white-space:nowrap">
       <input type="checkbox" id="show-significance" checked> Significance
     </label>
-    <!-- Why the brackets are missing, where they are: said once, beside the switch that
-         asks for them, rather than under every panel of every row. -->
     <span id="sig-hint" class="small" style="color:var(--ink-3)"></span>
   </div>
 </div>
@@ -622,10 +592,6 @@ var COLS = [];         // the columns INSTANCES actually carry
 var DIST_TARGETS = []; // structures instances were measured to
 var PLANAR = false;    // 2D objects: area and perimeter, not volume and surface
 var MIXED_DIMS = false;
-// column -> what it means, read out of the report's own footer. The run writes them there
-// (report_io.py) precisely so this page can show them: a browser cannot reach parquet field
-// metadata, because DuckDB drops it. Empty for a report written before that, and then the
-// panels simply carry no explanation rather than a made-up one.
 var COLUMN_HELP = {};
 // What the run called it, if it said. Applied once the rows say whether anything bounds it.
 var REPORT_NOUN = null;
@@ -1582,21 +1548,6 @@ function spanUnion(a, b) {
            srcWidth: a.srcWidth != null ? a.srcWidth : b.srcWidth };
 }
 
-/** How far apart two samples of an object are at their closest: the resolution of "touching". */
-function voxelDiagonalUm(objectIds) {
-  var wanted = new Set((objectIds || []).map(String));
-  var worst = null;
-  OBJECTS.forEach(function(o) {
-    if (wanted.size && !wanted.has(String(o.object_id))) return;
-    var sizes = ['pixel_size_Z', 'pixel_size_Y', 'pixel_size_X']
-      .map(function(k){ return o[k]; })
-      .filter(function(v){ return v != null && isFinite(v) && v > 0; });
-    if (!sizes.length) return;
-    var diagonal = Math.sqrt(sizes.reduce(function(a, v){ return a + v * v; }, 0));
-    if (worst == null || diagonal > worst) worst = diagonal;
-  });
-  return worst;
-}
 
 /**
  * How much of an instance's closeness is its own size, measured on the instances.
@@ -1629,12 +1580,6 @@ function extentGapUm(rows, target) {
   return quantileSorted(gaps, 0.5);
 }
 
-/** The share of these values at or below a threshold, as a percentage. */
-function shareWithin(values, threshold) {
-  if (!values.length || threshold == null) return null;
-  var n = values.filter(function(v){ return v <= threshold; }).length;
-  return 100 * n / values.length;
-}
 /**
  * What a measurement means, in the report's own words, for the caption under its chart.
  *
@@ -3278,7 +3223,7 @@ function renderOverview() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  05 — Which way does each structure sit?
+//  05 — Polarity
 // ══════════════════════════════════════════════════════════════
 /**
  * Everything the report can say about direction, made comparable between objects.
@@ -5581,7 +5526,7 @@ function distributionPanel(host, opts) {
       xaxis:{ title: opts.unit || null, rangemode:'tozero',
               range: flatRange(histSpanOf, opts)
                 || (opts.range ? opts.range.slice() : undefined) },
-      yaxis:{ title:'% of ' + (opts.noun || 'them') + 's', rangemode:'tozero',
+      yaxis:{ title:'% of ' + (opts.noun ? pluralise(opts.noun) : 'them'), rangemode:'tozero',
               ticksuffix:'%' } };
     if (!traces.length) {
       // Nothing to bin: fall back to the boxes, which can always draw a single value.
@@ -5984,14 +5929,7 @@ function renderEntityStats() {
         + ' each ' + named + ' from other structures?</div>'
       + '<p class="subsection-desc" data-slot="dist-desc" style="display:none">Distance from'
         + ' the closest point of each ' + named + ' to the nearest instance of each structure.'
-        + ' Near 0 means that ' + named + ' sits right against it.'
-        + ' <b>The dotted line on each panel is chance</b>: the distance half the ' + noun()
-        + ' lies within of that structure, less what an instance\u2019s own extent gives it'
-        + ' - its body average sits that much further out than its closest point, because it'
-        + ' reaches a structure from its surface where a sample of the ' + noun()
-        + ' has none. A population below its line sits closer to that structure than the '
-        + noun() + '\u2019s own shape puts anything; one on the line sits exactly as close'
-        + ' as anything would. The numbers under each panel are that panel\u2019s.</p>'
+        + ' Near 0 means that ' + named + ' sits right against it.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="dist"></div>'
       + '<div class="subsection-label mt-3" data-slot="end-label" style="display:none">How far'
@@ -6000,11 +5938,7 @@ function renderEntityStats() {
         + ' the nearest <b>tip</b> of each ' + named + ' - where its skeleton stops - rather'
         + ' than of whichever part of it comes closest. A filament can run past a structure'
         + ' along its whole length and end nowhere near it, and the panels above cannot tell'
-        + ' that apart from being anchored to it by the tip. The share underneath is how many'
-        + ' end within one voxel of the structure, which is as close as two things can be'
-        + ' measured to be without overlapping - what "connected to it" comes down to at this'
-        + ' voxel size. The dotted line is chance again, and needs no allowance for extent'
-        + ' here: a tip is a point, like the samples it comes from.</p>'
+        + ' that apart from being anchored to it by the tip.</p>'
       + facetLegend()
       + '<div class="charts-row" data-slot="end"></div>'
       + '<div class="subsection-label mt-3" data-slot="both-label" style="display:none">Is each'
@@ -6071,6 +6005,10 @@ function renderEntityStats() {
     /**
      * The dotted reference for one target, per facet, and the sentence that explains it.
      *
+     * No panel asks for one at present: chance is drawn where it is drawn as a
+     * distribution, beside the per-voxel curves, and nowhere as a median collapsed to a
+     * line. Hand the result to a panel as `chanceBy` to put the line back.
+     *
      * `allowExtent` says whether what is being read against it has extent. A whole
      * instance does, and the reference has to allow for it (see extentGapUm); a skeleton
      * tip does not - it is a point, like the samples the reference is made of - and
@@ -6094,30 +6032,20 @@ function renderEntityStats() {
         if (at > 0) { by[name] = at; drawn.push(entry); } else collapsed.push(entry);
       });
       if (!drawn.length && !collapsed.length) return null;
-      var per = function(entries, pick) {
-        return entries.map(function(x) {
-          return (Object.keys(objectsOf).length > 1
-            ? escHtml(facets.labelOf(x.name)) + ' ' : '') + fmtGap(pick(x));
-        }).join(', ');
-      };
       var sentences = [];
       if (drawn.length) {
-        sentences.push('Dotted: ' + per(drawn, function(x){ return x.at; }) + ' µm.');
         // An allowance of zero is still an allowance - two structures that overlap leave
-        // one - but there is nothing to say about it, and saying it anyway is a number per
-        // facet that only reads as noise.
-        var anyAllowance = drawn.some(function(x){ return x.gap > 0; });
-        sentences.push('Half the ' + noun() + ' lies within '
-          + per(drawn, function(x){ return x.median; }) + ' µm of ' + dataName(target)
-          + (allowExtent && anyAllowance
-              ? '; the extent allowance is '
-                + per(drawn, function(x){ return x.gap; }) + ' µm.'
-              : '.'));
+        // one - but there is nothing to say about it.
+        var anyAllowance = allowExtent && drawn.some(function(x){ return x.gap > 0; });
+        // What the line is, not where it is: where it is, is the line. Printing the
+        // number as well said the same thing twice, once in a form that named no quantity.
+        sentences.push('Dotted: the distance half the ' + noun() + ' lies within of '
+          + dataName(target)
+          + (anyAllowance ? ', less what an instance this size spans.' : '.'));
       }
       collapsed.forEach(function(x) {
-        sentences.push('No line for '
-          + escHtml(facets.labelOf(x.name)) + ': the allowance, ' + fmtGap(x.gap)
-          + ' µm, is larger than the ' + fmtGap(x.median) + ' µm distance.');
+        sentences.push('No line for ' + escHtml(facets.labelOf(x.name))
+          + ': what an instance this size spans is further than that distance.');
       });
       if (allowExtent && !measured) {
         sentences.push('No extent allowance was measured: re-run with'
@@ -6140,17 +6068,13 @@ function renderEntityStats() {
         // counts as too few, in a report whose whole point is that the numbers are there.
         var targets = col === 'distance_to_closest_same_type_um' ? 0
           : instRows.filter(function(r){ return r.entity_name === target; }).length;
-        var chance = col === 'distance_to_closest_same_type_um' ? null
-          : chanceFor(target, true);
         distributionPanel(dcEl, {
           series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'to ' + title), unit: 'µm',
           help: metricHelp(col, 'instance_'),
           noun: ent, showFacetTicks: !facets.many,
-          chanceBy: chance ? chance.by : null,
-          footnote: [targets ? 'Nearest of ' + targets.toLocaleString() + ' '
-                                 + dataName(target) + ' instances.' : '',
-                     chance ? chance.note : ''].filter(Boolean).join(' ') || null
+          footnote: targets ? 'Nearest of ' + targets.toLocaleString() + ' '
+                                + dataName(target) + ' instances.' : null
         });
       });
     }
@@ -6160,28 +6084,13 @@ function renderEntityStats() {
     if (eCols.length) {
       reveal('end-label'); reveal('end-desc');
       var ecEl = slot('end');
-      var touching = voxelDiagonalUm(allObjects);
       orderDistDims(eCols).forEach(function(col) {
         var endTarget = col.replace(/^distance_to_/, '').replace(/_end_um$/, '');
-        // A tip is a point, so the reference needs no allowance for extent here.
-        var endChance = chanceFor(endTarget, false);
-        var endSeries = facets.valuesOf(rows, col, fallback);
-        var shares = endSeries.map(function(f) {
-          var share = shareWithin(f.values, touching);
-          if (share == null) return null;
-          return (endSeries.length > 1 ? escHtml(f.label) + ' ' : '') + share.toFixed(1) + '%';
-        }).filter(Boolean);
-        var reached = (touching != null && shares.length)
-          ? '<b>' + shares.join(', ') + '</b> end within one voxel (' + fmtGap(touching)
-            + ' µm) of ' + dataName(endTarget) + '.'
-          : '';
         distributionPanel(ecEl, {
-          series: endSeries,
+          series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'end to ' + endTarget.replace(/_/g, ' ')), unit: 'µm',
           help: metricHelp(col, 'instance_'),
-          noun: ent, showFacetTicks: !facets.many,
-          chanceBy: endChance ? endChance.by : null,
-          footnote: [reached, endChance ? endChance.note : ''].filter(Boolean).join(' ')
+          noun: ent, showFacetTicks: !facets.many
         });
       });
     }
@@ -6276,9 +6185,8 @@ function renderEntityStats() {
       if (drewChance) {
         var reference = document.createElement('div');
         reference.className = 'chart-note';
-        reference.innerHTML = 'Dotted: the same distances over every sample of the '
-          + noun() + ', instead of over the ' + named + ' - the shape a population placed'
-          + ' without regard to that structure would have.';
+        reference.innerHTML = 'Dotted: the same distances over every voxel of the '
+          + noun() + ', instead of over the ' + named + '.';
         dhEl.appendChild(reference);
       }
       if (unbinnable.length) {
@@ -6287,7 +6195,7 @@ function renderEntityStats() {
         trouble.innerHTML = 'No distribution could be drawn to '
           + unbinnable.map(dataName).join(', ')
           + ': the recorded histograms for it are all at one distance, so there is no range '
-          + 'to bin over. Every voxel of every ' + named + ' is exactly that far from it.';
+          + 'to bin over.';
         dhEl.appendChild(trouble);
       }
     }
@@ -7082,7 +6990,6 @@ if (typeof globalThis !== 'undefined') {
     setPolarReference: function(name){ st.polarRef = name; },
     chanceRows: chanceRows, chanceStats: chanceStats, chanceCurve: chanceCurve,
     medianOfCounts: medianOfCounts, spanUnion: spanUnion,
-    voxelDiagonalUm: voxelDiagonalUm, shareWithin: shareWithin,
     nonDistMetricCols: nonDistMetricCols, correlationAxisCols: correlationAxisCols,
     orderDistDims: orderDistDims,
     contactClusters: contactClusters, contactStructures: contactStructures,

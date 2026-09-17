@@ -12,7 +12,6 @@ import polars as pl
 import pytest
 
 from organella import pipeline, report_io
-from organella.cli import FLAVOR
 from organella.config import RunConfig
 from organella.measure import find_object_dirs
 from organella.model import ObjectStack
@@ -21,6 +20,11 @@ from organella.report_page import report_page
 from synthetic import make_dataset, make_dataset_2d
 
 REPORT_PAGE_CHECKER = Path(__file__).parent / "report_page_check.mjs"
+
+# Found from this file, never from the working directory: a test that reads
+# "src/organella/..." passes only when pytest was started in the checkout root, and fails
+# for anyone running it from an IDE, from tests/, or by absolute path.
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 # The synthetic objects are bounded by a mask called "pm". Nothing is guessed, so every
@@ -58,7 +62,7 @@ MITO_COLOUR = "#d62728"
 def _run(root: Path, out: Path) -> Path:
     """One batch through the real pipeline, exactly as `process` runs it.
 
-    Every setting the run depends on is stated here rather than inherited, which is the
+    Every setting the run depends on is stated here, which is the
     whole of what this batch was measured under - a 2D batch handed a 3D voxel size, say,
     is refused outright.
     """
@@ -73,7 +77,7 @@ def _run(root: Path, out: Path) -> Path:
     paths = ["control", "treated"]
     report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1, config=cfg)
     assert not report.failures, report.failures
-    written = report_io.write(report, out, root=root, paths=paths, flavor=FLAVOR)
+    written = report_io.write(report, out, root=root, paths=paths)
     # `process --colours` does exactly this, and so does the `colours` command afterwards.
     report_io.recolour(written, {"mito": MITO_COLOUR})
     return written

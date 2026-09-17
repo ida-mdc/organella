@@ -2,8 +2,7 @@ name: Deploy the report page to GitHub Pages
 
 # The report is read by one standalone HTML page: it loads a report.parquet in the browser
 # and draws every chart from it, so publishing it is a copy, not a build. It is served at
-# / and at /organella_report.html. The standalone prototype it grew out of keeps the URLs it
-# was published under (/stats_viewer.html, /mesh_viewer.html) so existing links work.
+# / and at /organella_report.html.
 
 on:
   push:
@@ -23,19 +22,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
-env:
-  # The last commit that changed the standalone prototype, before the package replaced it.
-  # Those files are frozen, so the site takes them straight out of history rather than
-  # keeping a copy in the tree.
-  PROTOTYPE_REF: 42c08030eca7b771844345c517d1e2cc904f4660
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # history back to PROTOTYPE_REF
 
       # Node, because the page is checked before it is published: it is one file with no
       # build step and nothing imports it, so this is the only thing standing between a
@@ -63,17 +54,6 @@ jobs:
 
       - name: Publish the imprint and the privacy policy
         run: cp docs/impressum.html docs/privacy.html docs/_legal.css _site/
-
-      # Skipped rather than fatal when the commit is not there: a repository the history
-      # was not carried into still deploys, just without the prototype's URLs.
-      - name: Add the standalone prototype at its original URLs
-        run: |
-          if git cat-file -e "$PROTOTYPE_REF^{commit}" 2>/dev/null; then
-            git show "$PROTOTYPE_REF:stats_viewer.html" > _site/stats_viewer.html
-            git show "$PROTOTYPE_REF:mesh_viewer.html"  > _site/mesh_viewer.html
-          else
-            echo "::notice::$PROTOTYPE_REF is not in this repository; publishing without the prototype URLs"
-          fi
 
       - name: Show what will be published
         run: ls -lh _site

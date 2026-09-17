@@ -16,6 +16,7 @@ import struct
 import numpy as np
 import pytest
 from conftest import run_report_page as run_page
+from organella.report_page import report_page
 
 from organella.analysis.meshes import MeshOptions, mesh_rows_for_object
 from organella.analysis.primitives import (
@@ -442,9 +443,7 @@ def test_the_page_refuses_to_draw_one_that_was_already_written():
 
 
 def test_the_writer_and_the_page_bound_a_collapse_at_the_same_stretch():
-    """Two copies of one number, so a test rather than a comment keeps them together."""
     page = run_page({"rows": [], "structure": "mito"})
-
     assert page["constants"]["maxEllipsoidStretch"] == MAX_ELLIPSOID_STRETCH
 
 
@@ -581,7 +580,7 @@ def test_marching_cubes_stays_the_default():
 def test_the_scene_query_no_longer_caps_what_it_returns():
     """A cap left structures missing with nothing said. It is gone; the tessellation is
     what gives way instead."""
-    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+    page = report_page().read_text(encoding="utf-8")
 
     assert "MAX_MESHES" not in page
     assert "SURFACE_VERTEX_BUDGET" in page

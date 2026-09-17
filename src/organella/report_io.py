@@ -51,7 +51,6 @@ FOOTER_PREFIX = "organella_"
 def footer_metadata(
     *,
     project_name: str,
-    flavor: str,
     root: Optional[Path],
     paths: Sequence[str],
     processing_stats: Dict[str, Any],
@@ -60,7 +59,6 @@ def footer_metadata(
     """The provenance a report carries: what it is, and how it was made."""
     return {
         f"{FOOTER_PREFIX}project_name": project_name,
-        f"{FOOTER_PREFIX}flavour": flavor,
         DESCRIPTION_KEY: description,
         f"{FOOTER_PREFIX}version": _version(),
         f"{FOOTER_PREFIX}created_at":
@@ -74,7 +72,7 @@ def footer_metadata(
 
 
 def write(report: Report, output: Path, *, root: Path, paths: Sequence[str],
-          flavor: str, project_name: Optional[str] = None,
+          project_name: Optional[str] = None,
           omit_base_dir: bool = False, object_noun: Optional[str] = None,
           description: Optional[str] = None) -> Path:
     """Write the report parquet: the rows, their descriptions, and the run's provenance."""
@@ -91,7 +89,6 @@ def write(report: Report, output: Path, *, root: Path, paths: Sequence[str],
 
     footer = footer_metadata(
         project_name=project_name or output.stem,
-        flavor=flavor,
         description=description or "",
         root=None if omit_base_dir else root,
         paths=paths,

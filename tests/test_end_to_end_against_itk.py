@@ -16,7 +16,7 @@ import pytest
 import tifffile
 
 from organella import pipeline, report_io
-from organella.cli import FLAVOR, find_object_dirs
+from organella.cli import find_object_dirs
 from conftest import settings
 from synthetic import (
     PIXEL_SIZE_UM,
@@ -49,7 +49,7 @@ def report_instance_extents(table: pl.DataFrame, object_id: str, entity: str,
 def _run(root, out):
     report = pipeline.analyse(find_object_dirs(root), root, [], workers=1, config=settings())
     assert not report.failures, report.failures
-    report_io.write(report, out, root=root, paths=[], flavor=FLAVOR)
+    report_io.write(report, out, root=root, paths=[])
     return pl.read_parquet(out)
 
 

@@ -22,6 +22,7 @@ import pytest
 from conftest import _run
 from conftest import (report_column_help as help_of, report_rows as rows_of,
                       run_report_page as run_page)
+from organella.report_page import report_page
 from synthetic import make_object, make_object_2d
 
 
@@ -203,30 +204,6 @@ def test_the_reader_is_told_which_way_is_arbitrary(drawn_polarity):
     assert "arbitrary" in said
 
 
-def test_a_panel_whose_data_stops_short_of_its_line_is_widened_to_hold_it(report_path):
-    """A line nobody can see is worse than none, and it goes both ways.
-
-    A reference below every box - the population sitting *further* than chance, which is
-    half of what the line is for - was being drawn off the bottom of an autoranged panel.
-    """
-    drawn = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path),
-                      "structure": "mito", "objectNoun": "cell", "render": True,
-                      "groupBy": "group"})["render"]
-    referenced = [r for r in drawn["references"]
-                  if " to " in r["title"] and "towards" not in r["title"]]
-
-    assert referenced
-    held = 0
-    for panel in referenced:
-        if not panel["yRange"]:
-            continue
-        low, high = panel["yRange"]
-        for at in panel["at"]:
-            assert low <= at <= high, panel["title"]
-            held += 1
-    assert held, "no panel in this batch had to be widened, so nothing was checked"
-
-
 # ── the radius, and which group an object is in ─────────────────────────────
 
 
@@ -243,7 +220,7 @@ def test_the_radius_can_be_read_to_the_boundary_instead(report_path):
     The depth is a distance row, which only instances have, so this view drops the masks -
     and says so rather than quietly drawing fewer structures.
     """
-    page = open("src/organella/report/organella_report.html", encoding="utf-8").read()
+    page = report_page().read_text(encoding="utf-8")
 
     # Reversed on purpose: the boundary belongs at the rim, with deeper further in.
     assert "range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02]" in page

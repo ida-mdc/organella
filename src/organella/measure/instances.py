@@ -348,11 +348,10 @@ class InstanceMeasurer:
         measured = label_metrics_for(object_id, entity, labels, sample_size)
         shape_keys = METRICS_2D if ndim == 2 else METRICS_3D
 
-        # One pass over the whole entity yields a skeleton per instance, shared with the
-        # geometry writer through the cache, and skipped for entities that want none.
+        # A skeleton per instance, shared with the geometry writer through the cache, and
+        # skipped for entities that want none.
         skels = (
-            skeletons_for(object_id, entity, labels, sample_size,
-                          cfg.max_skeleton_voxels, cfg.num_threads)
+            skeletons_for(object_id, entity, labels, sample_size, cfg.max_skeleton_voxels)
             if wants_skeletons(entity, cfg.geometry_as, cfg.skeletons) else {}
         )
         unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
@@ -521,7 +520,7 @@ class InstanceMeasurer:
             if not wants_skeletons(name, cfg.geometry_as, cfg.skeletons):
                 continue
             skeletons = skeletons_for(object_id, name, views[name], sample_size,
-                                      cfg.max_skeleton_voxels, cfg.num_threads)
+                                      cfg.max_skeleton_voxels)
             index = _endpoint_index(views[name], skeletons, sample_size)
             if index is not None:
                 out[name] = index

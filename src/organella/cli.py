@@ -1,11 +1,3 @@
-"""``organella``: survey a batch, measure it, and open the report.
-
-``process`` drives the pipeline in :mod:`organella.pipeline`, which loads each
-object whole: an object cannot be split, because a distance is *to* another structure and a
-contact is between two of them. Every flag here goes into one :class:`~organella.config.RunConfig`,
-which is handed to the pipeline and travels from there to each object's worker.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,9 +25,6 @@ from organella.measure import find_object_dirs, load_object
 from organella import report_page
 
 logger = logging.getLogger(__name__)
-
-# Written into the parquet footer, as organella_flavour.
-FLAVOR = "organella"
 
 # Peak resident memory per worker, as a multiple of (stack + one distance transform).
 # Measured, not guessed: on a 565-megavoxel seven-entity object the worker the OOM killer
@@ -98,23 +87,17 @@ def _mesh_flags(fn):
         click.option("--mesh-surface-method",
                      type=click.Choice(["marching-cubes", "surface-nets"]), default=None,
                      help="How the isosurface is extracted (default: marching-cubes). "
-                          "surface-nets puts one vertex per cell rather than per crossing "
-                          "edge: about 30% less staircase noise, no fewer vertices, and "
-                          "66% slower on a real ER sheet."),
+                          "surface-nets creates less staircase noise, no fewer vertices, and "
+                          "can be slower."),
         click.option("--mesh-max-vertices", type=int, default=None, metavar="N",
                      help="Most vertices any one surface keeps; 0 lifts the cap "
-                          "(default: 200000). A decimation fraction bounds nothing: at 0.5 "
-                          "one ER sheet was still 2.87 million vertices - 86 MB, two thirds "
-                          "of that object's whole geometry - where a vesicle was 57. This "
-                          "bounds the worst case, which is the one that breaks storing and "
-                          "drawing."),
+                          "(default: 200000)."),
         click.option("--mesh-workers", type=int, default=None, metavar="N",
                      help="Processes meshing instances of one object (default: the cores "
                           "the object pool is not using)."),
         click.option("--reuse-geometry", is_flag=True,
                      help="Keep any geometry.parquet an object already has instead of "
-                          "meshing it again. Meshing dominates a run, so this is how a "
-                          "batch that died partway is finished in minutes."),
+                          "meshing it again."),
     ]):
         fn = option(fn)
     return fn
@@ -133,10 +116,6 @@ def _settings(**given: Any) -> RunConfig:
 
 def _given(parse, raw):
     """What a flag parses to, or a message naming the flag.
-
-    A value that will not parse is the reader's mistake, not the run's, so it is said here
-    and now rather than raised out of a worker once the batch is an hour in. Nothing if the
-    flag was not given: the default then stands.
     """
     if raw is None:
         return None
@@ -232,39 +211,23 @@ def describe(report: Path, text: str) -> None:
               help="Subdirectory to import as its own group (repeatable). Becomes the "
                    "default grouping in the report.")
 @click.option("--object-mask", default=None, metavar="NAME",
-              help="Mask that bounds each object, e.g. pm. Never guessed: everything is "
-                   "measured relative to it, the entities are clipped and cropped to it, "
-                   "and polarity is measured from its centroid. Leave it out and the "
-                   "entities are measured where they lie, with no clipping, no cropping "
-                   "and no extent of their own - polarity is then measured from the centre "
-                   "of everything segmented. Run 'dry-run' to see the masks each folder "
-                   "has.")
+              help="Mask that bounds each object, e.g. pm. Entities are clipped and cropped to it, "
+                   "and polarity is measured from its centroid.")
 @click.option("--description", default=None, metavar="TEXT",
-              help="What this data is and who it credits: a citation, a licence, a caveat. "
-                   "It travels in the report and the page shows it at the top, so a report "
-                   "sent to someone arrives with its provenance. `organella describe` puts "
-                   "one on a report that already exists.")
+              help="A description that is shown on the report page.")
 @click.option("--object-noun", default=None, metavar="WORD",
               help="What one measured thing is called in the report, e.g. 'cell'. Give an "
-                   "irregular plural as 'nucleus/nuclei'. Presentation only - it changes no "
-                   "column and no measurement, only the words the report uses. Left out, a "
-                   "run with --object-mask says 'object' and one without says 'dataset', "
-                   "since without a bounding mask there is no bounded thing to name.")
+                   "irregular plural as 'nucleus/nuclei'. Presentation only.")
 @click.option("--voxel-size-um", default=None, metavar="Z,Y,X",
               help="Voxel size in µm. Inferred from the source TIFF metadata when omitted.")
 @click.option("--no-clip", "no_clip", is_flag=True,
               help="Measure outside the object mask too. Entities are clipped to it by "
-                   "default, since that is what naming a bounding mask means; pass this "
-                   "for data already confined to the object, or when truncating what "
-                   "straddles the boundary is worse than including it.")
+                   "default.")
 @click.option("--auto-label-masks", is_flag=True,
-              help="Promote masks with several connected components to label entities.")
+              help="Automatically convert masks with several connected components to label entities.")
 @click.option("--entities", default=None, metavar="NAMES",
               help="Measure only these entities, e.g. liver,spleen,aorta, plus the object "
-                   "mask. Everything a folder has is measured when this is left out, which "
-                   "for a published segmentation can be far more than a question needs: "
-                   "each entity is another full-size channel of the stack, so a subject "
-                   "carrying 117 structures is selected down before it fits in memory.")
+                   "mask.")
 @click.option("--label-map", metavar="FILE",
               type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="JSON file of label id: structure name pairs, e.g. {\"1\": \"liver\"}, "
@@ -272,27 +235,23 @@ def describe(report: Path, text: str) -> None:
                    "entity per id. Only the ids it names become entities.")
 @click.option("--label-map-entity", default=None, metavar="NAME",
               help="Which entity --label-map splits. Needed only when a folder has more "
-                   "than one label entity, in which case it is an error to leave it out "
-                   "rather than a guess at which one was meant.")
+                   "than one label entity.")
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
               help="Largest gap between two instances of one structure that still counts "
                    "as a contact (default: 0.5).")
 @click.option("--max-skeleton-voxels", type=int, default=None, metavar="N",
               help="Skip curve skeletons for instances above this voxel count (default: 500000).")
 @click.option("--num-threads", type=int, default=None, metavar="N",
-              help="kimimaro worker count (default: 1; objects already run in parallel).")
+              help="Accepted so existing commands keep running, and read by nothing: a "
+                   "skeleton is traced in one instance's bounding box, which is too little "
+                   "work to hand to a pool.")
 @click.option("--skeletons", "skeletons", default=None, metavar="NAMES",
-              help="Structures to skeletonise, comma separated, e.g. mito,ER. Opt-in "
-                   "because it is the most expensive thing in a run, and because "
-                   "branches, length and tortuosity mean something for a filament and "
-                   "nothing for a granule, whose skeleton is one branch the length of "
-                   "its diameter.")
+              help="Structures to skeletonise, comma separated, e.g. mito,ER.")
 @click.option("--geometry-as", "geometry_as", default=None, metavar="NAME=KIND,...",
               help="How each structure's surface is stored: mesh, ellipsoid or tube, e.g. "
                    "vesicle=ellipsoid. A structure not named here is decided from its "
                    "measured shape: round and compact ones become ellipsoids of 60 bytes "
-                   "instead of meshes, which is what makes tens of thousands of instances "
-                   "drawable. '+skeleton' also works here and means what --skeletons means.")
+                   "instead of meshes. '+skeleton' also works here and means what --skeletons means.")
 @click.option("--polarity-spread", is_flag=True,
               help="Also measure each instance's angular spread on the polarity sphere.")
 @click.option("--distance-histograms", is_flag=True,
@@ -300,8 +259,7 @@ def describe(report: Path, text: str) -> None:
 @click.option("--baseline-exclude", "baseline_exclude", default=None, metavar="NAMES",
               help="Structures to leave out of the region every distance is read against, "
                    "comma separated, e.g. nucleus. Each structure gets a chance "
-                   "distribution - the distance to it from everywhere in the object - and a "
-                   "measured distance means something only against that. Name the "
+                   "distribution - the distance to it from everywhere in the object. Name the "
                    "structures an instance could never sit inside, so 'closer than chance' "
                    "is not decided by ground it was never free to occupy.")
 @click.option("--colours", "--colors", "colours", metavar="FILE",
@@ -322,7 +280,7 @@ def describe(report: Path, text: str) -> None:
 @click.option("--with-mesh", is_flag=True,
               help="Also write per-object geometry for the 3D views and Blender: meshes "
                    "and skeletons for a volume, outlines and skeletons for a plane. It goes "
-                   "to <output>_meshes/, never into the parquet.")
+                   "to <output>_meshes/.")
 @click.option("--mesh-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Where --with-mesh writes the geometry (default: <output>_meshes).")
 @_mesh_flags
@@ -398,7 +356,7 @@ def process(
                               excluded=sorted(excluded), workers=workers, peak_gb=peak,
                               parts_dir=parts, resume=resume, config=cfg)
     try:
-        report_io.write(report, output, root=object_dir, paths=list(paths), flavor=FLAVOR,
+        report_io.write(report, output, root=object_dir, paths=list(paths),
                         description=description,
                         object_noun=object_noun)
     except report_io.EmptyReport as empty:

@@ -148,6 +148,8 @@ if (job.render) {
         polarRange: layout?.polar?.radialaxis?.range ?? null,
         xTitle: (typeof layout?.xaxis?.title === 'string'
           ? layout.xaxis.title : layout?.xaxis?.title?.text) ?? null,
+        yTitle: (typeof layout?.yaxis?.title === 'string'
+          ? layout.yaxis.title : layout?.yaxis?.title?.text) ?? null,
         // Reference lines: a chance median is a dotted line, across the panel over a box
         // and along it over a histogram, which is the difference `axis` records.
         // The axis a reference had to be held on, where the panel set one.
@@ -305,10 +307,6 @@ if (job.rows) {
         curve: curve && { bins: curve.counts.length,
                           density: curve.density.reduce((a, b) => a + b, 0) * curve.width,
                           min: curve.min, max: curve.max },
-        // The resolution at which "touching" can be told apart at all, and the share of
-        // the measured population inside it.
-        voxelDiagonal: R.voxelDiagonalUm(objects),
-        withinOneVoxel: R.shareWithin(vals, R.voxelDiagonalUm(objects)),
       };
     }
     const hist = R.histTargets(rows)[0];
@@ -392,7 +390,7 @@ if (job.rows && job.colour) {
 }
 
 // The median of a binned population, which is how a chance distribution's reference value
-// is read off the counts rather than off a sort of every voxel in the object.
+// is read off the counts.
 if (job.medianOfCounts) {
   out.medianOfCounts = job.medianOfCounts.map(
     (c) => R.medianOfCounts(c.counts, c.min, c.width));
@@ -593,6 +591,9 @@ if (job.render) {
                      at: p.shapes.filter((sh) => sh.dash === 'dot').map((sh) => sh.at),
                      axis: [...new Set(p.shapes.filter((sh) => sh.dash === 'dot')
                                                .map((sh) => sh.axis))] })),
+    // What each panel called its axes. A share axis names the thing being counted, and the
+    // noun is already plural as often as not.
+    axisTitles: plotted.map((p) => ({ title: p.title, x: p.xTitle, y: p.yTitle })),
     // The brackets, as Plotly was actually asked to draw them.
     brackets: plotted.flatMap((p) => p.brackets),
     bracketedPanels: plotted.filter((p) => p.brackets.length).length,
