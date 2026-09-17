@@ -10,7 +10,6 @@ from click.testing import CliRunner
 
 from organella import report_io
 from organella.cli import (
-    FLAVOR,
     _settings,
     cli,
     estimate_peak_gb,
@@ -276,17 +275,6 @@ def test_process_writes_a_report_without_being_told_how_to_slice(dataset, tmp_pa
     # The entity rows only exist if slice_size was set for us.
     assert table.filter(pl.col("obs_level") == 1).height == 12
     assert table.filter(pl.col("obs_level") == 0)["instance_count"].sum() == 14
-
-
-def test_the_report_says_what_kind_of_analysis_it_is(dataset, tmp_path):
-    out = tmp_path / "report.parquet"
-    result = CliRunner().invoke(cli, ["process", str(dataset), "-o", str(out), "--object-mask", "pm"])
-
-    assert result.exit_code == 0, result.output
-    # The viewer shows the flavour as a chip beside the title, so a report is recognisable
-    # as this analysis before a widget is read.
-    metadata = pq.read_metadata(out).metadata
-    assert metadata[b"organella_flavour"].decode() == FLAVOR == "organella"
 
 
 def test_process_can_skip_the_expensive_processors(dataset, tmp_path):

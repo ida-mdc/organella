@@ -348,7 +348,7 @@ def test_a_report_can_hold_both_dimensionalities(tmp_path):
     import polars as pl
 
     from organella import pipeline, report_io
-    from organella.cli import FLAVOR, find_object_dirs
+    from organella.cli import find_object_dirs
     from synthetic import make_object, make_object_2d
 
     root = tmp_path / "mixed"
@@ -359,7 +359,7 @@ def test_a_report_can_hold_both_dimensionalities(tmp_path):
     report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1, config=settings())
     assert not report.failures, report.failures
     table, _ = report_io.read(
-        report_io.write(report, out, root=root, paths=paths, flavor=FLAVOR))
+        report_io.write(report, out, root=root, paths=paths))
 
     objects = table.filter(pl.col("obs_level") == 0).sort("object_id")
     assert objects["spatial_dims"].to_list() == [3, 2]

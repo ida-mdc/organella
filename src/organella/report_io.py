@@ -51,7 +51,6 @@ FOOTER_PREFIX = "organella_"
 def footer_metadata(
     *,
     project_name: str,
-    flavor: str,
     root: Optional[Path],
     paths: Sequence[str],
     processing_stats: Dict[str, Any],

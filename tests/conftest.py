@@ -12,7 +12,6 @@ import polars as pl
 import pytest
 
 from organella import pipeline, report_io
-from organella.cli import FLAVOR
 from organella.config import RunConfig
 from organella.measure import find_object_dirs
 from organella.model import ObjectStack
@@ -78,7 +77,7 @@ def _run(root: Path, out: Path) -> Path:
     paths = ["control", "treated"]
     report = pipeline.analyse(find_object_dirs(root), root, paths, workers=1, config=cfg)
     assert not report.failures, report.failures
-    written = report_io.write(report, out, root=root, paths=paths, flavor=FLAVOR)
+    written = report_io.write(report, out, root=root, paths=paths)
     # `process --colours` does exactly this, and so does the `colours` command afterwards.
     report_io.recolour(written, {"mito": MITO_COLOUR})
     return written
