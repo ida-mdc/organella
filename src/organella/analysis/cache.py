@@ -82,7 +82,6 @@ def skeletons_for(
     labels: np.ndarray,
     sample_size: Sequence[float],
     max_voxels: Optional[int],
-    num_threads: int,
 ) -> dict:
     """This entity's skeletons, computed once per object however many readers ask.
 
@@ -92,8 +91,7 @@ def skeletons_for(
     return CACHE.get_or_compute(
         object_id, ("skeletons", entity, max_voxels), labels,
         lambda: compute_skeletons(
-            labels, tuple(float(v) for v in sample_size),
-            max_voxels=max_voxels, num_threads=num_threads,
+            labels, tuple(float(v) for v in sample_size), max_voxels=max_voxels,
         ),
     )
 

@@ -94,7 +94,6 @@ class MeshOptions:
     # skeleton is computed once per object and shared.
     skeletons: EntityFilter = None
     max_skeleton_voxels: Optional[int] = 500_000
-    num_threads: int = 1
     # Contacts ride along so "Colour by → Contact group" works; None leaves them out. Cheap
     # next to meshing (seconds against minutes).
     contact_max_um: Optional[float] = 0.5
@@ -127,7 +126,6 @@ class MeshOptions:
             geometry_as=cfg.geometry_as,
             skeletons=cfg.skeletons,
             max_skeleton_voxels=cfg.max_skeleton_voxels,
-            num_threads=cfg.num_threads,
             contact_max_um=cfg.contact_max_um,
             mesh_workers=cfg.mesh_workers,
             max_vertices=cfg.mesh_max_vertices,
@@ -577,7 +575,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
         shape_keys = METRICS_2D if ndim == 2 else METRICS_3D
         skeletons = (
             skeletons_for(object_id, name, labels, sample_size,
-                          options.max_skeleton_voxels, options.num_threads)
+                          options.max_skeleton_voxels)
             if wants_skeletons(name, options.geometry_as, options.skeletons)
             else {}
         )

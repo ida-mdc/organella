@@ -211,6 +211,8 @@ class RunConfig:
     max_skeleton_voxels: int = 500_000
     skeletons: EntityFilter = None
     geometry_as: Dict[str, str] = field(default_factory=dict)
+    # What --num-threads sets, and nothing reads: a skeleton is traced in one instance's
+    # bounding box now, which is too little work to hand to a pool.
     num_threads: int = 1
     edt_threads: int = 0
     contact_max_um: float = 0.5

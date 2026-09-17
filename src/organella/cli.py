@@ -242,7 +242,9 @@ def describe(report: Path, text: str) -> None:
 @click.option("--max-skeleton-voxels", type=int, default=None, metavar="N",
               help="Skip curve skeletons for instances above this voxel count (default: 500000).")
 @click.option("--num-threads", type=int, default=None, metavar="N",
-              help="kimimaro worker count (default: 1; objects already run in parallel).")
+              help="Accepted so existing commands keep running, and read by nothing: a "
+                   "skeleton is traced in one instance's bounding box, which is too little "
+                   "work to hand to a pool.")
 @click.option("--skeletons", "skeletons", default=None, metavar="NAMES",
               help="Structures to skeletonise, comma separated, e.g. mito,ER.")
 @click.option("--geometry-as", "geometry_as", default=None, metavar="NAME=KIND,...",

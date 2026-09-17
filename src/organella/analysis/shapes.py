@@ -8,13 +8,11 @@ it: volume, surface area and sphericity, or area, perimeter and circularity.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import kimimaro
 import numpy as np
-
-logger = logging.getLogger(__name__)
+from scipy.ndimage import find_objects
 
 
 # Column names minus any prefix: a caller adds "instance_" or nothing.
@@ -184,58 +182,91 @@ def compute_skeletons(
     labels: np.ndarray,
     sample_size: Sequence[float],
     max_voxels: int | None = None,
-    num_threads: int = 0,
 ) -> dict:
     """Skeletons for every instance, by whichever dimensionality the labels have."""
     if labels.ndim == 2:
         return compute_planar_skeletons(labels, sample_size, max_voxels)
     return compute_curve_skeletons(labels, tuple(float(v) for v in sample_size),
-                                   max_voxels=max_voxels, num_threads=num_threads)
+                                   max_voxels=max_voxels)
 
 
 def compute_curve_skeletons(
     labels: np.ndarray,
     voxel_size_zyx: Tuple[float, float, float],
     max_voxels: int | None = None,
-    num_threads: int = 0,
 ) -> dict:
     """TEASAR curve skeletons for every instance in a 3D label volume (kimimaro).
 
-    Returns ``{label_id: cloudvolume.Skeleton}``, vertices in µm in the volume frame
+    Returns ``{label_id: osteoid.Skeleton}``, vertices in µm in the volume frame
     (axis order ZYX). Instances larger than ``max_voxels`` are skipped to bound
     runtime.
+
+    One instance at a time, in its own bounding box, the way the planar path works:
+    kimimaro will take a whole label volume, but the connected components and the distance
+    field it builds before tracing anything are then sized by the volume rather than by the
+    instances in it. On a 197-megavoxel entity that is 2.7 GB to skeletonise 162
+    mitochondria against 0.2 GB a box at a time, and 2.9 GB against nothing measurable for
+    8254 granules. The boxes are also the faster way round wherever an instance is worth
+    skeletonising at all - 12 s against 17 for the mitochondria - and the slower one where
+    thousands of specks each pay for a call of their own: 41 s against 27 for the granules.
+    Either way the skeletons are the same ones, vertex for vertex.
     """
-    lab = np.ascontiguousarray(labels.astype(np.uint32))
-    object_ids = None
-    if max_voxels is not None:
-        ids, counts = np.unique(lab[lab > 0], return_counts=True)
-        object_ids = [int(i) for i, c in zip(ids, counts) if c <= max_voxels]
-        if not object_ids:
-            return {}
+    out: dict = {}
+    for index, box in enumerate(find_objects(labels)):
+        if box is None:
+            continue
+        skeleton = _instance_skeleton(labels, box, index + 1, voxel_size_zyx, max_voxels)
+        if skeleton is not None:
+            out[index + 1] = skeleton
+    return out
 
-    def _run(parallel: int) -> dict:
-        return kimimaro.skeletonize(
-            lab,
-            teasar_params=_TEASAR_PARAMS,
-            anisotropy=tuple(float(v) for v in voxel_size_zyx),
-            object_ids=object_ids,
-            dust_threshold=SKELETON_DUST_VOXELS,
-            fix_branching=True,
-            fix_borders=True,
-            progress=False,
-            parallel=parallel,
-        )
 
-    # kimimaro's multi-process path needs posix_ipc/psutil; anything wrong with it falls
-    # back to single-threaded rather than taking the run down.
-    parallel = num_threads if num_threads and num_threads > 0 else 0
-    if parallel == 1:
-        return _run(1)
-    try:
-        return _run(parallel)
-    except Exception as exc:
-        logger.info("organella: parallel kimimaro failed (%s); retrying single-threaded", type(exc).__name__)
-        return _run(1)
+def _instance_skeleton(
+    labels: np.ndarray,
+    box: Tuple[slice, ...],
+    label_id: int,
+    voxel_size_zyx: Tuple[float, float, float],
+    max_voxels: int | None,
+) -> Any:
+    """One instance's centre line, traced in its own bounding box, in the volume's frame.
+
+    The box is grown by a voxel wherever the volume has one to spare: ``fix_borders``
+    anchors an endpoint wherever a component reaches a face, so a box cut tight to the
+    instance would anchor every instance, and one that cannot grow is an instance that
+    really does reach the volume's own face.
+    """
+    window = tuple(slice(max(0, axis.start - 1), min(extent, axis.stop + 1))
+                   for axis, extent in zip(box, labels.shape))
+    # The box holds whatever else passes through it, and kimimaro skeletonises every id it
+    # is given; zeroing the neighbours is what makes this one instance's skeleton.
+    crop = np.asfortranarray(labels[window])
+    crop[crop != label_id] = 0
+    if max_voxels is not None and int(np.count_nonzero(crop)) > max_voxels:
+        return None
+    skeleton = kimimaro.skeletonize(
+        crop,
+        teasar_params=_TEASAR_PARAMS,
+        anisotropy=tuple(float(v) for v in voxel_size_zyx),
+        dust_threshold=SKELETON_DUST_VOXELS,
+        fix_branching=True,
+        fix_borders=True,
+        progress=False,
+        parallel=1,
+        # The crop is ours and nothing else reads it, so kimimaro may work in it rather
+        # than take the Fortran-ordered copy of its own it would otherwise make.
+        in_place=True,
+    ).get(label_id)
+    if skeleton is None:
+        return None
+    # Back into the volume's frame in *voxels*, before the anisotropy rather than after it.
+    # A traced vertex is the centre of a voxel, so dividing the anisotropy back out says
+    # which voxel, exactly, and the µm coordinate that comes back out is bit for bit the
+    # one the whole volume would have produced.
+    anisotropy = np.asarray(voxel_size_zyx, dtype=np.float32)
+    origin = np.asarray([axis.start for axis in window], dtype=np.float64)
+    voxels = np.rint(np.asarray(skeleton.vertices, dtype=np.float64) / anisotropy) + origin
+    skeleton.vertices = voxels.astype(np.float32) * anisotropy
+    return skeleton
 
 
 def _branch_segments(adj: list[list[int]], deg: np.ndarray) -> list[list[int]]:
