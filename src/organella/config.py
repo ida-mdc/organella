@@ -4,12 +4,6 @@
 The CLI builds one from its flags and hands it to :func:`organella.pipeline.analyse`, which
 hands it to each object's worker along with the work.
 
-Passed rather than picked up: the settings used to travel as ``ORGANELLA_*`` environment
-variables, because a measurer was constructed with no arguments and a spawned worker
-inherits the environment. That made the defaults ambiguous - every one of them was written
-twice, once as a field here and once as a fallback where the variable was read - and it made
-a run depend on what an earlier one had left behind. This is plain data and pickles like any
-other argument, so there is nothing the environment was needed for.
 """
 
 from __future__ import annotations
@@ -170,9 +164,6 @@ def colours_from_file(path: Path, flag: str = "--colours") -> Dict[str, str]:
 
 def label_map_from_file(path: Path) -> Dict[int, str]:
     """``{id: structure}`` from a JSON file: ``{"1": "liver", "2": "spleen"}``.
-
-    Keys are label ids, so a key that is not an integer is named as a mistake rather than
-    becoming a structure that never matches anything.
     """
     try:
         loaded = json.loads(path.read_text())
@@ -208,69 +199,34 @@ def parse_voxel_size(raw: Optional[str],
 
 @dataclass(frozen=True)
 class RunConfig:
-    # Never guessed: the region is cropped and clipped to this mask and polarity is measured
-    # from its centroid. None means nothing bounds the object, and the columns that would
-    # need one are not written.
     object_mask: Optional[str] = None
     object_noun: Optional[str] = None
-    # 'z,y,x' for a volume, 'y,x' for a plane. A length that does not match the images is
-    # refused rather than padded or truncated.
     voxel_size_um: Optional[Tuple[float, ...]] = None
-    # On: naming a bounding mask and then measuring outside it is not what --object-mask
-    # says. Off with --no-clip, for data already confined to the object, or when truncating
-    # what straddles the boundary is worse than including it.
     clip: bool = True
     auto_label_masks: bool = False
-    # None = every entity in the folder. Each one is another full-size channel of the
-    # stack, so naming a few is how a 117-structure subject is measured at all.
     entities: Optional[FrozenSet[str]] = None
-    # Label id -> structure name, for a single volume whose ids each mean a different
-    # structure. Empty means the volume is one entity, as its file name says.
     label_map: Dict[int, str] = field(default_factory=dict)
-    # Which entity the label map splits. None and exactly one label entity in the folder
-    # means that one; None and several is an error naming them, never a pick.
     label_map_entity: Optional[str] = None
-    # Structure name -> "#rrggbb", from a settings file. Empty means the built-in palette.
     entity_colours: Dict[str, str] = field(default_factory=dict)
     max_skeleton_voxels: int = 500_000
-    # Which structures get a curve skeleton. Opt-in: it dominates a run.
     skeletons: EntityFilter = None
-    # Structure -> how to store its surface: mesh, ellipsoid or tube. Unset for a structure
-    # means decide from its measured shape.
     geometry_as: Dict[str, str] = field(default_factory=dict)
-    # 1, not 0: an object already has a worker process, so a kimimaro pool inside it costs
-    # a failed fork per object.
     num_threads: int = 1
-    # Separate from num_threads: edt is a C++ loop with no subprocesses, so it can use
-    # all cores even inside a Dask worker, where kimimaro's process pool cannot.
     edt_threads: int = 0
     contact_max_um: float = 0.5
-    # Both walk every voxel of every instance, so they are opt-in.
     polarity_spread: bool = False
     distance_histograms: bool = False
-    # Structures left out of the region a distance is read against: the chance distribution
-    # is over everywhere an instance could have been, so a structure it could never sit in
-    # does not belong in it. None leaves in everything but the target itself, which is
-    # excluded either way because its own distance to itself is zero.
     baseline_exclude: EntityFilter = None
-    # Geometry is written beside the report, never into it; unset means no meshing at all.
     mesh_dir: Optional[str] = None
     mesh_smooth_sigma: float = 0.7
     mesh_step_size: int = 2
     mesh_target_reduction: float = 0.8
     mesh_level: Optional[float] = None
-    # Processes to mesh instances with. 0 = work it out from the cores left over.
     mesh_workers: int = 0
-    # Most vertices any one surface keeps; 0 lifts the cap.
     mesh_max_vertices: int = 200_000
-    # "marching-cubes" or "surface-nets".
     mesh_surface_method: str = "marching-cubes"
-    # Keep an object's geometry.parquet rather than meshing it again. Meshing dominates a
-    # run, so a batch that died partway finishes in minutes.
     reuse_geometry: bool = False
 
-    # Settings that change what a run produces. A list rather than "everything except", so
-    # a new option is only reused across runs once someone has thought about it.
     _RESULT_AFFECTING = (
         "object_mask", "voxel_size_um", "clip", "auto_label_masks", "entities",
         "label_map", "label_map_entity", "skeletons", "geometry_as",

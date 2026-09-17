@@ -1,8 +1,6 @@
 [project]
 name = "organella"
-# Read from organella.__version__ by hatchling (see [tool.hatch.version]), because that is
-# the string every report's footer records: a second copy here was bumped on its own and
-# reports went out stamped with the previous release.
+# Read from organella.__version__ by hatchling (see [tool.hatch.version])
 dynamic = ["version"]
 description ="Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
@@ -28,32 +26,21 @@ classifiers = [
 ]
 
 dependencies = [
-    # The command line itself. Installed today only because kimimaro happens to want it,
-    # which is not a dependency to rely on for the one entry point this package has.
     "click>=8.1",
     "numpy>=2.0.0",
     "pyarrow",
     "polars>=1.0.0",
     "scipy>=1.13.0",
     "scikit-image>=0.23.0",
-    # The measuring itself: ITK's LabelShapeStatisticsImageFilter, spacing aware, and with
-    # a Crofton boundary estimator built for the smooth surfaces a segmented organelle has.
     "SimpleITK>=2.3",
     "tifffile>=2024.5.0",
-    # tifffile requires only numpy, so without this an LZW or zstd TIFF will not read.
     "imagecodecs",
     "edt>=2.4.0",
     "fast-simplification>=0.1.6",
     "kimimaro>=4.0.0",
-    # posix_ipc and crackle are kimimaro's, and it asks for them itself. psutil is here
-    # because this package imports it, and unmarked because it runs on Windows - where
-    # kimimaro's own marker leaves it out.
     "psutil",
 ]
 
-# Reading a chunked store - N5 or Zarr, local or over S3 - so an object can be described by
-# a manifest instead of being downloaded. An extra rather than a dependency: measuring files
-# on disk needs neither, and zarr is pinned below 3 because zarr 3 dropped N5 support.
 [project.urls]
 Homepage = "https://ida-mdc.github.io/organella/"
 Repository = "https://github.com/ida-mdc/organella"
@@ -65,14 +52,8 @@ remote = [
     "s3fs>=2023.6.0",
 ]
 
-# What the suite needs beyond the package. An extra rather than a dependency group because
-# `uv pip install` has no --group flag, and every workflow that runs tests installs this one
-# name: spelling the list out per workflow is how the page check went red with no duckdb.
 test = [
     "pytest>=8.3.5",
-    # The tests query a report the way the page does, in SQL, rather than trusting the frame
-    # the writer just handed them. Not a runtime dependency: the package writes reports with
-    # pyarrow and reads them with polars.
     "duckdb>=1.0",
 ]
 

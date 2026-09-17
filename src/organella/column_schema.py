@@ -1,15 +1,3 @@
-"""What every column of a report means, gathered in one place.
-
-A report is self-describing: every column carries its description in the parquet's field
-metadata, and the whole map goes in the footer as ``organella_column_descriptions`` as well.
-The footer copy is the one the page reads, since a browser cannot get at field metadata -
-DuckDB drops it - and it is why the explanation under a chart is the same sentence as the
-one in the file.
-
-The declarations live next to the code that fills them, in :mod:`organella.measure`; this
-module gathers them and adds the few columns the pipeline itself writes.
-"""
-
 from __future__ import annotations
 
 import re
@@ -21,7 +9,6 @@ from organella.measure.instances import InstanceMeasurer
 from organella.measure.loading import LOADED_DESCRIPTIONS
 from organella.measure.morphology import MorphologyMeasurer
 
-# What a row is, and where it came from: columns stamped on rather than measured.
 ROW_DESCRIPTIONS: Dict[str, str] = {
     "obs_level": (
         "How deep in the report this row sits: 0 is the whole object, 1 is one structure of "
@@ -51,7 +38,6 @@ FILE_DESCRIPTIONS: Dict[str, str] = {
 }
 
 # Columns whose name carries an axis. Described by pattern, so a 2D object's two and a 3D
-# object's three are one entry each rather than five.
 PATTERN_DESCRIPTIONS: List[Tuple[str, str]] = [
     (r"^pixel_size_[ZYX]$",
      "Physical size of one sample along this axis, in µm. Every measurement in the report "
@@ -81,8 +67,6 @@ COLUMN_DESCRIPTIONS: Dict[str, str] = {
 
 def describe(column: str) -> str:
     """What one column means: the exact entry, else a pattern, else nothing.
-
-    Nothing rather than a guess: a column with no description says so by having none.
     """
     if column in COLUMN_DESCRIPTIONS:
         return COLUMN_DESCRIPTIONS[column]
@@ -113,8 +97,7 @@ def singular_of(noun: str) -> str:
 def with_noun(description: str, noun: Optional[str]) -> str:
     """A description with "object" replaced by what the run calls one.
 
-    Done when the file is written rather than by whatever reads it, so every reader gets
-    the same sentence. Whole words only, so ``object_id`` in a sentence is left alone.
+    Whole words only, so ``object_id`` in a sentence is left alone.
     """
     if not noun:
         return description

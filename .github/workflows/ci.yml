@@ -14,7 +14,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      # Both versions report, rather than the second being cancelled by the first's failure.
       fail-fast: false
       matrix:
         # 3.11 is what pyproject asks for at the lowest; 3.12 is what it is developed on.

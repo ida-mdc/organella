@@ -63,7 +63,7 @@ MITO_COLOUR = "#d62728"
 def _run(root: Path, out: Path) -> Path:
     """One batch through the real pipeline, exactly as `process` runs it.
 
-    Every setting the run depends on is stated here rather than inherited, which is the
+    Every setting the run depends on is stated here, which is the
     whole of what this batch was measured under - a 2D batch handed a 3D voxel size, say,
     is refused outright.
     """

@@ -443,9 +443,7 @@ def test_the_page_refuses_to_draw_one_that_was_already_written():
 
 
 def test_the_writer_and_the_page_bound_a_collapse_at_the_same_stretch():
-    """Two copies of one number, so a test rather than a comment keeps them together."""
     page = run_page({"rows": [], "structure": "mito"})
-
     assert page["constants"]["maxEllipsoidStretch"] == MAX_ELLIPSOID_STRETCH
 
 

@@ -390,7 +390,7 @@ if (job.rows && job.colour) {
 }
 
 // The median of a binned population, which is how a chance distribution's reference value
-// is read off the counts rather than off a sort of every voxel in the object.
+// is read off the counts.
 if (job.medianOfCounts) {
   out.medianOfCounts = job.medianOfCounts.map(
     (c) => R.medianOfCounts(c.counts, c.min, c.width));

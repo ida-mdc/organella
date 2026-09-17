@@ -22,25 +22,9 @@
 <style>
 /* ══════════════════════════════════════════════════════════════════════
    Organella report — editorial stylesheet.
-
-   The report is read like a paper, not scanned like a dashboard: serif
-   headings, one warm paper surface, hairline rules instead of boxed cards,
-   and body text at a size you can actually read. The section "questions"
-   ("How big is each mito?") are real headings — they carry the narrative,
-   so they get heading treatment rather than 11px grey uppercase.
-
-   Series colours live in --series-1…8 and are mirrored in JS (CS.series) so
-   page chrome and Plotly charts draw from one palette. That set is validated
-   for colour-vision deficiency on this surface (adjacent CVD ΔE ≥ 8); if you
-   re-colour, re-validate rather than eyeballing it.
    ══════════════════════════════════════════════════════════════════════ */
 :root {
-  /* The organella mark. A custom property so the bytes sit in the file once, however many
-     places draw it. */
   --logo: url("data:image/png;base64,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");
-  /* Cool neutrals. Each step holds the lightness of the warm one it replaced, so every
-     contrast the page relied on is unchanged - except --ink-3, which was below AA for small
-     text on both backgrounds it is used on (4.30 and 3.94) and now clears it (4.95, 4.57). */
   --paper:      #ffffff;   /* page surface */
   --surface:    #ffffff;   /* raised: table bodies, chart wells - the rules separate them */
   --surface-2:  #eef1f5;   /* sunken: table heads, callouts, code */
@@ -150,9 +134,6 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .cs-chip-kind { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em;
   padding: 0 .38rem; color: var(--ink-3); }
 
-/* A structure's name comes out of the segmentation, not out of this page, and a sentence
-   like "How far is each mito from other structures?" reads oddly until you know that.
-   Marked, so it is legible as a name rather than as a word the report chose. */
 .data-name { font-family: var(--sans); font-weight: 600; color: var(--ink);
   background: var(--surface-2); box-shadow: 0 0 0 .16em var(--surface-2);
   border-radius: 1px; white-space: nowrap; }
@@ -180,8 +161,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .colour-ramp .ramp-label { color: var(--ink-3); }
 .colour-ramp .ramp-bar { display: inline-block; width: 92px; height: 9px;
   border-radius: 5px; border: 1px solid rgba(0,0,0,.12); }
-/* Under what it explains rather than among the controls: a scale reads the picture, it
-   does not set it. */
 .metric-scale { margin-top: .5rem; }
 .metric-scale .colour-ramp .ramp-bar { width: 160px; height: 11px; }
 .fit-note { display: flex; flex-wrap: wrap; gap: .1rem .85rem; font-size: .74rem;
@@ -204,8 +183,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .metric-help { font-size: .73rem; line-height: 1.45; color: var(--ink-3);
   margin-top: .35rem; }
 .metric-help .data-name { font-weight: 600; }
-/* One panel per structure pair, side by side and each at a readable size, rather than a
-   subplot matrix squeezed into a triangle. */
 .pair-panels { display: flex; flex-wrap: wrap; gap: 18px 22px; }
 .callout { background: var(--surface-2); border-left: 2px solid var(--accent);
   padding: .7rem 1rem; font-size: .9rem; color: var(--ink); margin: .2rem 0 1.4rem; }
@@ -286,11 +263,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   <span class="brand"><i class="brand-mark" aria-hidden="true"></i>Organella Report</span>
   <button class="btn btn-sm btn-outline-dark d-none" id="load-btn">&#128194; Open Report</button>
   <input type="file" id="file-input" accept=".parquet" class="d-none">
-  <!-- The geometry sits beside the report, one geometry.parquet per object, so it is
-       picked up as a folder rather than as a file. webkitdirectory is how a browser
-       hands over a whole directory tree without a server. -->
-  <!-- Two pickers, because one input cannot offer both: webkitdirectory hands over a whole
-       tree, and without it a file dialogue will not descend into a folder. -->
   <div class="btn-group btn-group-sm d-none" id="geom-btn">
     <button type="button" class="btn btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown"
             aria-expanded="false">&#128230; Add geometry</button>
@@ -336,8 +308,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
            style="gap:.35rem;color:var(--ink-3);white-space:nowrap">
       <input type="checkbox" id="show-significance" checked> Significance
     </label>
-    <!-- Why the brackets are missing, where they are: said once, beside the switch that
-         asks for them, rather than under every panel of every row. -->
     <span id="sig-hint" class="small" style="color:var(--ink-3)"></span>
   </div>
 </div>
@@ -622,10 +592,6 @@ var COLS = [];         // the columns INSTANCES actually carry
 var DIST_TARGETS = []; // structures instances were measured to
 var PLANAR = false;    // 2D objects: area and perimeter, not volume and surface
 var MIXED_DIMS = false;
-// column -> what it means, read out of the report's own footer. The run writes them there
-// (report_io.py) precisely so this page can show them: a browser cannot reach parquet field
-// metadata, because DuckDB drops it. Empty for a report written before that, and then the
-// panels simply carry no explanation rather than a made-up one.
 var COLUMN_HELP = {};
 // What the run called it, if it said. Applied once the rows say whether anything bounds it.
 var REPORT_NOUN = null;
@@ -3257,7 +3223,7 @@ function renderOverview() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  05 — Which way does each structure sit?
+//  05 — Polarity
 // ══════════════════════════════════════════════════════════════
 /**
  * Everything the report can say about direction, made comparable between objects.

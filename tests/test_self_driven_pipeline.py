@@ -1,17 +1,13 @@
-"""The pipeline that measures the batch itself, rather than through PixelPatrol's scheduler.
-
-What matters here: an object is never split (its measurements are cross-entity), one bad
-object does not take the batch with it, and the report carries the columns the widgets read
-and nothing that describes a folder as if it were a file.
+"""The pipeline that measures the batch itself.
 """
 
 import polars as pl
+import pyarrow.parquet as pq
 import pytest
 
-from organella import pipeline, report_io
-from organella.cli import FLAVOR
-from organella.measure import find_object_dirs
 from conftest import settings
+from organella import pipeline, report_io
+from organella.measure import find_object_dirs
 from synthetic import make_object
 
 
@@ -50,7 +46,7 @@ def test_workers_are_capped_by_what_an_object_costs():
 
 def test_the_report_describes_an_object_not_a_file(batch, tmp_path):
     report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1, config=settings())
-    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[], flavor=FLAVOR)
+    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[])
 
     columns = set(pl.read_parquet(out).columns)
 
@@ -60,17 +56,14 @@ def test_the_report_describes_an_object_not_a_file(batch, tmp_path):
                  "dtype", "ndim", "dim_names"} & columns)
 
 
-def test_the_footer_carries_the_flavour_and_the_paths(batch, tmp_path):
-    import pyarrow.parquet as pq
+def test_the_footer_carries_the_paths(batch, tmp_path):
 
     report = pipeline.analyse(find_object_dirs(batch), batch, ["control"], workers=1, config=settings())
-    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=["control"],
-                         flavor=FLAVOR)
+    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=["control"])
 
     meta = {k.decode(): v.decode() for k, v in pq.read_metadata(out).metadata.items()
             if k.startswith(b"organella_")}
 
-    assert meta["organella_flavour"] == FLAVOR
     assert meta["organella_loader"] == "organella"
     assert '"control"' in meta["organella_paths"]
 
@@ -81,8 +74,6 @@ def test_every_column_says_what_it_means(report_path):
     Descriptions come from column_schema, which gathers them from the measurers that fill
     the columns. A measurer that adds one without describing it leaves that column bare.
     """
-    import pyarrow.parquet as pq
-
     schema = pq.read_schema(report_path)
     bare = [f.name for f in schema if not (f.metadata or {}).get(b"description")]
 
@@ -92,7 +83,7 @@ def test_every_column_says_what_it_means(report_path):
 def test_measurements_are_stored_as_float32(batch, tmp_path):
     """The page loads the whole file; µm measurements do not need 15 digits."""
     report = pipeline.analyse(find_object_dirs(batch), batch, [], workers=1, config=settings())
-    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[], flavor=FLAVOR)
+    out = report_io.write(report, tmp_path / "r.parquet", root=batch, paths=[])
 
     schema = pl.read_parquet(out).schema
 

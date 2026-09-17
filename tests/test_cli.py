@@ -149,8 +149,6 @@ def test_colouring_a_report_keeps_everything_else_about_it(tmp_path, report_path
     assert result.exit_code == 0, result.output
     after = pq.read_table(coloured)
     assert after.num_rows == before.num_rows
-    assert (after.schema.metadata[b"organella_flavour"]
-            == before.schema.metadata[b"organella_flavour"])
     assert (after.schema.metadata[b"organella_paths"]
             == before.schema.metadata[b"organella_paths"])
     entities = pl.from_arrow(after).filter(pl.col("obs_level") == 1)

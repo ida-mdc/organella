@@ -136,7 +136,7 @@ millimetres, the convention every reader of these files uses.
  
 **Entities in a subfolder** named by nothing but the structure - a `segmentations/`, `masks/`
 or `labels/` folder beside the source image. There is no prefix to strip, and label-or-mask
-is read off the content rather than guessed from the name.
+is read off the folder name instead of the file name.
  
 **A remote store, read as a crop.** A folder holding one `source.json` and no images names a
 chunked store (N5 or Zarr, local or on S3), the arrays in it, and the window to read. A 512³

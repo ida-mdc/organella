@@ -68,7 +68,6 @@ def test_pairs_beyond_the_threshold_are_not_recorded():
     row = _measure(_object(mito=(mito, "label")), RunConfig(contact_max_um=0.05))
 
     assert row["contact_count"] == 0
-    # No pair, so no contact row: nothing is written rather than a row saying nothing.
     assert row["contact_gap_um"] == []
 
 
@@ -108,10 +107,6 @@ def test_an_object_with_one_instance_has_no_pairs():
 
 def test_threads_change_how_fast_the_pairs_are_found_and_nothing_else():
     """The one place in a run that walks every instance, so it is the one to thread.
-
-    A local transform per instance, and edt holds the GIL - so the threading is inside each
-    transform rather than across them, and what comes out has to be the same pairs at the
-    same gaps whatever it was found with.
     """
     from organella.analysis.gaps import pairwise_instance_gaps
 

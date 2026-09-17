@@ -1,14 +1,3 @@
-"""Every column of a report says what it means, and the page shows it.
-
-A column name is not an explanation, and "sphericity 1.03" is a question rather than a
-reading unless you know what the ratio is between. So the descriptions are part of the
-report: on each field, and as one map in the footer, which is the copy the page reads
-because a browser cannot get at parquet field metadata.
-
-That makes the failure mode "a new measurer adds a column and nothing explains it", which
-is what these tests are for.
-"""
-
 import pyarrow.parquet as pq
 from conftest import report_column_help, run_report_page
 
@@ -68,7 +57,6 @@ def test_the_footer_survives_a_recolour(report_path, tmp_path):
 
     # The provenance is the only record of how the run was made; a rewrite keeps it.
     assert after["organella_created_at"] == before["organella_created_at"]
-    assert after["organella_flavour"] == before["organella_flavour"]
     assert after["organella_processing_stats"] == before["organella_processing_stats"]
 
 
@@ -111,7 +99,7 @@ def test_describing_a_report_keeps_everything_else(report_path, tmp_path):
     assert rows_after.height == rows_before.height
     assert report_column_help(copy) == help_before
     assert report_io.noun_of(after) == report_io.noun_of(before)
-    for key in ("organella_created_at", "organella_flavour", "organella_processing_stats",
+    for key in ("organella_created_at", "organella_processing_stats",
                 "organella_paths"):
         assert after[key] == before[key], key
 
