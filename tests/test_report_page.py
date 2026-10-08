@@ -393,7 +393,10 @@ def as_histograms(report_path):
 def test_brackets_are_drawn_between_groups(by_group):
     assert by_group["bracketedPanels"] > 0
     for bracket in by_group["brackets"]:
-        assert bracket["stars"] in ("*", "**", "***", "****", "ns")
+        # Stars where they could be earned; the p itself where too few cells make them
+        # impossible, which is what the synthetic batch of two against two is.
+        assert bracket["stars"] in ("*", "**", "***", "****", "ns") \
+            or bracket["stars"].startswith("p "), bracket["stars"]
         assert "Mann-Whitney U" in bracket["detail"]
         assert "control vs treated" in bracket["detail"]
 

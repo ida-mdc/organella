@@ -149,8 +149,16 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-block { border-left: 2px solid var(--rule-2); padding-left: 1.2rem; margin-bottom: 1.6rem; }
 .entity-title { font-family: var(--serif); font-size: 1.28rem; font-weight: 600;
   color: var(--ink); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
-.charts-row { display: flex; flex-wrap: wrap; gap: 18px 22px; overflow-x: auto; }
-.chart-cell { flex-shrink: 0; }
+.charts-row, .pair-panels { display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+/* A chart is a card: its title, its plot and what it is made of stay together, and the next
+   chart's title cannot be mistaken for this one's caption. The width is the grid's: a plot
+   asks for what it needs by saying `wide`, not in pixels. */
+.chart-cell { width: auto !important; min-width: 0; background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 8px; padding: .7rem .8rem .65rem;
+  transition: background .2s, border-color .2s; }
+.chart-cell.wide { grid-column: span 2; }
+.chart-cell .js-plotly-plot, .chart-cell .plot-container { max-width: 100%; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; font-size: .76rem;
   color: var(--ink-2); margin-bottom: .7rem; }
 .chart-note { font-size: .76rem; color: var(--ink-3); line-height: 1.5;
@@ -170,6 +178,11 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .fit-note-item { display: inline-flex; align-items: center; gap: .3rem;
   font-variant-numeric: tabular-nums; }
 .fit-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cc-foot { display: flex; flex-wrap: wrap; gap: .1rem .9rem; font-size: .72rem; color: var(--ink-2);
+  margin-top: .45rem; font-variant-numeric: tabular-nums; }
+.cc-n { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+.cc-n i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cc-key { color: var(--ink-3); width: 100%; }
 .sig-note { font-size: .74rem; line-height: 1.5; color: var(--ink-2); margin-top: .35rem;
   font-variant-numeric: tabular-nums; }
 /* One flowing sentence per comparison. It was a three-column grid, which lined the stars
@@ -183,7 +196,6 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .metric-help { font-size: .73rem; line-height: 1.45; color: var(--ink-3);
   margin-top: .35rem; }
 .metric-help .data-name { font-weight: 600; }
-.pair-panels { display: flex; flex-wrap: wrap; gap: 18px 22px; }
 .callout { background: var(--surface-2); border-left: 2px solid var(--accent);
   padding: .7rem 1rem; font-size: .9rem; color: var(--ink); margin: .2rem 0 1.4rem; }
 .callout-warn { background: var(--warn-bg); border-left-color: var(--warn); color: var(--warn); }
@@ -248,27 +260,18 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
    With geometry loaded the 3D section stops being a section and becomes a second column that
    stays in view while the charts scroll past, so a chart and the thing it measures are on
    screen together. Without geometry nothing here applies. */
-.chart-cell.pinnable { position: relative; isolation: isolate; }
-.pin-3d { display: none; position: absolute; top: 0; right: 0; z-index: 3; font: inherit;
-  font-size: .68rem; line-height: 1.2; padding: .16rem .55rem; color: var(--accent);
+.chart-cell.pinnable { position: relative; }
+.pin-3d { display: none; position: absolute; top: .55rem; right: .6rem; z-index: 3; font: inherit;
+  font-size: .68rem; line-height: 1.2; padding: .16rem .5rem; color: var(--accent);
   background: var(--surface); border: 1px solid var(--rule-2); border-radius: 999px;
   cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
 .pin-3d:hover { border-color: var(--accent); background: #eef4fb; }
 .pin-3d .bi { margin-right: .25rem; }
 .pin-3d .pin-on { display: none; }
 .main.docked .pin-3d { display: inline-block; }
-.main.docked .chart-cell.pinnable { padding-top: 1.55rem; }
-/* The chart the viewer is for: a pale wash behind it, and the filled pill. Nothing that
-   frames or lifts it - it is one of many charts, not a window onto the viewer. */
-.chart-cell.pinned::before { content: ""; position: absolute; inset: -6px -8px; z-index: -1;
-  background: #f3f7fc; border: 1px solid #dbe6f3; border-radius: 8px; }
-.main.docked .charts-row { padding: 8px; margin: -8px; }
-.chart-cell.pinned .pin-3d { background: var(--accent); color: #fff; border-color: var(--accent); }
-.chart-cell.pinned .pin-off { display: none; }
-.chart-cell.pinned .pin-on { display: inline; }
-
-/* The page is as wide as the screen allows once there is a viewer to give the room to: the
-   charts keep what they had, and everything past that is the viewer's. */
+/* The chart the viewer is for: the card itself takes the accent. Nothing frames or lifts
+   it - it is one of many charts, not a window onto the viewer. */
+.chart-cell.pinned { background: #f3f7fc; border-color: #9dbbe0; }
 .main.docked { display: grid; max-width: 2100px;
   grid-template-columns: minmax(0, 1fr) clamp(420px, 42vw, 960px);
   column-gap: 2.2rem; align-items: start; }
@@ -2182,10 +2185,32 @@ function sayWhatIsTested() {
   var hint = document.getElementById('sig-hint');
   if (!hint) return;
   var objects = uniq(OBJECTS.map(function(r){ return r.object_id; })).length;
+  var limit = testLimit();
   hint.textContent = !showSignificance ? ''
     : (plotGroupBy === 'object' && objects > 1
         ? 'one ' + noun() + ' per box: nothing to test'
-        : 'per ' + noun() + ', not per instance');
+        : 'per ' + noun() + ', not per instance'
+          + (limit && limit.floor ? ' \u00b7 lowest possible p ' + limit.pMin.toFixed(3) : ''));
+}
+
+/**
+ * What the groups' sizes allow a test to say, for the comparison between the two smallest.
+ *
+ * A rank test between 4 cells and 3 cannot return a p below 0.057 whatever the data, so every
+ * bracket on the page would read "not significant" however different the groups are. That is
+ * a fact about the batch and not about any chart, and the reader is owed it before they read
+ * a single "ns" as a finding. Null where there are no two groups to compare.
+ */
+function testLimit() {
+  if (plotGroupBy !== 'group') return null;
+  var sizes = {};
+  filteredObjects().forEach(function(o) {
+    if (o.group_id) sizes[o.group_id] = (sizes[o.group_id] || 0) + 1;
+  });
+  var counts = Object.keys(sizes).map(function(g){ return sizes[g]; }).sort(function(a, b){ return a - b; });
+  if (counts.length < 2) return null;
+  var pMin = smallestPossibleP(counts[0], counts[1]);
+  return { n1: counts[0], n2: counts[1], pMin: pMin, floor: pMin > 0.05, groups: counts.length };
 }
 
 function initFilters() {
@@ -2744,11 +2769,72 @@ function baselineScore(distances, k, reach) {
 //
 // Exact where it can be, and that matters here rather than being pedantry: a batch is often
 // three or four objects per condition, and at n=4 against n=4 the normal approximation is
-// out by enough to move a p across 0.05. It is used when both samples are small and no two
-// values tie; with ties, the tie-corrected normal approximation is what is left, which is
-// also what scipy falls back to.
+// out by enough to move a p across 0.05. With no ties the null distribution is tabulated;
+// with ties - one median per cell is often a whole number, or a 0% or a 100% - the same
+// arrangements are enumerated with their midranks, which is exact whatever the ties are.
+// Only samples too large to enumerate fall to the tie-corrected normal approximation.
 
 var EXACT_U_MAX = 20;   // above this the exact table costs more than it is worth
+var PERMUTATION_MAX = 300000;   // arrangements enumerated before the approximation takes over
+
+/**
+ * The exact two-sided p of a rank-sum test with ties, from every arrangement of the pooled
+ * values into two groups of the sizes given. Null where there are too many to walk.
+ */
+function permutationP(a, b) {
+  var n1 = a.length, n2 = b.length, n = n1 + n2;
+  var arrangements = Math.round(Math.exp(logChoose(n, n1)));
+  if (!(arrangements <= PERMUTATION_MAX)) return null;
+  var pooled = a.concat(b);
+  var order = pooled.map(function(_, i){ return i; })
+    .sort(function(x, y){ return pooled[x] - pooled[y]; });
+  var rank = new Array(n), i = 0;
+  while (i < n) {
+    var j = i;
+    while (j + 1 < n && pooled[order[j + 1]] === pooled[order[i]]) j++;
+    for (var k = i; k <= j; k++) rank[order[k]] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  var observed = 0;
+  for (var q = 0; q < n1; q++) observed += rank[q];
+  var centre = n1 * (n + 1) / 2, far = Math.abs(observed - centre) - 1e-9;
+  var count = 0, pick = [];
+  var walk = function(from, left, sum) {
+    if (!left) { if (Math.abs(sum - centre) >= far) count++; return; }
+    for (var at = from; at <= n - left; at++) walk(at + 1, left - 1, sum + rank[at]);
+  };
+  walk(0, n1, 0);
+  return count / arrangements;
+}
+
+/**
+ * The smallest two-sided p a rank test can return for samples of this size, however far
+ * apart they are: every value of one above every value of the other is one arrangement in
+ * C(n, n1), and it counts from both ends. For four cells against three it is 0.057 - so no
+ * comparison of those can be called significant at 0.05, whatever the data say.
+ */
+function smallestPossibleP(n1, n2) {
+  return Math.min(1, 2 / Math.exp(logChoose(n1 + n2, n1)));
+}
+
+/**
+ * How large the difference is, as two numbers a reader can hold: Cliff's delta - the share
+ * of pairs in which the first group is above the second, less the share in which it is
+ * below, from -1 to +1 - and the Hodges-Lehmann shift, the median of every first-minus-second
+ * difference, in the units of the measurement. Null for samples too large to pair up.
+ */
+function effectOf(a, b) {
+  if (a.length * b.length > 250000) return null;
+  var above = 0, below = 0, gaps = [];
+  a.forEach(function(x) {
+    b.forEach(function(y) {
+      if (x > y) above++; else if (x < y) below++;
+      gaps.push(x - y);
+    });
+  });
+  gaps.sort(function(x, y){ return x - y; });
+  return { delta: (above - below) / (a.length * b.length), shift: quantileSorted(gaps, 0.5) };
+}
 
 /** Ranks with ties averaged, and the tie sizes the variance correction needs. */
 function rankedPair(a, b) {
@@ -2831,8 +2917,16 @@ function mannWhitney(a, b) {
       total += counts[k];
       if (k <= u) atOrBelow += counts[k];
     }
-    return { u: u, n1: n1, n2: n2, method: 'exact',
-             p: Math.min(1, 2 * atOrBelow / total) };
+    return withEffect({ u: u, n1: n1, n2: n2, method: 'exact',
+                        p: Math.min(1, 2 * atOrBelow / total) }, a, b);
+  }
+  // Two samples that are one constant value have nothing to rank, whatever walks there are.
+  if (ranked.ties.length === 1) return null;
+  if (ranked.tied) {
+    var walked = permutationP(a, b);
+    if (walked !== null) {
+      return withEffect({ u: u, n1: n1, n2: n2, method: 'permutation', p: walked }, a, b);
+    }
   }
 
   var n = n1 + n2;
@@ -2843,8 +2937,20 @@ function mannWhitney(a, b) {
   // what scipy's asymptotic branch does. Without the correction this reads a few thousandths
   // low, and with ties and a small n it was out by a tenth - enough to matter at 0.05.
   var z = (Math.max(u1, u2) - n1 * n2 / 2 - 0.5) / Math.sqrt(variance);
-  return { u: u, n1: n1, n2: n2, method: 'asymptotic',
-           p: Math.min(1, 2 * (1 - normalCdf(z))) };
+  return withEffect({ u: u, n1: n1, n2: n2, method: 'asymptotic',
+                      p: Math.min(1, 2 * (1 - normalCdf(z))) }, a, b);
+}
+
+/** A test result with the smallest p its sample sizes allow, and how big the difference is. */
+function withEffect(test, a, b) {
+  test.pMin = smallestPossibleP(test.n1, test.n2);
+  // A comparison that cannot come out below 0.05 is not a test of anything at that level,
+  // and says so wherever it is shown.
+  test.floor = test.pMin > 0.05;
+  var effect = effectOf(a, b);
+  test.delta = effect ? effect.delta : null;
+  test.shift = effect ? effect.shift : null;
+  return test;
 }
 
 /** The conventional stars, with "ns" spelled out rather than left blank. */
@@ -2860,7 +2966,10 @@ function significanceStars(p) {
 function formatP(p) {
   if (p == null) return '–';
   if (p < 0.001) return 'p < 0.001';
-  return 'p = ' + p.toFixed(3);
+  // A p of 1 between two handfuls of cells is "nothing to tell apart", not proof they are
+  // the same, so it is not printed to the last digit.
+  if (p > 0.995) return 'p ≈ 1';
+  return 'p = ' + (p < 0.1 ? p.toFixed(3) : p.toFixed(2));
 }
 
 // More rungs than this on one panel and the brackets are taller than the data; past it the
@@ -2927,10 +3036,16 @@ function bracketLayout(layout, comparisons, span) {
     });
     layout.annotations.push({
       xref: 'x', yref: 'y', x: (c.a + c.b) / 2, y: y, yanchor: 'bottom',
-      showarrow: false, text: significanceStars(c.test.p),
+      showarrow: false,
+      // Stars for a comparison that could earn them; the p itself for one that could not,
+      // since "ns" there reads as "no difference" when it is "too few cells to say".
+      text: c.test.floor ? formatP(c.test.p).replace('p = ', 'p ') : significanceStars(c.test.p),
       hovertext: c.aName + ' vs ' + c.bName + ': ' + formatP(c.test.p)
         + ' (Mann-Whitney U = ' + c.test.u + ', n = ' + c.test.n1 + ' vs ' + c.test.n2
-        + (c.perObject ? ' ' + noun(true) + ', each one median' : '') + ')',
+        + (c.perObject ? ' ' + noun(true) + ', each one median' : '') + ')'
+        + (c.test.floor ? '. The lowest p possible with this many is ' + formatP(c.test.pMin)
+            .replace('p = ', '') + '.' : '')
+        + (c.test.delta != null ? ' Cliff\u2019s delta ' + c.test.delta.toFixed(2) + '.' : ''),
       font: { family: CS.sans, size: c.test.p <= 0.05 ? 13 : 9.5, color: CS.ink2 }
     });
   });
@@ -2947,7 +3062,7 @@ function bracketLayout(layout, comparisons, span) {
  * No "Mann-Whitney U, two-sided" heading on each one: with a dozen panels in a block it was
  * repeated a dozen times, and the section says it once already.
  */
-function significanceNote(container, comparisons) {
+function significanceNote(container, comparisons, unit) {
   if (!comparisons.length) return;
   var note = document.createElement('div');
   note.className = 'sig-note';
@@ -2956,10 +3071,17 @@ function significanceNote(container, comparisons) {
     // inline they broke across the stars and the p-value until the three parts read as
     // unrelated fragments. The full names are on the row's title.
     var pair = escHtml(c.aLabel || c.aName) + ' vs ' + escHtml(c.bLabel || c.bName);
-    return '<div class="sig-note-row" title="' + escHtml(c.aName + ' vs ' + c.bName) + '">'
-      + '<span class="sig-note-stars">' + significanceStars(c.test.p) + '</span> ' + pair
-      + ' <span class="sig-note-p">(' + formatP(c.test.p) + ', n = ' + c.test.n1 + ' vs '
-      + c.test.n2 + (c.perObject ? ' ' + noun(true) : '') + ')</span></div>';
+    var t = c.test;
+    var signed = function(v){ return (v > 0 ? '+' : v < 0 ? '\u2212' : '') + fmtValue(Math.abs(v)); };
+    return '<div class="sig-note-row" title="' + escHtml(c.aName + ' vs ' + c.bName
+      + (t.floor ? ' - the lowest p possible with ' + t.n1 + ' vs ' + t.n2 + ' is '
+          + formatP(t.pMin).replace('p = ', '') : '')) + '">'
+      + (t.floor ? '' : '<span class="sig-note-stars">' + significanceStars(t.p) + '</span> ')
+      + pair + ' <span class="sig-note-p">(' + formatP(t.p)
+      + (t.delta != null ? '; first higher in ' + Math.round(100 * (1 + t.delta) / 2)
+          + '% of pairs, shift ' + signed(t.shift) + (unit ? ' ' + escHtml(unit) : '') : '')
+      + '; ' + t.n1 + ' vs ' + t.n2 + (c.perObject ? ' ' + noun(true) : '')
+      + ')</span></div>';
   }).join('');
   container.appendChild(note);
 }
@@ -3262,7 +3384,7 @@ function compositionPanel(container, opt) {
     // One bar needs no y tick - the table above already named it, and the axis then
     // carries a single label wider than the bar it points at.
     var single = bars.length === 1 && rows.length === 1;
-    Plotly.newPlot(plotEl, traces, {
+    drawPlot(plotEl, traces, {
       barmode: 'stack', bargap: single ? 0.15 : 0.3,
       margin: { l: single ? 8 : 150, r: 16, t: 6, b: 40 },
       height: (single ? 62 : 30 * shown.length + 26) + 46,
@@ -3647,7 +3769,8 @@ function renderPolarity() {
     var isMask = kinds[name] === 'mask';
     var el = document.createElement('div');
     el.className = 'chart-cell';
-    el.style.width = '300px';
+    var roseEl = document.createElement('div');
+    el.appendChild(roseEl);
     var traces = [];
     // The spread, as a share of each facet's own population per 15° bin, and the share an
     // isotropic population would have in the same bin. Both scaled by the same number, so
@@ -3718,8 +3841,8 @@ function renderPolarity() {
     });
     if (!traces.length) return;
     angleHost.appendChild(el);
-    Plotly.newPlot(el, traces, {
-      margin: { l: 44, r: 44, t: 30, b: 10 }, height: 230,
+    drawPlot(roseEl, traces, {
+      margin: { l: 44, r: 44, t: 36, b: 10 }, height: 230,
       title: { text: panelTitle(name, 'towards ' + ref) }, showlegend: false,
       polar: {
         sector: [0, 180], barmode: 'overlay',
@@ -3730,7 +3853,7 @@ function renderPolarity() {
       }
     }, { responsive: true, displayModeBar: false });
     // The cone marker of the viewer is drawn on this plot, so it has to be findable.
-    el.dataset.rose = '1';
+    roseEl.dataset.rose = '1';
     explainButton(el, polaritySpec(name, ref, 'angle'));
   });
 
@@ -3816,7 +3939,8 @@ function renderPolarity() {
     var fallback = { name: name, color: entColor(name) };
     var el = document.createElement('div');
     el.className = 'chart-cell';
-    el.style.width = PANEL_WIDTH + 'px';
+    var whereEl = document.createElement('div');
+    el.appendChild(whereEl);
     whereHost.appendChild(el);
     var traces = [];
     facets.split(relative[name], fallback).forEach(function(f) {
@@ -3830,8 +3954,8 @@ function renderPolarity() {
           { xlabel: 'angle', ylabel: 'distance' }));
       }
     });
-    Plotly.newPlot(el, traces, {
-      margin: { l: 54, r: 6, t: 30, b: 44 }, height: PANEL_HEIGHT,
+    drawPlot(whereEl, traces, {
+      margin: { l: 54, r: 6, t: 36, b: 44 }, height: PANEL_HEIGHT,
       title: { text: panelTitle(name, 'distance by angle') }, showlegend: false,
       xaxis: { title: 'angle to ' + ref + ' (°)', range: [0, 180], dtick: 45 },
       yaxis: { title: 'µm from the ' + noun() + ' centre', rangemode: 'tozero' },
@@ -3960,7 +4084,7 @@ function renderPolarity() {
     var plotEl = document.createElement('div');
     el.appendChild(plotEl);
     mapHost.appendChild(el);
-    Plotly.newPlot(plotEl, traces, {
+    drawPlot(plotEl, traces, {
       margin: { l: 52, r: 52, t: 34, b: 26 }, height: 320,
       title: { text: String(id) }, showlegend: false,
       polar: {
@@ -4078,7 +4202,7 @@ function renderPolarity() {
     var plotEl = document.createElement('div');
     el.appendChild(plotEl);
     mapHost.appendChild(el);
-    Plotly.newPlot(plotEl, traces, {
+    drawPlot(plotEl, traces, {
       margin: { l: 52, r: 52, t: 8, b: 26 }, height: 240,
       showlegend: false,
       polar: {
@@ -5306,9 +5430,10 @@ function explainButton(cell, spec) {
   button.type = 'button';
   button.className = 'pin-3d';
   // The icon comes from a font that needs the network; the words do not.
-  button.innerHTML = '<span class="pin-off"><i class="bi bi-badge-3d"></i>Show in 3D</span>'
-    + '<span class="pin-on"><i class="bi bi-badge-3d-fill"></i>Showing in 3D</span>';
-  button.title = 'Draw what this chart is about in the viewer';
+  button.innerHTML = '<span class="pin-off"><i class="bi bi-badge-3d"></i>3D</span>'
+    + '<span class="pin-on"><i class="bi bi-badge-3d-fill"></i>In 3D</span>';
+  button.title = 'Explain this chart in 3D: draw what it measures on a cell in the viewer';
+  button.setAttribute('aria-label', button.title);
   button.dataset.explain = explainKey(spec);
   button.addEventListener('click', function(){ pinToViewer(spec, pinIndexOf(button)); });
   cell.classList.add('pinnable');
@@ -5425,7 +5550,7 @@ function syncRoseMarkers() {
     if (!plot.data || !window.Plotly) return;
     var at = plot.data.findIndex(function(t){ return t.name === '__wedge'; });
     var live = spec && spec.kind === 'polarity' && spec.aspect === 'angle'
-      && plot.classList.contains('pinned') && sceneState.wedge !== null;
+      && plot.parentNode.classList.contains('pinned') && sceneState.wedge !== null;
     if (!live) {
       if (at >= 0) Plotly.deleteTraces(plot, at);
       return;
@@ -7166,6 +7291,22 @@ function renderGallery(container, entity, rowType, opts) {
 // the structure: a box is unbeatable for "are these bigger than those", and a curve is the
 // only one that still works when a facet holds two instances or ten thousand.
 
+/**
+ * Every chart through one door, so they read as one report: titles on the left over the plot
+ * rather than floating in the middle, one type size, one ink. What each chart *says* stays
+ * with the chart; only how it is dressed is decided here.
+ */
+function drawPlot(el, traces, layout, config) {
+  layout = layout || {};
+  if (layout.title && layout.title.text) {
+    layout.title = Object.assign({ x: 0, xref: 'container', xanchor: 'left', y: 0.98,
+      yref: 'container', yanchor: 'top', font: { size: 14, color: CS.ink } }, layout.title);
+  }
+  layout.font = Object.assign({ size: 11, color: CS.ink2 }, layout.font);
+  layout.paper_bgcolor = layout.paper_bgcolor || 'rgba(0,0,0,0)';
+  return Plotly.newPlot(el, traces, layout, config);
+}
+
 var PANEL_WIDTH = 262;
 var PANEL_HEIGHT = 236;
 
@@ -7280,7 +7421,7 @@ function distributionPanel(host, opts) {
 
   var comparisons = opts.noSignificance ? [] : pairwiseSignificance(series);
   var bars = isSingleValued(series);
-  var bracketed = false;
+  var bracketed = false, dotsDrawn = false;
   var traces, layout;
   // Which style actually got drawn, not which was asked for: a histogram of one value per
   // facet falls back to boxes, and the chance line goes on a different axis for each.
@@ -7364,6 +7505,21 @@ function distributionPanel(host, opts) {
         marker:{ color:f.color }, line:{ color:f.color }, showlegend:false,
         hovertemplate:'%{y:.3g}<extra>' + f.name + '</extra>' };
     });
+    // The cells themselves, over the boxes of their instances. The box says where thousands
+    // of instances lie; the test compares one number per cell, and without those numbers on
+    // the picture a reader judges a difference by the wrong thing. On an axis of their own
+    // so they can be spread a little round the box rather than stacked on its centre line.
+    series.forEach(function(f, at) {
+      if (!f.units || f.units.length >= f.values.length) return;
+      dotsDrawn = true;
+      traces.push({ type:'scatter', mode:'markers', xaxis:'x2', showlegend:false,
+        x: f.units.map(function(_, k) {
+          return at + (f.units.length > 1 ? (k / (f.units.length - 1) - 0.5) * 0.4 : 0);
+        }),
+        y: f.units, text: f.unitIds || f.units.map(function(_, k){ return 'cell ' + (k + 1); }),
+        marker:{ symbol:'diamond', size:9, color:f.color, line:{ color:CS.ink, width:1.2 } },
+        hovertemplate:'%{text}: %{y:.3g}<extra>median of one ' + noun() + '</extra>' });
+    });
     var span = beyond.length
       ? { min: Math.min.apply(null, [dataSpan.min].concat(beyond)),
           max: Math.max.apply(null, [dataSpan.max].concat(beyond)) }
@@ -7374,6 +7530,10 @@ function distributionPanel(host, opts) {
       yaxis:{ title: opts.unit || null,
               range: flatRange(span, opts) || heldRange()
                 || (opts.range ? opts.range.slice() : undefined) } };
+    if (dotsDrawn) {
+      layout.xaxis2 = { overlaying:'x', range:[-0.5, series.length - 0.5], visible:false,
+                        fixedrange:true };
+    }
     // Brackets belong on boxes, where there is a top to hang them above, and only while
     // they fit. A bracket sets the range itself, to make room for the rungs, so a panel
     // given an explicit range keeps it and says the comparison in text instead.
@@ -7408,7 +7568,10 @@ function distributionPanel(host, opts) {
                          y0:opts.reference, y1:opts.reference,
                          line:{ color:CS.ink3, width:1, dash:'dot' } });
   }
-  Plotly.newPlot(plotEl, traces, layout, {responsive:true, displayModeBar:false});
+  drawPlot(plotEl, traces, layout, {responsive:true, displayModeBar:false});
+  // How many of what each box is made of, on the chart and not in a section's prose: a
+  // reader looking at one panel should not have to scroll to learn what it is a picture of.
+  el.appendChild(sizeLine(series, opts.noun, dotsDrawn));
   if (opts.footnote) {
     var footnote = document.createElement('div');
     footnote.className = 'chart-note';
@@ -7426,8 +7589,29 @@ function distributionPanel(host, opts) {
   // Where a bracket could not be drawn - a histogram's facets share one x axis, so there
   // are no positions to hang one between, and bars of one value each have nothing to test -
   // the same comparison goes underneath as text instead of being dropped.
-  if (!bracketed) significanceNote(el, comparisons);
+  if (!bracketed) significanceNote(el, comparisons, opts.unit);
   return el;
+}
+
+/**
+ * "● high  40,125 granules · 4 cells" under a chart: the size of each group, in the thing the
+ * box is made of and in the cells those come from, and - where cells are drawn over the boxes -
+ * what the diamond is. Said once per chart so it travels with a screenshot.
+ */
+function sizeLine(series, word, dotsDrawn) {
+  var line = document.createElement('div');
+  line.className = 'cc-foot';
+  var of = word ? pluralise(word) : 'values';
+  var parts = series.map(function(f) {
+    var cells = f.units && f.units.length < f.values.length
+      ? ' \u00b7 ' + f.units.length + ' ' + noun(f.units.length !== 1) : '';
+    return '<span class="cc-n"><i style="background:' + f.color + '"></i>' + escHtml(f.label)
+      + ' <b>' + f.values.length.toLocaleString() + '</b> ' + escHtml(of) + cells + '</span>';
+  });
+  line.innerHTML = parts.join('')
+    + (dotsDrawn ? '<span class="cc-key">\u25c6 one ' + escHtml(noun())
+        + '\u2019s median: what the comparison uses</span>' : '');
+  return line;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -7583,7 +7767,7 @@ function pairPanels(host, opts) {
       panel.innerHTML = '<div class="text-muted small">Not measured for this pair.</div>';
       return;
     }
-    Plotly.newPlot(plotEl, traces, {
+    drawPlot(plotEl, traces, {
       margin:{l:56, r:12, t:34, b:48}, height:300,
       title:{ text: dimLabel(pair[0]) + ' + ' + dimLabel(pair[1]) },
       xaxis:{ title:'within (µm) of both', rangemode:'tozero', range:xRange },
@@ -7672,6 +7856,7 @@ function facetsOf(rows, opts) {
           (byObject[id] = byObject[id] || []).push(value);
         });
         return { name: f.name, label: f.label, color: f.color, values: values,
+                 unitIds: Object.keys(byObject),
                  units: Object.keys(byObject).map(function(id) {
                    return quantileSorted(
                      byObject[id].slice().sort(function(a, b){ return a - b; }), 0.5);
@@ -7958,7 +8143,9 @@ function renderEntityStats() {
       var drewChance = false;
       hTargets.forEach(function(target) {
         var el = document.createElement('div');
-        el.className = 'chart-cell'; el.style.width = '320px';
+        el.className = 'chart-cell';
+        var histEl = document.createElement('div');
+        el.appendChild(histEl);
         dhEl.appendChild(el);
         // Shared grid across all facets so the density curves line up (no bar-width gaps),
         // and wide enough to hold the chance distribution too: the two are only comparable
@@ -8006,8 +8193,8 @@ function renderEntityStats() {
           el.remove();
           return;
         }
-        Plotly.newPlot(el, traces, {
-          margin:{l:54,r:6,t:30,b:50}, height:270,
+        drawPlot(histEl, traces, {
+          margin:{l:54,r:6,t:36,b:50}, height:270,
           title:{text:ent + ' body to ' + target + ', every voxel'},
           xaxis:{title:'distance to ' + target + ' (µm)', rangemode:'tozero'},
           yaxis:{title:'voxel density', rangemode:'tozero'},
@@ -8136,7 +8323,7 @@ function renderCorrelation(host, rows, ent, color, opts) {
   // Wide, because this one carries two selectors, a chart and a fit note per facet: at the
   // panel width the rest of the page uses, the selectors stacked and the note ran into them.
   var wrap = document.createElement('div');
-  wrap.className = 'chart-cell'; wrap.style.width = '620px';
+  wrap.className = 'chart-cell wide';
   host.appendChild(wrap);
 
   var ctrl = document.createElement('div');
@@ -8220,7 +8407,7 @@ function renderCorrelation(host, rows, ent, color, opts) {
           }).join('')
       : '';
     if (!traces.length) { Plotly.purge(plotEl); return; }
-    Plotly.newPlot(plotEl, traces, {
+    drawPlot(plotEl, traces, {
       margin:{l:62, r:12, t:32, b:52}, height:360,
       title:{text:lblY + ' vs ' + lblX + subtitle},
       xaxis:{title:lblX}, yaxis:{title:lblY},
@@ -8835,7 +9022,8 @@ if (typeof globalThis !== 'undefined') {
     contactMaxGap: contactMaxGap,
     ecdfCurve: ecdfCurve, binnedTrend: binnedTrend, pearsonR: pearsonR, fitLine: fitLine,
     mannWhitney: mannWhitney, significanceStars: significanceStars,
-    exactUCounts: exactUCounts, normalCdf: normalCdf,
+    exactUCounts: exactUCounts, normalCdf: normalCdf, smallestPossibleP: smallestPossibleP,
+    effectOf: effectOf, testLimit: testLimit,
     logChoose: logChoose, baselineScore: baselineScore, histogramOf: histogramOf,
     histSpan: histSpan, aggregateHistograms: aggregateHistograms,
     quantileSorted: quantileSorted, finitePairs: finitePairs,

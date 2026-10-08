@@ -26,9 +26,33 @@ CASES = [SEPARATED, INTERLEAVED, SMALLEST, TIED, ROUNDED, BIG, LOPSIDED,
          ([random.gauss(0, 1) for _ in range(30)], [random.gauss(0.4, 1) for _ in range(28)])]
 
 
+def every_arrangement_p(a, b):
+    """The exact two-sided p of the rank-sum statistic, tied or not, by walking every split."""
+    from itertools import combinations
+
+    from scipy.stats import rankdata
+    pooled = list(a) + list(b)
+    ranks = rankdata(pooled)
+    n, k = len(pooled), len(a)
+    centre = k * (n + 1) / 2
+    far = abs(sum(ranks[:k]) - centre) - 1e-9
+    hits = total = 0
+    for chosen in combinations(range(n), k):
+        total += 1
+        hits += abs(sum(ranks[i] for i in chosen) - centre) >= far
+    return hits / total
+
+
 def test_the_p_value_is_the_one_scipy_computes():
-    """Every case, at whichever branch the page picked, to scipy's own precision."""
+    """Every case, at whichever branch the page picked, to scipy's own precision.
+
+    A small tied sample is an exact permutation test, which scipy has no `method` for, so it
+    is checked against every split of the pooled values instead.
+    """
     for (a, b), mine in zip(CASES, page_tests(CASES)):
+        if mine["method"] == "permutation":
+            assert mine["p"] == pytest.approx(every_arrangement_p(a, b), abs=1e-9), (a, b)
+            continue
         reference = mannwhitneyu(a, b, alternative="two-sided", method=mine["method"])
         assert mine["p"] == pytest.approx(float(reference.pvalue), abs=1e-6), (a, b)
 
@@ -47,14 +71,39 @@ def test_a_small_untied_sample_is_tested_exactly():
                                                method="exact").pvalue)
 
 
-def test_ties_fall_back_to_the_corrected_approximation():
-    """An exact p is not defined with ties, so the tie-corrected normal one is what is left."""
+def test_ties_are_walked_exactly_while_that_is_possible_and_approximated_after():
+    """A tied small sample has an exact p, found by enumerating every split with midranks.
+
+    The tie-corrected normal approximation is what is left only when there are too many
+    splits to walk - and for four cells against three it can say 0.050 where the truth is
+    0.057, which is the difference between a star and none.
+    """
     tied = page_tests([TIED, ROUNDED])
-    assert [t["method"] for t in tied] == ["asymptotic", "asymptotic"]
-    for (a, b), mine in zip([TIED, ROUNDED], tied):
-        assert mine["p"] == pytest.approx(
-            float(mannwhitneyu(a, b, alternative="two-sided", method="asymptotic").pvalue),
-            abs=1e-6)
+    assert [t["method"] for t in tied] == ["permutation", "asymptotic"]
+    assert tied[0]["p"] == pytest.approx(every_arrangement_p(*TIED), abs=1e-9)
+    assert tied[1]["p"] == pytest.approx(
+        float(mannwhitneyu(*ROUNDED, alternative="two-sided", method="asymptotic").pvalue),
+        abs=1e-6)
+
+
+def test_four_cells_against_three_cannot_reach_significance():
+    """Whatever the data, the smallest two-sided p is 2/C(7,3) = 0.057."""
+    best = page_tests([([1, 2, 3, 4], [5, 6, 7]), ([1.5, 2.5, 3.5, 4.5], [0.1, 0.2, 0.3])])
+    for test in best:
+        assert test["p"] == pytest.approx(2 / 35)
+        assert test["pMin"] == pytest.approx(2 / 35)
+        assert test["floor"] is True
+    # With more cells a star is possible, and the page does not pretend otherwise.
+    roomy = page_tests([([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])])[0]
+    assert roomy["floor"] is False and roomy["p"] < 0.05
+
+
+def test_the_effect_is_how_often_one_group_is_above_the_other_and_by_how_much():
+    test = page_tests([([5, 6, 7, 8], [1, 2, 3])])[0]
+    assert test["delta"] == pytest.approx(1.0)          # every pair has the first above
+    assert test["shift"] == pytest.approx(4.5)          # median of the twelve differences
+    reversed_ = page_tests([([1, 2, 3], [5, 6, 7, 8])])[0]
+    assert reversed_["delta"] == pytest.approx(-1.0)
 
 
 def test_two_samples_of_one_constant_value_cannot_be_told_apart():
