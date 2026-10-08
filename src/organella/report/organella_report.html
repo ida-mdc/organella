@@ -405,6 +405,46 @@ details.per-object > .per-object-body { padding-top: .5rem; }
 .lineage a { color: var(--accent); text-decoration: none; }
 .lineage a:hover { text-decoration: underline; }
 
+/* ── The viewer's status line: what it is showing, and why ─────────────── */
+.main.docked > #s-3d .section-title { font-size: 0; margin: 0; line-height: 1; }
+.main.docked > #s-3d .section-title::before { font-size: .68rem; margin-bottom: .45rem; }
+.dock-status { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .6rem;
+  font-size: .82rem; color: var(--ink-2); margin: 0 0 .6rem; line-height: 1.35; }
+.dock-status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-2);
+  flex-shrink: 0; }
+.dock-status .dot.follow { background: #1baf7a; box-shadow: 0 0 0 3px rgba(27, 175, 122, .2); }
+.dock-status .dot.pinned { background: var(--accent); box-shadow: 0 0 0 3px rgba(28, 92, 171, .2); }
+.dock-status b { color: var(--ink); font-weight: 600; }
+.dock-status .grow { flex: 1 1 auto; }
+.dock-status .hint { flex: 0 0 100%; color: var(--ink-3); font-size: .76rem; padding-left: 1.1rem; }
+.dock-status button { font: inherit; font-size: .72rem; padding: .08rem .6rem; color: var(--ink-2);
+  background: var(--paper); border: 1px solid var(--rule-2); border-radius: 999px; cursor: pointer; }
+.dock-status button:hover { border-color: var(--ink-3); color: var(--ink); }
+.dock-status button.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+.diff-title { font-family: var(--serif); font-size: 1.15rem; font-weight: 600; color: var(--ink);
+  margin: 1.6rem 0 .2rem; }
+.diff-blocks { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.diff-block { border: 1px solid var(--rule); border-radius: 8px; padding: .8rem 1rem .9rem;
+  background: var(--paper); }
+.diff-block h4 { font-family: var(--sans); font-size: .68rem; letter-spacing: .14em; margin: 0 0 .55rem;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.diff-axis { display: grid; grid-template-columns: minmax(7.5rem, 1fr) 10rem 6.5rem; gap: .6rem;
+  font-size: .68rem; color: var(--ink-3); margin-bottom: .2rem; }
+.diff-axis .sides { display: flex; justify-content: space-between; }
+.diff-row { display: grid; grid-template-columns: minmax(7.5rem, 1fr) 10rem 6.5rem; gap: .6rem;
+  align-items: center; font-size: .78rem; padding: .18rem 0; border-top: 1px solid var(--rule); }
+.diff-row:first-of-type { border-top: 0; }
+.diff-label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-bar { position: relative; height: 10px; background: var(--surface-2); border-radius: 5px; }
+.diff-bar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px;
+  background: var(--rule-2); }
+.diff-bar span { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.diff-num { font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right;
+  white-space: nowrap; font-size: .74rem; }
+.diff-more { margin-top: .4rem; }
+.diff-note { font-size: .76rem; color: var(--ink-3); max-width: 80ch; margin: .6rem 0 0; }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -570,6 +610,7 @@ organella process experiment/ \
     <div id="glance-groups" class="glance-groups"></div>
     <div id="overview-warnings"></div>
     <div id="glance-stats"></div>
+    <div id="glance-diff"></div>
     <div class="glance-grid">
       <div class="glance-card">
         <h3>How to read this report</h3>
@@ -599,6 +640,7 @@ organella process experiment/ \
       or by contact group to see which instances chain together at a given gap.
       Explode pushes every instance out along its own direction from the
       <span data-noun></span> centre.</p>
+    <div id="dock-status" class="dock-status"></div>
     <div id="dock-tabs" class="dock-tabs" role="tablist"></div>
     <div id="dock-scene">
       <div id="scene-controls" class="ctrl-bar"></div>
@@ -2647,7 +2689,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('scroll', function() {
     if (_markQueued) return;
     _markQueued = true;
-    requestAnimationFrame(function(){ _markQueued = false; markSection(); });
+    requestAnimationFrame(function(){ _markQueued = false; markSection(); followCheck(); });
   }, { passive: true });
 }
 
@@ -2669,6 +2711,75 @@ function clampDescription(el) {
     more.style.margin = folded ? '' : '.2rem 0 1.6rem';
   });
   el.parentNode.insertBefore(more, el.nextSibling);
+}
+
+
+/**
+ * Where the groups differ most, one structure at a time: for every measurement, how far apart
+ * the two groups' cells are (Cliff's delta over one median per cell, from -1 to +1) as a bar
+ * from the middle, largest first. It answers "where should I look" before the reader has gone
+ * through two hundred charts - and says how many comparisons that is, because a handful picked
+ * out of dozens is not what it looks like on its own. Two groups only: with more there is no
+ * single direction for a bar to point.
+ */
+function renderDifferences() {
+  var host = document.getElementById('glance-diff');
+  if (!host) return;
+  host.innerHTML = '';
+  if (plotGroupBy !== 'group') return;
+  var rows = filteredInstances();
+  var facets = facetsOf(rows);
+  if (facets.values.length !== 2) return;
+  var A = String(facets.values[0]), B = String(facets.values[1]);
+  var blocks = [], total = 0;
+  uniq(rows.map(function(r){ return r.entity_name; })).forEach(function(ent) {
+    var mine = rows.filter(function(r){ return r.entity_name === ent; });
+    var items = [];
+    nonDistMetricCols(mine).concat(distCols(mine)).forEach(function(col) {
+      var series = facets.valuesOf(mine, col, { name: ent, color: entColor(ent) });
+      var a = series.filter(function(f){ return f.name === A; })[0];
+      var b = series.filter(function(f){ return f.name === B; })[0];
+      if (!a || !b) return;
+      var test = mannWhitney(a.units, b.units);
+      if (!test || test.delta == null) return;
+      items.push({ col: col, test: test });
+    });
+    if (items.length) {
+      items.sort(function(x, y){ return Math.abs(y.test.delta) - Math.abs(x.test.delta); });
+      blocks.push({ ent: ent, items: items });
+      total += items.length;
+    }
+  });
+  if (!blocks.length) return;
+
+  var signed = function(v){ return (v > 0 ? '+' : v < 0 ? '−' : '') + fmtValue(Math.abs(v)); };
+  var rowHtml = function(item) {
+    var t = item.test, side = t.delta >= 0 ? A : B;
+    var unit = axisColUnit(item.col);
+    var width = Math.min(50, Math.abs(t.delta) * 50);
+    var bar = t.delta >= 0 ? 'left:50%;width:' + width + '%' : 'right:50%;width:' + width + '%';
+    return '<div class="diff-row" title="' + escHtml(labelFor(item.col) + ': ' + A + ' vs ' + B + ', '
+        + formatP(t.p) + ', ' + t.n1 + ' vs ' + t.n2 + ' ' + noun(true)) + '">'
+      + '<span class="diff-label">' + escHtml(axisColLabel(item.col)) + '</span>'
+      + '<span class="diff-bar"><span style="' + bar + ';background:' + groupColor(side) + '"></span></span>'
+      + '<span class="diff-num">' + (t.delta >= 0 ? '+' : '−') + Math.abs(t.delta).toFixed(2)
+      + ' · ' + escHtml(formatP(t.p).replace('p = ', 'p ')) + '</span></div>';
+  };
+  var head = '<div class="diff-axis"><span></span><span class="sides"><span>← ' + escHtml(B)
+    + ' higher</span><span>' + escHtml(A) + ' higher →</span></span><span></span></div>';
+  host.innerHTML = '<div class="diff-title">Where do ' + escHtml(A) + ' and ' + escHtml(B) + ' differ most?</div>'
+    + '<div class="diff-blocks">' + blocks.map(function(block) {
+        var first = block.items.slice(0, 6).map(rowHtml).join('');
+        var rest = block.items.slice(6).map(rowHtml).join('');
+        return '<div class="diff-block"><h4>' + dataName(block.ent) + '</h4>' + head + first
+          + (rest ? '<details class="per-object diff-more"><summary>Show the other '
+              + (block.items.length - 6) + '</summary>' + rest + '</details>' : '') + '</div>';
+      }).join('') + '</div>'
+    + '<p class="diff-note"><b>' + total + ' comparisons</b>, each between ' + escHtml(A) + ' and '
+    + escHtml(B) + ' on one median per ' + escHtml(noun()) + ', uncorrected for there being so many: a'
+    + ' map of where to look, not a list of findings. The bar is Cliff’s delta - the share of'
+    + ' (' + escHtml(A) + ', ' + escHtml(B) + ') pairs in which ' + escHtml(A) + ' is higher, less the'
+    + ' share in which it is lower.</p>';
 }
 
 /**
@@ -2703,6 +2814,7 @@ function renderGlance() {
       + ' two-sided), and every chart is exploratory: comparisons are uncorrected for how many are'
       + ' shown.</p>' : ''));
 
+  renderDifferences();
   var geometry = hasGeometry();
   setHtml('glance-guide',
     '<li><b>Every heading is a question,</b> and the charts under it are its answer, one structure at'
@@ -5562,7 +5674,8 @@ var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: n
                    explode: 0, gap: null, maxGap: null,
                    // The chart the viewer is explaining, if any (see pinToViewer), and the
                    // two things a reader can slide to see how the 3D feeds that chart.
-                   explain: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0 };
+                   explain: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0,
+                   follow: true, followLabel: null };
 
 // ══════════════════════════════════════════════════════════════
 //  Explaining a chart in the viewer
@@ -5713,6 +5826,8 @@ function pinToViewer(spec, index) {
     sceneState.maxGap = null;
   }
   markPinned();
+  // Let go of a chart and the viewer goes back to following the page.
+  if (!sceneState.explain) { _followKey = null; setTimeout(followCheck, 0); }
   renderScene();
 }
 
@@ -5888,6 +6003,124 @@ function polaritySpec(structure, ref, aspect, objectId, radius) {
   return { kind: 'polarity', structure: structure, ref: ref, aspect: aspect,
            objectId: objectId || null, radius: radius || 'centre',
            title: structure + ' towards ' + ref, text: common + tail[aspect] };
+}
+
+
+// ── the viewer follows the page, and says what it is doing ──────────────────
+
+var _followKey = null, _followTimer = null;
+
+/** What the reader is looking at, as far as the viewer is concerned: a structure's charts. */
+function pageContext() {
+  if (!document.querySelectorAll) return null;
+  var top = (document.getElementById('topbar') || { offsetHeight: 0 }).offsetHeight;
+  var line = top + (window.innerHeight - top) * 0.4;
+  var found = null;
+  document.querySelectorAll('.entity-block[data-entity]').forEach(function(block) {
+    var box = block.getBoundingClientRect();
+    if (box.top <= line && box.bottom > line) found = { entity: block.dataset.entity, mode: 'structure' };
+  });
+  var groups = document.getElementById('s-groups');
+  if (!found && groups && !groups.classList.contains('d-none')) {
+    var box = groups.getBoundingClientRect();
+    var pick = document.getElementById('ct-pair');
+    if (box.top <= line && box.bottom > line && pick && pick.value) {
+      found = { entity: pick.value, mode: 'group' };
+    }
+  }
+  return found;
+}
+
+/** Look at the context, and after the reader has stayed a moment, show it in the viewer. */
+function followCheck() {
+  if (!hasGeometry() || sceneState.explain || !sceneState.follow || dockState.tab !== 'scene') return;
+  var context = pageContext();
+  var key = context ? context.mode + '|' + context.entity : '';
+  if (key === _followKey) return;
+  _followKey = key;
+  clearTimeout(_followTimer);
+  // Only once they have stayed: scrolling past seven structures is not asking to see them.
+  _followTimer = setTimeout(function(){ applyFollow(context); }, 800);
+}
+
+function applyFollow(context) {
+  if (sceneState.explain || !sceneState.follow || dockState.tab !== 'scene') return;
+  if (!context) {
+    sceneState.entities = null;
+    sceneState.colourBy = 'entity';
+    sceneState.followLabel = null;
+  } else {
+    var spec = { kind: context.mode === 'group' ? 'group' : 'structure', entity: context.entity };
+    sceneState.entities = new Set(explainEntities(spec));
+    sceneState.colourBy = context.mode === 'group' ? 'group' : 'entity';
+    sceneState.followLabel = context.mode === 'group'
+      ? 'the contact groups of ' + context.entity : context.entity;
+    // A cell that has the structure, like a pinned chart.
+    var has = GEOMETRY.filter(function(o){ return objectHasStructure(o.id, context.entity); });
+    var keep = has.find(function(o){ return String(o.id) === String(sceneState.objectId); }) || has[0];
+    if (keep) sceneState.objectId = keep.id;
+    sceneState.maxGap = null;
+  }
+  renderScene();
+}
+
+/** Stop following (the reader chose something themselves), or start again. */
+function setFollow(on) {
+  sceneState.follow = on;
+  _followKey = null;
+  if (on) followCheck();
+  renderDockStatus();
+}
+
+/** The line above the viewer: what it shows, why, and the way to change that. */
+function renderDockStatus() {
+  var host = document.getElementById('dock-status');
+  if (!host || !host.replaceChildren) return;
+  host.replaceChildren();
+  var add = function(tag, className, html) {
+    var el = document.createElement(tag);
+    if (className) el.className = className;
+    if (html !== undefined) el.innerHTML = html;
+    host.appendChild(el);
+    return el;
+  };
+  var button = function(text, primary, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = primary ? 'primary' : '';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    host.appendChild(b);
+  };
+  var spec = sceneState.explain;
+  if (spec) {
+    add('span', 'dot pinned');
+    add('span', '', '<b>Explaining</b> ' + escHtml(spec.title));
+    add('span', 'grow');
+    button('Go to the chart', false, function() {
+      var cell = document.querySelector('.chart-cell.pinned');
+      if (cell) cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    button('Release', true, function() {
+      pinToViewer(spec);
+      _followKey = null;
+      followCheck();
+    });
+    add('span', 'hint', 'Drawn on ' + escHtml(String(sceneState.objectId))
+      + ' alone; the chart itself pools every ' + escHtml(noun()) + '.');
+  } else if (sceneState.follow) {
+    add('span', 'dot follow');
+    add('span', '', '<b>Following the page</b> · ' + escHtml(sceneState.followLabel
+      ? sceneState.followLabel : 'the whole ' + noun()));
+    add('span', 'grow');
+    button('Pause', false, function(){ setFollow(false); });
+    add('span', 'hint', 'Press <b>3D</b> on any chart to see what it measures on a ' + escHtml(noun()) + '.');
+  } else {
+    add('span', 'dot');
+    add('span', '', '<b>Free view</b>');
+    add('span', 'grow');
+    button('Follow the page', true, function(){ setFollow(true); });
+  }
 }
 
 // ── polarity, on the meshes ─────────────────────────────────────────────────
@@ -6347,6 +6580,7 @@ async function renderScene() {
   var topbarEl = document.getElementById('topbar');
   mainEl.style.setProperty('--topbar-h', (topbarEl ? topbarEl.offsetHeight : 0) + 'px');
   var explain = sceneState.explain;
+  renderDockStatus();
   var dockEl = document.getElementById('s-3d');
   if (dockEl) dockEl.classList.toggle('explaining', !!explain);
   syncDock();
@@ -6844,25 +7078,9 @@ async function renderScene() {
   function buildExplain(summary) {
     explainEl.replaceChildren();
     readoutEl = null;
-    if (!explain) {
-      var empty = document.createElement('p');
-      empty.className = 'explain-empty';
-      empty.innerHTML = 'Press <b>Show in 3D</b> on a chart to see here what it is about, on'
-        + ' one ' + noun() + '.';
-      explainEl.appendChild(empty);
-      return;
-    }
-    var head = document.createElement('div');
-    head.className = 'explain-head';
-    var title = document.createElement('span');
-    title.className = 'explain-title';
-    title.textContent = explain.title;
-    var release = document.createElement('button');
-    release.type = 'button';
-    release.className = 'explain-release';
-    release.textContent = 'Back to the whole ' + noun();
-    release.addEventListener('click', function(){ pinToViewer(explain); });
-    head.append(title, release);
+    // Nothing pinned: the status line above the viewer says what it is showing, and a box here
+    // saying the same again was the first thing a reader met and the least useful.
+    if (!explain) return;
     var body = document.createElement('p');
     body.className = 'explain-body';
     body.innerHTML = explain.text;
@@ -6873,7 +7091,6 @@ async function renderScene() {
       ? '; the chart pools ' + pooled + ' ' + noun(true) + '.' : '.');
     // What to touch and what it says come first, under the picture; the words explaining the
     // picture follow, since they are read once and the slider is used again and again.
-    explainEl.append(head);
 
     if (explain.kind === 'polarity') {
       // The map holds every structure and a chart of one holds only that one, so the
@@ -6992,8 +7209,11 @@ async function renderScene() {
         sceneState.maxGap = summary.widestGap;
         sceneState.gap = summary.widestGap === null ? null : summary.widestGap * 0.25;
       }
-      // A chart of contact groups has a gap of its own; the viewer takes it from there.
-      if (explain && explain.kind === 'group' && contactGapUm() !== null) {
+      // A chart of contact groups has a gap of its own; the viewer takes it from there - and
+      // so does a viewer following the contact-group section, which is looking at the same.
+      if (((explain && explain.kind === 'group')
+           || (!explain && sceneState.follow && sceneState.colourBy === 'group'))
+          && contactGapUm() !== null) {
         sceneState.gap = contactGapUm();
       }
       var read = await readGeometry(summary);
@@ -7053,6 +7273,9 @@ async function renderScene() {
     if (summary.widestGap !== null) colourings.push('group');
     controls.appendChild(selector('Colour by', colourings, sceneState.colourBy, function(value) {
       sceneState.colourBy = value;
+      // The reader has chosen how to look: the page stops choosing for them.
+      sceneState.follow = false;
+      renderDockStatus();
       buildControls(summary);
       if (value === 'group') draw(false);
       else paint();
@@ -7061,6 +7284,8 @@ async function renderScene() {
     if (sceneState.colourBy === 'metric') {
       controls.appendChild(selector('Metric', metrics, sceneState.metric, function(value) {
         sceneState.metric = value;
+        sceneState.follow = false;
+        renderDockStatus();
         draw(false);
       }, new Map(metrics.map(function(m){ return [m, labelFor(m)]; }))));
     }
@@ -7104,6 +7329,8 @@ async function renderScene() {
       box.addEventListener('change', function() {
         if (box.checked) sceneState.entities.add(entity.name);
         else sceneState.entities.delete(entity.name);
+        sceneState.follow = false;
+        renderDockStatus();
         draw(false);
       });
       var swatch = document.createElement('span');
@@ -7297,6 +7524,8 @@ function syncDock() {
   var browsing = hasGeometry() && dockState.tab === 'gallery';
   scene.classList.toggle('d-none', browsing);
   gallery.classList.toggle('d-none', !browsing);
+  var status = document.getElementById('dock-status');
+  if (status) status.classList.toggle('d-none', browsing);
   tabs.replaceChildren();
   [['scene', Noun()], ['gallery', 'Instances']].forEach(function(entry) {
     var button = document.createElement('button');
@@ -8155,6 +8384,7 @@ function renderEntityStats() {
     var fallback = { name: ent, color: color };
     var block = document.createElement('div');
     block.className = 'entity-block';
+    block.dataset.entity = ent;
     block.style.borderLeftColor = color;
     block.innerHTML = '<div class="entity-title"><span>' + named + '</span>'
         + '<span class="cs-chip cs-chip-label">label</span></div>'
@@ -8466,6 +8696,7 @@ function renderEntityStats() {
     var maskFacets = facetsOf(mRows);
     var block = document.createElement('div');
     block.className = 'entity-block';
+    block.dataset.entity = ent;
     block.style.borderLeftColor = color;
     block.innerHTML = '<div class="entity-title"><span>' + named + '</span>'
         + '<span class="cs-chip cs-chip-mask">mask</span></div>'
