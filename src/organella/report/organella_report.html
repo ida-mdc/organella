@@ -358,6 +358,53 @@ details.per-object > .per-object-body { padding-top: .5rem; }
 .explain-key i { display: inline-block; width: 16px; height: 3px; vertical-align: middle;
   margin-right: .3rem; border-radius: 2px; }
 
+/* ── Orientation: the section nav, and the top of the report ─────────── */
+.topbar { row-gap: .3rem; }
+.subnav { order: 10; flex: 0 0 100%; display: flex; gap: .15rem; margin: .1rem -1.6rem -.55rem;
+  padding: 0 1.6rem; border-top: 1px solid var(--rule); overflow-x: auto; }
+.subnav a { font-size: .8rem; color: var(--ink-3); padding: .42rem .85rem; text-decoration: none;
+  border-bottom: 2px solid transparent; white-space: nowrap; transition: color .15s; }
+.subnav a:hover { color: var(--ink); }
+.subnav a.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.subnav .num { font-size: .64rem; letter-spacing: .12em; color: var(--ink-3); margin-right: .4rem;
+  font-weight: 400; }
+.section, .report-description { scroll-margin-top: calc(var(--topbar-h, 3.4rem) + .8rem); }
+.report-description.clamped { max-height: 6.2rem; overflow: hidden; position: relative; }
+.report-description.clamped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 2.2rem; background: linear-gradient(rgba(255,255,255,0), #fff); }
+.desc-toggle { font: inherit; font-size: .78rem; color: var(--accent); background: none; border: 0;
+  padding: 0; margin: -1.2rem 0 1.6rem; cursor: pointer; }
+.glance-groups { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem;
+  margin: 0 0 1rem; }
+.glance-label { font-size: .68rem; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3); margin-right: .2rem; }
+.glance-group { display: inline-flex; align-items: center; gap: .45rem; padding: .25rem .8rem;
+  border: 1px solid var(--rule-2); border-radius: 999px; font-size: .84rem; color: var(--ink);
+  background: var(--paper); }
+.glance-group i { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.glance-group .muted { color: var(--ink-3); font-size: .74rem; }
+.glance-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin: 1.2rem 0 1.4rem; }
+.glance-card { border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1.1rem 1rem;
+  background: var(--paper); }
+.glance-card h3 { font-family: var(--sans); font-size: .68rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin: 0 0 .6rem; }
+.guide { margin: 0; padding: 0; list-style: none; counter-reset: guide; }
+.guide li { counter-increment: guide; position: relative; padding: 0 0 .55rem 1.9rem;
+  font-size: .84rem; line-height: 1.5; color: var(--ink-2); }
+.guide li::before { content: counter(guide); position: absolute; left: 0; top: .05rem; width: 1.3rem;
+  height: 1.3rem; border-radius: 50%; background: var(--surface-2); color: var(--ink);
+  font-size: .7rem; font-weight: 600; text-align: center; line-height: 1.3rem; }
+.guide b { color: var(--ink); }
+.lineage { width: 100%; font-size: .82rem; border-collapse: collapse; }
+.lineage td { padding: .3rem .5rem .3rem 0; vertical-align: top; border-top: 1px solid var(--rule); }
+.lineage tr:first-child td { border-top: 0; }
+.lineage .what { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.lineage .n { font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.lineage .feeds { color: var(--ink-3); font-size: .76rem; }
+.lineage a { color: var(--accent); text-decoration: none; }
+.lineage a:hover { text-decoration: underline; }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -396,6 +443,7 @@ details.per-object > .per-object-body { padding-top: .5rem; }
   </div>
   <input type="file" id="geom-input" webkitdirectory directory multiple class="d-none">
   <input type="file" id="geom-files-input" accept=".parquet" multiple class="d-none">
+  <nav id="subnav" class="subnav" aria-label="Sections"></nav>
   <span class="file-info d-none" id="topbar-privacy"><i class="bi bi-shield-lock me-1"></i>Your data stays local, nothing is uploaded.</span>
   <div id="global-filters" class="d-none d-flex flex-wrap gap-2 ms-auto align-items-center">
     <div id="plot-groupby-wrap" style="display:none;align-items:center;gap:.35rem" class="d-flex">
@@ -516,13 +564,29 @@ organella process experiment/ \
 
   <!-- 01 Overview -->
   <div class="section" id="s-overview">
-    <div class="section-title">Report summary</div>
+    <div class="section-title">At a glance</div>
     <p class="section-subtitle" id="report-source"></p>
     <div id="overview-cards" class="d-flex flex-wrap gap-3 align-items-center mb-3"></div>
+    <div id="glance-groups" class="glance-groups"></div>
     <div id="overview-warnings"></div>
-    <div class="subsection-label">Do the same structures exist for each <span data-noun></span>?</div>
-      <p class="section-subtitle">In this table, masks and labels per <span data-noun></span> are listed, missing structures are highlighted.</p>
-    <div id="overview-table-wrap" class="mb-4"></div>
+    <div id="glance-stats"></div>
+    <div class="glance-grid">
+      <div class="glance-card">
+        <h3>How to read this report</h3>
+        <ol class="guide" id="glance-guide"></ol>
+      </div>
+      <div class="glance-card">
+        <h3>Where the numbers come from</h3>
+        <div id="glance-lineage"></div>
+      </div>
+    </div>
+    <details class="per-object" id="coverage-fold">
+      <summary>Which structures exist for each <span data-noun></span></summary>
+      <div class="per-object-body">
+        <p class="section-subtitle">Masks and labels per <span data-noun></span>; a missing structure is marked.</p>
+        <div id="overview-table-wrap" class="mb-2"></div>
+      </div>
+    </details>
     <div class="subsection-label">How much of each structure is there?</div>
     <div id="overview-volumes"></div>
   </div>
@@ -2137,6 +2201,8 @@ function onLoaded() {
   if (objectsClaimingGeometry().length) geomBtn.classList.remove('d-none');
   initFilters();
   renderAll();
+  // Measured once the page is on screen: a hidden element has no height to clamp to.
+  clampDescription(document.getElementById('report-description'));
   // A base URL means the geometry can be read without anyone choosing a folder, which is
   // what `organella view` sets up. A report read from a URL looks beside itself for the
   // folder `--with-mesh` writes, so sharing the two together needs no parameter at all.
@@ -2269,7 +2335,8 @@ function renderAll() {
   sayWhatIsTested();
   var sections = [
     ['overview', renderOverview], ['3d', renderScene], ['entities', renderEntityStats],
-    ['groups', renderContacts], ['polarity', renderPolarity], ['structure', renderStructure]
+    ['groups', renderContacts], ['polarity', renderPolarity], ['structure', renderStructure],
+    ['nav', buildSubnav]
   ];
   sections.forEach(function(entry) {
     try {
@@ -2523,6 +2590,157 @@ function polarityIndices(units, axis, weights) {
   var mean = polScaled(sum, 1 / total), R = polNorm(mean);
   return { n: units.length, R: R, V: cosines / total,
            mean: R > 0 ? polScaled(mean, 1 / R) : null };
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  Orientation: where the reader is, and what the report is made of
+// ══════════════════════════════════════════════════════════════
+
+var SUBNAV = [['s-overview', 'At a glance'], ['s-3d', 'The cell in 3D'],
+              ['s-entities', 'Structures'], ['s-groups', 'Contact groups'],
+              ['s-polarity', 'Polarity'], ['s-structure', 'Files']];
+
+/** The section nav under the top bar: only the sections there are, numbered as they are. */
+function buildSubnav() {
+  var nav = document.getElementById('subnav');
+  if (!nav) return;
+  nav.replaceChildren();
+  var docked = document.getElementById('main-content').classList.contains('docked');
+  var count = 0;
+  SUBNAV.forEach(function(entry) {
+    var section = document.getElementById(entry[0]);
+    // The viewer is a column beside the page when there is geometry, and not a section of it.
+    if (!section || section.classList.contains('d-none') || (entry[0] === 's-3d' && docked)) return;
+    count++;
+    var link = document.createElement('a');
+    link.href = '#' + entry[0];
+    link.dataset.target = entry[0];
+    link.innerHTML = '<span class="num">' + (count < 10 ? '0' : '') + count + '</span>'
+      + escHtml(entry[1]);
+    link.addEventListener('click', function(event) {
+      event.preventDefault();
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    nav.appendChild(link);
+  });
+  markSection();
+}
+
+/** Which section the reader is in: the last one whose top has passed the bar. */
+function markSection() {
+  var nav = document.getElementById('subnav');
+  if (!nav || !nav.querySelectorAll) return;
+  var edge = (document.getElementById('topbar') || { offsetHeight: 0 }).offsetHeight + 40;
+  var current = null;
+  nav.querySelectorAll('a').forEach(function(link) {
+    var section = document.getElementById(link.dataset.target);
+    if (section && section.getBoundingClientRect().top <= edge) current = link;
+  });
+  nav.querySelectorAll('a').forEach(function(link) {
+    link.classList.toggle('active', link === (current || nav.querySelector('a')));
+  });
+}
+var _markQueued = false;
+// Not in node, where the page's own code is run to be tested and there is no window.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('scroll', function() {
+    if (_markQueued) return;
+    _markQueued = true;
+    requestAnimationFrame(function(){ _markQueued = false; markSection(); });
+  }, { passive: true });
+}
+
+/** Long credits start folded: they are provenance, and should not be the first screen. */
+function clampDescription(el) {
+  var old = document.getElementById('desc-toggle');
+  if (old) old.remove();
+  el.classList.remove('clamped');
+  if (!el.textContent || el.scrollHeight < 130) return;
+  el.classList.add('clamped');
+  var more = document.createElement('button');
+  more.id = 'desc-toggle';
+  more.type = 'button';
+  more.className = 'desc-toggle';
+  more.textContent = 'Show all';
+  more.addEventListener('click', function() {
+    var folded = el.classList.toggle('clamped');
+    more.textContent = folded ? 'Show all' : 'Show less';
+    more.style.margin = folded ? '' : '.2rem 0 1.6rem';
+  });
+  el.parentNode.insertBefore(more, el.nextSibling);
+}
+
+/**
+ * The top of the report: which groups there are (in the colours every chart uses), what the
+ * batch's size allows a test to say, how to read what follows, and which part of the file
+ * each section is made of. A reader should know all four before the first chart.
+ */
+function renderGlance() {
+  var host = document.getElementById('glance-groups');
+  if (!host) return;
+  var groups = groupNames();
+  var members = {};
+  filteredObjects().forEach(function(o) {
+    if (o.group_id) (members[o.group_id] = members[o.group_id] || []).push(o.object_id);
+  });
+  host.innerHTML = groups.length < 2 ? '' : '<span class="glance-label">Groups</span>'
+    + groups.map(function(g) {
+        var ids = members[g] || [];
+        return '<span class="glance-group" title="' + escHtml(ids.join(', ')) + '"><i style="background:'
+          + groupColor(g) + '"></i><b>' + escHtml(g) + '</b> ' + ids.length + ' '
+          + noun(ids.length !== 1) + '</span>';
+      }).join('');
+
+  var limit = testLimit();
+  setHtml('glance-stats', limit && limit.floor
+    ? '<p class="callout"><b>Read the diamonds, not the stars.</b> Each comparison is of one number per '
+      + noun() + ', and with ' + limit.n1 + ' ' + noun(limit.n1 !== 1) + ' against ' + limit.n2
+      + ' the smallest p a rank test can return is <b>' + limit.pMin.toFixed(3) + '</b>: nothing'
+      + ' here can be called significant at 0.05 however far apart the groups are. Charts show the'
+      + ' p itself and the size of the difference; every comparison is exploratory and uncorrected.</p>'
+    : (limit ? '<p class="callout">Each comparison is of one number per ' + noun() + ' (a rank test,'
+      + ' two-sided), and every chart is exploratory: comparisons are uncorrected for how many are'
+      + ' shown.</p>' : ''));
+
+  var geometry = hasGeometry();
+  setHtml('glance-guide',
+    '<li><b>Every heading is a question,</b> and the charts under it are its answer, one structure at'
+      + ' a time. Folds ▸ open the detail underneath - each ' + escHtml(noun()) + ' on its own.</li>'
+    + '<li><b>A box is every instance of a group; a diamond ◆ is one ' + escHtml(noun()) + '.</b>'
+      + ' The diamonds are what a comparison uses, so a box alone can look more different than the'
+      + ' ' + escHtml(noun(true)) + ' are.</li>'
+    + '<li><b>Averages count by size.</b> A structure that is one big label and a few specks is'
+      + ' the big label.</li>'
+    + '<li>' + (geometry
+        ? '<b>Press <i class="bi bi-badge-3d"></i> on any chart</b> and the viewer beside the page draws'
+          + ' what it measures on a real ' + escHtml(noun()) + ', with a slider tying the picture to the chart.'
+        : '<b>Add geometry</b> (top bar) and each chart gains a 3D button that draws what it measures on a'
+          + ' real ' + escHtml(noun()) + '.') + '</li>');
+
+  var structures = uniq(INSTANCES.map(function(r){ return r.entity_name; }));
+  var masks = ENTS.filter(function(r){ return r.entity_kind === 'mask'; }).length;
+  var link = function(id, text){ return '<a href="#' + id + '">' + text + '</a>'; };
+  var row = function(what, n, words, feeds) {
+    return '<tr><td class="what">' + what + '</td><td><span class="n">' + n + '</span> ' + words
+      + '<div class="feeds">' + feeds + '</div></td></tr>';
+  };
+  setHtml('glance-lineage', '<table class="lineage">'
+    + (INSTANCES.length ? row('Instances', INSTANCES.length.toLocaleString(),
+        'labelled objects of ' + structures.length + ' structure' + (structures.length === 1 ? '' : 's')
+          + ': size, shape, position and distance to every other structure, one row each.',
+        'feeds ' + link('s-entities', 'Structures') + ', ' + link('s-polarity', 'Polarity')) : '')
+    + (masks ? row('Whole masks', masks.toLocaleString(),
+        'one shape per ' + escHtml(noun()) + ' for structures segmented as one piece.',
+        'feeds ' + link('s-overview', 'shares of the ' + escHtml(noun())) + ', ' + link('s-polarity', 'Polarity')) : '')
+    + (CONTACTS.length ? row('Contacts', CONTACTS.length.toLocaleString(),
+        'pairs of instances that touch within a gap.',
+        'feeds ' + link('s-groups', 'Contact groups')) : '')
+    + row('Geometry', geometry ? GEOMETRY.length + ' ' + escHtml(noun(GEOMETRY.length !== 1)) : 'not loaded',
+        geometry ? 'surfaces drawn in the viewer; nothing in a chart is computed from them.'
+                 : 'only the viewer needs it; every chart is drawn without.',
+        'feeds the viewer beside the page')
+    + '</table>');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3455,11 +3673,19 @@ function renderOverview() {
   setHtml('overview-warnings', warnings.map(function(w) {
     return '<p class="callout callout-warn">' + w + '</p>';
   }).join(''));
+  // The coverage table opens by itself when there is something in it to read, and stays as
+  // the reader leaves it once they have touched it.
+  var fold = document.getElementById('coverage-fold');
+  if (fold && !fold.dataset.touched) {
+    fold.open = warnings.length > 0;
+    fold.addEventListener('toggle', function(){ fold.dataset.touched = '1'; }, { once: true });
+  }
 
   var badges = cols.map(function(c) {
     return '<span style="border-color:'
       + entColor(c.name) + '">' + escHtml(c.name) + '</span>';
   }).join(', ');
+  renderGlance();
   setHtml('overview-cards',
     '<div class="card-metric"><div class="big">' + (summary.objects || 1) + '</div>'
     + '<div class="lbl">' + Noun(summary.objects !== 1) + '</div></div>'
@@ -6108,6 +6334,7 @@ async function renderScene() {
   var mainEl = document.getElementById('main-content');
   var wasDocked = mainEl.classList.contains('docked');
   mainEl.classList.toggle('docked', hasGeometry());
+  if (wasDocked !== hasGeometry()) { buildSubnav(); renderGlance(); }
   // The charts were drawn at the width the page had, and the viewer takes some of it: a
   // chart only follows the window, so the ones already drawn would run on under the card.
   if (wasDocked !== hasGeometry() && window.Plotly) {
