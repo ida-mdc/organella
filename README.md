@@ -108,7 +108,14 @@ one click away (**Show every cell on its own**): the structure shares, the polar
 diamond per cell, one plot per group, with the full circle of each cell folded away), the contact
 numbers and the file list.
 
-In the page, **Charts** switches every panel between boxes and histograms, and
+The page opens on an **At a glance** header: the groups and their sizes, what the batch's size allows
+a test to say (four cells against three cannot go below p = 0.057, so charts show the p and the size of the
+difference instead of stars), where the groups differ most, how to read the report and which rows
+each section is made of. A section nav under the top bar follows you down the page. The viewer follows
+the structure you are reading, says what it is showing, and each chart has a fold saying where it comes from.
+Boxes are every instance of a group; the diamonds are one cell's median, which is what a comparison uses.
+
+In the page, **Show as** switches every panel between boxes and histograms, and
 **Significance** adds Mann-Whitney brackets to the facets. To calculate the p-value, only one averaged value per cell is taken into account to preserve the comparison of independent measurements.  
 
 **Every distance panel is drawn against chance.** Relationship measurements in bounded regions like cells

@@ -6149,6 +6149,8 @@ function renderDockStatus() {
   var host = document.getElementById('dock-status');
   if (!host || !host.replaceChildren) return;
   host.replaceChildren();
+  // Nothing to follow or to explain in without geometry: the section says how to get some.
+  if (!hasGeometry()) return;
   var add = function(tag, className, html) {
     var el = document.createElement(tag);
     if (className) el.className = className;
