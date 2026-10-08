@@ -89,14 +89,13 @@ control/cell_b
 Alternatively, open **<https://ida-mdc.github.io/organella/>** and drop
 `report.parquet` on it: the page parses the parquet in the browser, so nothing is uploaded and
 no server runs. **The 3D sections need the geometry too**. Press **Add geometry** and pick either the `report_meshes` folder or the
-`geometry.parquet` files themselves. The `organelle view` command attaches them for you and you don't need to do anything else there.
+`geometry.parquet` files themselves. The `organella view` command attaches them for you and you don't need to do anything else there.
 
 In the page, **Charts** switches every panel between boxes and histograms, and
 **Significance** adds Mann-Whitney brackets to the facets. To calculate the p-value, only one averaged value per cell is taken into account to preserve the comparison of independent measurements.  
 
 **Every distance panel is drawn against chance.** Relationship measurements in bounded regions like cells
-depend heavily on the shape of the boundary. Therefore, any distance plot includes a dotted line representing how close
-all pixels in the object boundary are to the specific structure. `--baseline-exclude` decides
+depend heavily on the shape of the boundary. Therefore, any distance plot includes a dotted line representing it's distance from everywhere in the object. `--baseline-exclude` decides
 which label should be left out of that region (i.e. nucleus).
 
 **Polarity is relative to a structure.** Every polarity column is
@@ -116,7 +115,7 @@ axis, so which side of the circle a structure falls on is arbitrary.
 
 Entity files must match `<prefix>_<name>_label.tif` (or `_labels.tif`) and
 `<prefix>_<name>_mask.tif`, where `<prefix>` is the source image basename. The prefix is taken
-off the front, i.e. for `s0011_rib_left_11_mask.tif`, `s0011` is the prefix and `rib_left_11` is the entity.
+off the front, i.e. for `s0011_rib_left_11_mask.tif`, `s0011` is the prefix and `rib_left_11` is the entity. Labels are read as an instance labelled image (background 0, each instance with its own label value), whereas masks are read as binary images (0 or 1).
 
 ```text
 my_cell/
@@ -160,7 +159,7 @@ report.parquet                            # rows per object, structure, instance
 report_meshes/<object>/geometry.parquet   # only with --with-mesh
 ```
 
-Everything measured lands in `report.parquet`, as rows at four depths told apart by `row_type`:
+Everything measured lands in `report.parquet`, as five row types at three levels:
 
 | `row_type` | `obs_level` | one row per |
 | --- | --- | --- |
@@ -192,9 +191,9 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 
 | |                                                                                                                                                 |
 | --- |-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `-o, --output FILE` | Where to write the report. Required.                                                                                                            |
+| `-o, --output FILE` | Where to write the report. If output it not defined, the report will be written to the current working directory.                                                                                                             |
 | `-p, --paths TEXT` | Subdirectory to import as its own group, repeatable. Becomes the default grouping in every chart.                                               |
-| `--object-mask NAME` | The mask that bounds each object. Other labels and masks are clipped to stay within this mask. It decides the origin of polarity.               |
+| `--object-mask NAME` | The mask that bounds each object. Other labels and masks are clipped to stay within this mask. It decides the origin of polarity. If no object-mask is defined, any mask named pm will be the default object mask               |
 | `--description TEXT` | What this data is and who it credits. The report page shows it above the first section.                                                         |
 | `--object-noun WORD` | What one measured thing is called in the report, e.g. `cell`, or `nucleus/nuclei` for an irregular plural. Presentation only.                   |
 | `--voxel-size-um Z,Y,X` | Voxel size in µm; `y,x` for a plane. Inferred from the source metadata when omitted.                                                            |
