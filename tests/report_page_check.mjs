@@ -120,6 +120,7 @@ if (job.render) {
       return byId.get(id);
     },
     body: node('body'),
+    querySelectorAll: () => [],
   };
   // `?data=` is what a link to a report, and `organella view`, put in the URL.
   globalThis.window = { location: { search: job.search || '', pathname: '/',
@@ -436,10 +437,9 @@ function asArrowView(base64, pad = 3) {
 const THREE = {
   BufferAttribute: class { constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; } },
   BufferGeometry: class {
-    constructor() { this.attributes = {}; this.index = null; this.normals = false; }
+    constructor() { this.attributes = {}; this.index = null; }
     setAttribute(name, attribute) { this.attributes[name] = attribute; }
     setIndex(attribute) { this.index = attribute; }
-    computeVertexNormals() { this.normals = true; }
   },
 };
 
@@ -465,11 +465,114 @@ if (job.merge) {
     indices: merged.index.array.length,
     maxIndex: merged.index.array.reduce((m, v) => Math.max(m, v), 0),
     indexType: merged.index.array.constructor.name,
-    normals: merged.normals,
+    // One unit normal per vertex, and none for a vertex no face touches.
+    normals: (() => {
+      const n = merged.attributes.normal.array;
+      let unit = 0, zero = 0;
+      for (let i = 0; i < n.length; i += 3) {
+        const length = Math.hypot(n[i], n[i + 1], n[i + 2]);
+        if (Math.abs(length - 1) < 1e-4) unit++; else if (length === 0) zero++;
+      }
+      return { count: n.length / 3, unit, zero };
+    })(),
     bbox: bboxOf(positions),
     colours: { first: [...colours.slice(0, 3)],
                last: [...colours.slice(colours.length - 3)] },
   };
+}
+
+// ── a chart explained in the viewer ──────────────────────────────────────────
+if (job.explain) {
+  const e = job.explain;
+  out.explain = {};
+  if (e.weights) {
+    const w = e.weights;
+    out.explain.weights = {
+      indices: R.polarityIndices(w.units, w.axis, w.weights),
+      plain: R.polarityIndices(w.units, w.axis),
+      quantiles: w.quantiles.map((q) => R.weightedQuantile(w.values, w.sizes, q)),
+      partial: R.polarWeights([{ weight: 2 }, { weight: null }, { weight: 3 }]),
+      full: R.polarWeights([{ weight: 2 }, { weight: 3 }]),
+      sized: [R.polarWeight({ volume_um3: 4 }), R.polarWeight({ area_um2: 5 }),
+              R.polarWeight({ volume_um3: 0 }), R.polarWeight({})],
+    };
+  }
+  if (e.offset && job.rows) {
+    // One structure's reference centre, with the instances' sizes set to what was asked.
+    const s = R.state();
+    const mine = s.INSTANCES.filter((r) => String(r.object_id) === e.offset.object
+                                           && r.entity_name === e.offset.structure);
+    out.explain.offset = {};
+    for (const [name, sizes] of Object.entries(e.offset.sizes)) {
+      mine.forEach((r, i) => { r.volume_um3 = sizes[i]; });
+      R.clearPolarOffsets();
+      const found = R.polarOffset(e.offset.object, e.offset.structure);
+      out.explain.offset[name] = found && { unit: found.unit, dist: found.dist, n: found.n };
+    }
+    out.explain.offset.rows = mine.map((r) => ({
+      unit: R.polarUnit(r), dist: r.polar_dist_um }));
+  }
+  if (e.specs) {
+    out.explain.specs = e.specs.map((call) => {
+      const spec = R[call.fn](...call.args);
+      return { key: R.explainKey(spec), kind: spec.kind, title: spec.title,
+               entities: R.explainEntities(spec), shown: [...R.explainShown(spec)],
+               text: spec.text, targets: spec.targets || null };
+    });
+  }
+  if (e.frame && job.rows) {
+    // Meshes laid out the way the report says they sit: each one at the centre plus its
+    // own direction x distance, so the frame has a known centre to find again.
+    const s = R.state();
+    const f = e.frame;
+    const at = (n, d) => f.centre.map((c, k) => c + n[k] * d);
+    const items = [];
+    s.INSTANCES.filter((r) => String(r.object_id) === f.object && r.entity_name === f.structure)
+      .forEach((r) => {
+        const n = [r.polar_nx, r.polar_ny, r.polar_nz || 0];
+        items.push({ entity: f.structure, label: String(r.label_id),
+                     geometry: { positions: Float32Array.from(at(n, r.polar_dist_um)) } });
+      });
+    s.ENTS.filter((r) => String(r.object_id) === f.object && r.entity_name === f.reference)
+      .forEach((r) => {
+        const n = [r.polar_nx, r.polar_ny, r.polar_nz || 0];
+        items.push({ entity: f.reference, label: null,
+                     geometry: { positions: Float32Array.from(at(n, r.polar_dist_um)) } });
+      });
+    const frame = R.polarityFrame(items, f.object, f.reference, f.structure, f.radius);
+    if (frame && f.morph) {
+      // Each instance, at three moments of each chart's turn, in the frame's own terms: how
+      // far along the axis, across it, and out of the plane, and how far from the centre.
+      const dot = (p, q) => p.reduce((n, v, k) => n + v * q[k], 0);
+      const chart = R.polarFrame(R.polarOffset(f.object, f.reference).unit);
+      out.explain.morph = {
+        // What the circular charts say, from the report's own rows and array order.
+        chart: frame.units.map((u) => ({
+          signed: R.polarAngleDeg([...u.n].reverse(), chart), cone: u.angle, dist: u.dist })),
+        layouts: Object.fromEntries(['half', 'circle', 'cart', 'unit'].map((layout) => [layout,
+          [0, 0.5, 1].map((t) => {
+            const at = R.polarMorphPositions(frame, layout, 'centre', t);
+            return frame.units.map((_, i) => {
+              const d = [0, 1, 2].map((k) => at[3 * i + k] - frame.centre[k]);
+              return { a: dot(d, frame.axis), u: dot(d, frame.u), w: dot(d, frame.w),
+                       norm: Math.hypot(...d) };
+            });
+          })])),
+        // Where it sits to begin with, for t = 0 to be checked against.
+        here: frame.units.map((u) => ({ a: u.dist * dot(u.n, frame.axis),
+                                        u: u.dist * dot(u.n, frame.u),
+                                        w: u.dist * dot(u.n, frame.w) })),
+        frame: { uw: dot(frame.u, frame.w), au: dot(frame.a ?? frame.axis, frame.u),
+                 aw: dot(frame.axis, frame.w), un: Math.hypot(...frame.u),
+                 wn: Math.hypot(...frame.w), plotReach: frame.plotReach, reach: frame.reach },
+      };
+    }
+    out.explain.frame = frame && {
+      centre: frame.centre, axis: frame.axis, refDist: frame.refDist, reach: frame.reach,
+      angles: frame.units.map((u) => u.angle), matched: frame.units.filter((u) => u.item).length,
+      R: frame.R, V: frame.V,
+    };
+  }
 }
 
 if (job.explodes) {

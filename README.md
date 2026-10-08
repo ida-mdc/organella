@@ -91,6 +91,23 @@ Alternatively, open **<https://ida-mdc.github.io/organella/>** and drop
 no server runs. **The 3D sections need the geometry too**. Press **Add geometry** and pick either the `report_meshes` folder or the
 `geometry.parquet` files themselves. The `organelle view` command attaches them for you and you don't need to do anything else there.
 
+With geometry loaded, the 3D viewer moves to a column beside the charts and stays in view as
+they scroll. Every chart has a **Show in 3D** button that draws what it is about on one
+object: the instances coloured by the measurement a chart plots, contact groups at the gap of the slider, or the axis and cone an
+angle is measured against. Each comes with a slider that ties the picture to the chart: the
+distance, the contact gap (the chart's own slider, which moves with it), the wedge of the polarity
+rose, or - for the polarity plots - a slider that turns the cell into the chart, so the
+instances are seen being swung, projected and laid flat into the points the plot is made of. Press the button again, or **Back to the whole cell**, to let go.
+
+The viewer has a second tab, **Instances**: the gallery of individual shapes (the highest,
+lowest or a random sample of any metric, one structure at a time), opened from the button under
+a structure's charts. On a wide screen the viewer takes the extra width.
+
+Anything measured once per cell is shown as the average of each group, with the cell-by-cell view
+one click away (**Show every cell on its own**): the structure shares, the polarity plots (one
+diamond per cell, one plot per group, with the full circle of each cell folded away), the contact
+numbers and the file list.
+
 In the page, **Charts** switches every panel between boxes and histograms, and
 **Significance** adds Mann-Whitney brackets to the facets. To calculate the p-value, only one averaged value per cell is taken into account to preserve the comparison of independent measurements.  
 

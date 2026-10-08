@@ -131,7 +131,10 @@ def test_merging_two_instances_keeps_every_face_on_its_own_vertices():
     assert merged["maxIndex"] == merged["vertices"] - 1
     # Colour rides on the vertices, which is what lets one geometry hold a whole palette.
     assert merged["colours"] == {"first": [1, 0, 0], "last": [0, 0, 1]}
-    assert merged["normals"], "a merged surface needs normals to be lit at all"
+    normals = merged["normals"]
+    assert normals["count"] == merged["vertices"], "a merged surface needs normals to be lit at all"
+    assert normals["unit"] > 0 and normals["unit"] + normals["zero"] == normals["count"], \
+        "every normal is a unit vector, or zero where no face reaches the vertex"
 
 
 def test_a_merge_past_65535_vertices_gets_an_index_type_that_can_hold_it():

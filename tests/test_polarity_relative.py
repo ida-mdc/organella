@@ -172,8 +172,19 @@ def test_the_section_draws_all_four_readings(drawn_polarity):
     # The row of angle box plots is gone: the rose behind each arrow is that distribution,
     # in the panel that also carries its summary.
     assert "mito angle to nucleus" not in titles
-    # One circular map per object, titled by the object it is of.
-    assert len([t for t in titles if t.startswith("object_")]) == 4
+    # One plot per group, a diamond per object in it; the circle per object is behind a fold
+    # that is not opened until asked for, so it is not drawn here.
+    plots = [p for p in drawn_polarity["circles"]
+             if any(t.get("symbol") == "star" for t in p["drawn"])]
+    assert len(plots) == 2, "one plot per group, each with its reference star per object"
+    for panel in plots:
+        stars = [t for t in panel["drawn"] if t.get("symbol") == "star"]
+        assert sum(len(t["r"]) for t in stars) == 2, "two objects in each group, one star apiece"
+        # A diamond is an object's average direction, and four that cancel exactly have none:
+        # there is then no point to put, and never more than one per object.
+        marks = [t for t in panel["drawn"] if t.get("symbol") == "diamond"]
+        assert sum(len(t["r"]) for t in marks) <= 2
+    assert len([t for t in titles if t.startswith("object_")]) == 0
     assert "s-polarity" in drawn_polarity["shown"]
     assert drawn_polarity["failed"] == []
 

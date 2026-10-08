@@ -244,6 +244,117 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .geometry-hint { background: var(--surface-2); border-left: 2px solid var(--rule-2);
   padding: .7rem 1rem; font-size: .82rem; color: var(--ink-2); margin: .2rem 0 1rem; }
 
+/* ── The viewer, docked beside the charts ────────────────────────────
+   With geometry loaded the 3D section stops being a section and becomes a second column that
+   stays in view while the charts scroll past, so a chart and the thing it measures are on
+   screen together. Without geometry nothing here applies. */
+.chart-cell.pinnable { position: relative; isolation: isolate; }
+.pin-3d { display: none; position: absolute; top: 0; right: 0; z-index: 3; font: inherit;
+  font-size: .68rem; line-height: 1.2; padding: .16rem .55rem; color: var(--accent);
+  background: var(--surface); border: 1px solid var(--rule-2); border-radius: 999px;
+  cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.pin-3d:hover { border-color: var(--accent); background: #eef4fb; }
+.pin-3d .bi { margin-right: .25rem; }
+.pin-3d .pin-on { display: none; }
+.main.docked .pin-3d { display: inline-block; }
+.main.docked .chart-cell.pinnable { padding-top: 1.55rem; }
+/* The chart the viewer is for: a pale wash behind it, and the filled pill. Nothing that
+   frames or lifts it - it is one of many charts, not a window onto the viewer. */
+.chart-cell.pinned::before { content: ""; position: absolute; inset: -6px -8px; z-index: -1;
+  background: #f3f7fc; border: 1px solid #dbe6f3; border-radius: 8px; }
+.main.docked .charts-row { padding: 8px; margin: -8px; }
+.chart-cell.pinned .pin-3d { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chart-cell.pinned .pin-off { display: none; }
+.chart-cell.pinned .pin-on { display: inline; }
+
+/* The page is as wide as the screen allows once there is a viewer to give the room to: the
+   charts keep what they had, and everything past that is the viewer's. */
+.main.docked { display: grid; max-width: 2100px;
+  grid-template-columns: minmax(0, 1fr) clamp(420px, 42vw, 960px);
+  column-gap: 2.2rem; align-items: start; }
+.main.docked > * { grid-column: 1; }
+/* A side panel, not a window over the page: the charts on the left are the report, and this
+   is what they are looked at with. Flat, a shade off the page, no shadow to lift it. */
+.main.docked > #s-3d { grid-column: 2; grid-row: 1 / span 60; position: sticky;
+  top: calc(var(--topbar-h, 3.4rem) + .8rem); margin-top: .5rem;
+  max-height: calc(100vh - var(--topbar-h, 3.4rem) - 1.6rem); overflow-y: auto;
+  padding: .9rem 1.1rem 1.1rem; z-index: 2; background: #f8f9fb;
+  border: 1px solid var(--rule); border-radius: 6px; }
+.main.docked > #s-3d .section-title { font-size: 1.1rem; }
+.main.docked > #s-3d .section-title::before { counter-increment: none; content: "VIEWER";
+  margin-bottom: .3rem; }
+.main.docked > #s-3d .section-subtitle { display: none; }
+.main.docked > #s-3d .ctrl-bar { gap: .45rem .8rem; margin: .5rem 0 .6rem; font-size: .78rem; }
+.main.docked .stage-holder { height: clamp(320px, 62vh, 860px) !important; border-radius: 6px;
+  border-color: var(--rule); box-shadow: inset 0 0 36px rgba(70, 60, 30, .06); }
+.main.docked > #s-3d.explaining .stage-holder { height: clamp(260px, 46vh, 640px) !important; }
+.explain-body { font-size: .78rem; }
+.dock-tabs { display: none; gap: .2rem; margin: .1rem 0 .7rem; border-bottom: 1px solid var(--rule); }
+.main.docked .dock-tabs { display: flex; }
+.dock-tab { font: inherit; font-size: .82rem; padding: .3rem .9rem; border: 0; background: none;
+  color: var(--ink-3); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+.dock-tab:hover { color: var(--ink); }
+.dock-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.main.docked #dock-gallery .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+#dock-gallery .ctrl-bar { margin: .3rem 0 .6rem; font-size: .78rem; }
+@media (max-width: 1100px) {
+  .main.docked { display: block; }
+  .main.docked > #s-3d { position: static; max-height: none; box-shadow: none;
+    margin-top: 1.5rem; }
+  .pin-3d { display: none !important; }
+}
+.stage-busy::before { content: ""; width: 15px; height: 15px; margin-right: .6rem;
+  border: 2px solid var(--rule-2); border-top-color: var(--accent); border-radius: 50%;
+  animation: stage-spin .8s linear infinite; }
+@keyframes stage-spin { to { transform: rotate(360deg); } }
+
+/* A structure to show or hide: a pill whose dot is the structure's colour, filled when on. */
+.scene-chip { display: inline-flex; align-items: center; gap: .38rem; padding: .1rem .6rem;
+  border: 1px solid var(--rule-2); border-radius: 999px; font-size: .74rem; cursor: pointer;
+  user-select: none; color: var(--ink-3); background: var(--surface);
+  transition: background .15s, color .15s, border-color .15s; }
+.scene-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.scene-chip .dot { width: 9px; height: 9px; border-radius: 50%; opacity: .3;
+  transition: opacity .15s; }
+.scene-chip:has(input:checked) { color: var(--ink); border-color: var(--ink-3);
+  background: var(--surface-2); }
+.scene-chip:has(input:checked) .dot { opacity: 1; }
+.scene-chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.explain { margin-top: .9rem; padding-top: .85rem; border-top: 1px solid var(--rule);
+  font-size: .8rem; line-height: 1.5; }
+.explain-empty { color: var(--ink-3); text-align: center; margin: 0; padding: .8rem 1rem;
+  border: 1px dashed var(--rule-2); border-radius: 6px; }
+.explain-head { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; }
+.explain-title { font-family: var(--serif); font-size: 1.12rem; font-weight: 600; color: var(--ink);
+  line-height: 1.25; }
+.explain-release { font: inherit; font-size: .7rem; padding: .1rem .6rem; white-space: nowrap;
+  color: var(--ink-2); background: var(--surface); border: 1px solid var(--rule-2);
+  border-radius: 999px; cursor: pointer; }
+.explain-release:hover { border-color: var(--ink-3); color: var(--ink); }
+.explain-body { color: var(--ink-2); margin: .35rem 0 .45rem; }
+.explain-scope { color: var(--ink-3); font-size: .74rem; margin: 0 0 .6rem; }
+.explain label { display: block; margin: .5rem 0 0; color: var(--ink-2); }
+.explain .form-range { width: 100% !important; accent-color: var(--accent); margin: 0; }
+.explain .ctrl-bar { margin: .3rem 0 .2rem; }
+.explain-readout { font-variant-numeric: tabular-nums; color: var(--ink); font-size: .86rem;
+  background: var(--surface-2); border-left: 3px solid var(--accent);
+  border-radius: 0 5px 5px 0; padding: .55rem .8rem; margin-top: .7rem; }
+.explain-readout b { color: var(--accent); font-weight: 600; }
+.explain-readout:empty { display: none; }
+details.per-object { margin: .6rem 0 1rem; }
+details.per-object > summary { cursor: pointer; font-size: .8rem; color: var(--accent);
+  list-style: none; padding: .2rem 0; user-select: none; }
+details.per-object > summary::before { content: "\25B8"; display: inline-block; width: 1rem;
+  transition: transform .15s; }
+details.per-object[open] > summary::before { transform: rotate(90deg); }
+details.per-object > summary::-webkit-details-marker { display: none; }
+details.per-object > .per-object-body { padding-top: .5rem; }
+.explain-key { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .72rem;
+  color: var(--ink-3); margin: .5rem 0 .2rem; }
+.explain-key i { display: inline-block; width: 16px; height: 3px; vertical-align: middle;
+  margin-right: .3rem; border-radius: 2px; }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -421,10 +532,15 @@ organella process experiment/ \
       or by contact group to see which instances chain together at a given gap.
       Explode pushes every instance out along its own direction from the
       <span data-noun></span> centre.</p>
-    <div id="scene-controls" class="ctrl-bar"></div>
-    <div id="scene-holder"></div>
-    <div id="scene-scale" class="metric-scale"></div>
-    <div id="scene-note" class="chart-note"></div>
+    <div id="dock-tabs" class="dock-tabs" role="tablist"></div>
+    <div id="dock-scene">
+      <div id="scene-controls" class="ctrl-bar"></div>
+      <div id="scene-holder"></div>
+      <div id="scene-scale" class="metric-scale"></div>
+      <div id="scene-explain" class="explain"></div>
+      <div id="scene-note" class="chart-note"></div>
+    </div>
+    <div id="dock-gallery" class="d-none"></div>
   </div>
 
   <!-- 03 Component stats -->
@@ -525,6 +641,8 @@ organella process experiment/ \
   <div class="section" id="s-structure">
     <div class="section-title">The files behind it</div>
     <p class="section-subtitle">What was read, and what was measured of each whole structure.</p>
+    <details class="per-object">
+    <summary>Every file, per <span data-noun></span> and structure</summary>
     <div class="table-wrap">
       <table class="table table-sm table-hover mb-0">
         <thead class="table-light"><tr>
@@ -537,6 +655,7 @@ organella process experiment/ \
         <tbody id="file-table-body"></tbody>
       </table>
     </div>
+    </details>
   </div>
 
 </div><!-- /main -->
@@ -779,11 +898,18 @@ function objectPalette() {
   if (!_objPal) _objPal = assignSeries(uniq(OBJECTS.map(function(r){ return r.object_id; }).filter(Boolean)));
   return _objPal;
 }
+var OBJECT_MASK_GREY = '#9a9a9a';
 // A structure's colour is the report's own if the run was given one (--colours lands it on
 // the entity rows), so a swatch here and a mesh in the 3D view are the same colour.
 function entPalette() {
   if (!_entPal) {
     _entPal = assignSeries(entityNames());
+    // The mask that bounds the object is the cell's own outline, not one structure among
+    // others: a neutral grey, so the colours are left to what is inside it. A colour the
+    // run was given for it still wins, below.
+    OBJECTS.forEach(function(o) {
+      if (o.object_mask_name) _entPal[o.object_mask_name] = OBJECT_MASK_GREY;
+    });
     ENTS.forEach(function(r){ if (r.entity_colour) _entPal[r.entity_name] = r.entity_colour; });
   }
   return _entPal;
@@ -1894,6 +2020,8 @@ function gallerySql(source, entity, metric, order, limit, rowType) {
 //  File loading
 // ══════════════════════════════════════════════════════════════
 function resetLoadState() {
+  _geomCache = { key: null, summary: null, byEntity: new Map() };
+  _framedFor = null;
   _objPal = null; _entPal = null; _grpPal = null;
   st.only = ''; st.statsEntity = null;
   _ctInited = false;
@@ -2173,6 +2301,42 @@ function polNorm(a) { return Math.sqrt(polDot(a, a)); }
 function polScaled(a, k) { return a.map(function(v){ return v * k; }); }
 function polAdded(a, b) { return a.map(function(v, i){ return v + b[i]; }); }
 
+/**
+ * How much of a structure an instance is: its volume, or its area in a plane. The weight an
+ * average over instances gives it, so that three labels of one nucleus - one real, two a few
+ * voxels - average to the nucleus and not to a third of it each.
+ */
+function polarWeight(row) {
+  var size = row.volume_um3 != null ? row.volume_um3 : row.area_um2;
+  return size != null && isFinite(size) && size > 0 ? Number(size) : null;
+}
+
+/**
+ * The weights for one population of rows (or entries carrying a `weight`), or all equal where
+ * any of them has no size. Half of them sized and half not would give the sized ones all of
+ * the say, which is a different average, not a more careful one.
+ */
+function polarWeights(rows) {
+  var sizes = rows.map(function(r) {
+    return r.weight !== undefined ? r.weight : polarWeight(r);
+  });
+  return sizes.every(function(w){ return w !== null && w !== undefined; })
+    ? sizes : rows.map(function(){ return 1; });
+}
+
+/** The value a fraction `q` of the total weight lies at or below: a median that counts by size. */
+function weightedQuantile(values, weights, q) {
+  if (!values.length) return null;
+  var order = values.map(function(_, i){ return i; })
+    .sort(function(a, b){ return values[a] - values[b]; });
+  var total = weights.reduce(function(n, w){ return n + w; }, 0), seen = 0;
+  for (var k = 0; k < order.length; k++) {
+    seen += weights[order[k]];
+    if (seen >= q * total - 1e-12) return values[order[k]];
+  }
+  return values[order[order.length - 1]];
+}
+
 /** A row's direction from the object centre, as a unit vector in array axis order. */
 function polarUnit(row) {
   var keys = (row.spatial_dims === 2 || (row.spatial_dims == null && PLANAR))
@@ -2201,18 +2365,26 @@ var _POLAR_OFFSETS = {};
 function polarOffset(objectId, structure) {
   var key = objectId + '|' + structure;
   if (key in _POLAR_OFFSETS) return _POLAR_OFFSETS[key];
-  var sum = null, n = 0;
+  var rows = [], offsets = [];
   INSTANCES.forEach(function(r) {
     if (r.object_id !== objectId || r.entity_name !== structure) return;
     var unit = polarUnit(r);
     if (!unit || r.polar_dist_um == null || !isFinite(r.polar_dist_um)) return;
-    var offset = polScaled(unit, r.polar_dist_um);
-    sum = sum ? polAdded(sum, offset) : offset;
-    n++;
+    rows.push(r);
+    offsets.push(polScaled(unit, r.polar_dist_um));
   });
+  var n = rows.length;
   var found = null;
   if (n) {
-    var mean = polScaled(sum, 1 / n), length = polNorm(mean);
+    // Centred on the instances by size: a stray fragment of a few voxels beside the real
+    // thing is a fragment, and moves the centre of the structure by what it weighs.
+    var weights = polarWeights(rows), total = 0, sum = null;
+    offsets.forEach(function(offset, i) {
+      var scaled = polScaled(offset, weights[i]);
+      sum = sum ? polAdded(sum, scaled) : scaled;
+      total += weights[i];
+    });
+    var mean = polScaled(sum, 1 / total), length = polNorm(mean);
     if (length > 0) found = { unit: polScaled(mean, 1 / length), dist: length,
                               of: 'instances', n: n };
   } else {
@@ -2308,17 +2480,23 @@ function polarConeDeg(unit, axis) {
  * Polarity-JaM's R and V for one population of directions against one axis.
  *
  * V is the mean of cos(angle to the axis), which is the same number as R·cos(mean
- * direction − axis) and needs no mean direction to state.
+ * direction − axis) and needs no mean direction to state. `weights` - one per direction, the
+ * size of the instance it is of - makes both means weighted ones.
  */
-function polarityIndices(units, axis) {
-  var sum = null, cosines = 0;
-  units.forEach(function(unit) {
-    sum = sum ? polAdded(sum, unit) : unit.slice();
-    cosines += polDot(unit, axis);
-  });
+function polarityIndices(units, axis, weights) {
   if (!units.length) return null;
-  var mean = polScaled(sum, 1 / units.length), R = polNorm(mean);
-  return { n: units.length, R: R, V: cosines / units.length,
+  // Each direction counts by the weight it is given - its instance's size, where the caller
+  // has it - and by one where it does not.
+  var w = weights && weights.length === units.length ? weights : units.map(function(){ return 1; });
+  var sum = null, cosines = 0, total = 0;
+  units.forEach(function(unit, i) {
+    var scaled = polScaled(unit, w[i]);
+    sum = sum ? polAdded(sum, scaled) : scaled;
+    cosines += w[i] * polDot(unit, axis);
+    total += w[i];
+  });
+  var mean = polScaled(sum, 1 / total), R = polNorm(mean);
+  return { n: units.length, R: R, V: cosines / total,
            mean: R > 0 ? polScaled(mean, 1 / R) : null };
 }
 
@@ -2922,7 +3100,32 @@ function coverageNote(label) {
     + ', not the batch.</p>';
 }
 
-/** How much of the region is which structure: one stacked bar per object, one scale.
+/**
+ * A fold for what is done once per object: the page shows the average of a group by default,
+ * and the object-by-object view is here for whoever wants to check one.
+ *
+ * `build` runs on first opening, not on drawing the page: a chart built inside a closed
+ * fold has no width to be drawn at, and thirty hidden panels are thirty drawn for nothing.
+ */
+function perObjectFold(container, summary, build) {
+  var fold = document.createElement('details');
+  fold.className = 'per-object';
+  var label = document.createElement('summary');
+  label.textContent = summary;
+  var body = document.createElement('div');
+  body.className = 'per-object-body';
+  fold.append(label, body);
+  var built = false;
+  fold.addEventListener('toggle', function() {
+    if (!fold.open || built) return;
+    built = true;
+    build(body);
+  });
+  container.appendChild(fold);
+  return fold;
+}
+
+/** How much of the region is which structure: one stacked bar per group, one scale.
  *
  * This is the question "how much of each structure is there" actually asked of a whole:
  * absolute totals on eight separate axes cannot be compared - a nucleus and a lipid
@@ -2976,70 +3179,106 @@ function compositionPanel(container, opt) {
   // The legend is the page's own, in HTML above the plot, rather than Plotly's: a nine-key
   // legend under a chart this short lands inside the bottom margin and sits on top of the
   // axis title.
-  var keys = names.concat(useRegion ? [' rest'] : []);
+  var keys = names.concat(useRegion ? [' rest'] : []);
   container.insertAdjacentHTML('beforeend', '<div class="chart-legend">'
     + keys.map(function(name) {
-        var rest = name === ' rest';
+        var rest = name === ' rest';
         return '<span class="d-inline-flex align-items-center gap-1">'
           + '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
           + 'background:' + (rest ? '#e4e8ed' : entColor(name)) + '"></span>'
           + (rest ? 'not in any structure' : dataName(name)) + '</span>';
       }).join('') + '</div>');
 
-  var plotEl = document.createElement('div');
-  container.appendChild(plotEl);
+  // A bar is shares of one whole, one per structure, whatever it stands for: one object, or
+  // the mean of a group of them.
+  var barOf = function(label, row) {
+    var shares = {}, absolute = {};
+    row.parts.forEach(function(part) {
+      shares[part.name] = row.whole ? 100 * part.value / row.whole : 0;
+      absolute[part.name] = part.value;
+    });
+    return { label: label, shares: shares, absolute: absolute,
+             rest: row.whole ? Math.max(0, 100 * (row.whole - row.sum) / row.whole) : 0,
+             restAbsolute: Math.max(0, row.whole - row.sum) };
+  };
+  var objectBars = rows.map(function(r){ return barOf(r.oid || '(unnamed)', r); });
 
-  // Top to bottom in reading order, done by reversing the data rather than by reversing the
-  // axis: a reversed autorange on a one-category axis put the only bar outside the range.
-  rows.reverse();
-  var yLabels = rows.map(function(r){ return r.oid || '(unnamed)'; });
-  var traces = names.map(function(name) {
-    return {
-      type: 'bar', orientation: 'h', name: dataName(name),
-      y: yLabels,
-      x: rows.map(function(r) {
-        var part = r.parts.find(function(p){ return p.name === name; });
-        return part && r.whole ? 100 * part.value / r.whole : 0;
-      }),
-      customdata: rows.map(function(r) {
-        var part = r.parts.find(function(p){ return p.name === name; });
-        return part ? part.value : 0;
-      }),
-      marker: { color: entColor(name), line: { color: '#ffffff', width: 1 } },
-      showlegend: false,
-      hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% of '
-        + wholeLabel + '<extra>' + escHtml(dataName(name)) + '</extra>',
-    };
-  });
-  if (useRegion) {
-    traces.push({
-      type: 'bar', orientation: 'h', name: 'not in any structure',
-      y: yLabels,
-      x: rows.map(function(r) {
-        return r.whole ? Math.max(0, 100 * (r.whole - r.sum) / r.whole) : 0;
-      }),
-      customdata: rows.map(function(r){ return Math.max(0, r.whole - r.sum); }),
-      marker: { color: '#e4e8ed', line: { color: '#ffffff', width: 1 } },
-      showlegend: false,
-      hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% unsegmented'
-        + '<extra>not in any structure</extra>',
+  // The mean over the objects that have a structure: one without it has no share of it to
+  // average in, and a zero would say it has none of something it was never segmented for.
+  // What is left over is then whatever the means do not cover.
+  var meanBar = function(label, members) {
+    var shares = {}, absolute = {}, partial = false;
+    names.forEach(function(name) {
+      var have = members.filter(function(m){ return name in m.shares; });
+      if (!have.length) return;
+      if (have.length < members.length) partial = true;
+      shares[name] = have.reduce(function(n, m){ return n + m.shares[name]; }, 0) / have.length;
+      absolute[name] = have.reduce(function(n, m){ return n + m.absolute[name]; }, 0) / have.length;
+    });
+    var covered = Object.keys(shares).reduce(function(n, k){ return n + shares[k]; }, 0);
+    return { label: label, shares: shares, absolute: absolute, partial: partial,
+             rest: Math.max(0, 100 - covered), restAbsolute: 0 };
+  };
+  var groupOf = {};
+  OBJECTS.forEach(function(o){ groupOf[o.object_id] = o.group_id || ''; });
+  var groupNamesHere = uniq(rows.map(function(r){ return groupOf[r.oid]; }).filter(Boolean));
+  var averaged = rows.length < 2 ? null
+    : (groupNamesHere.length
+        ? groupNamesHere.map(function(g) {
+            var members = objectBars.filter(function(_, i){ return groupOf[rows[i].oid] === g; });
+            return meanBar(g + ' (' + members.length + ' ' + noun(members.length !== 1) + ')',
+                           members);
+          })
+        : [meanBar('all ' + rows.length + ' ' + noun(true), objectBars)]);
+
+  var drawBars = function(host, bars) {
+    var plotEl = document.createElement('div');
+    host.appendChild(plotEl);
+    // Top to bottom in reading order, done by reversing the data rather than by reversing the
+    // axis: a reversed autorange on a one-category axis put the only bar outside the range.
+    var shown = bars.slice().reverse();
+    var yLabels = shown.map(function(b){ return b.label; });
+    var traces = names.map(function(name) {
+      return {
+        type: 'bar', orientation: 'h', name: dataName(name), y: yLabels,
+        x: shown.map(function(b){ return b.shares[name] || 0; }),
+        customdata: shown.map(function(b){ return b.absolute[name] || 0; }),
+        marker: { color: entColor(name), line: { color: '#ffffff', width: 1 } },
+        showlegend: false,
+        hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% of '
+          + wholeLabel + '<extra>' + escHtml(dataName(name)) + '</extra>',
+      };
+    });
+    if (useRegion) {
+      traces.push({
+        type: 'bar', orientation: 'h', name: 'not in any structure', y: yLabels,
+        x: shown.map(function(b){ return b.rest; }),
+        customdata: shown.map(function(b){ return b.restAbsolute; }),
+        marker: { color: '#e4e8ed', line: { color: '#ffffff', width: 1 } },
+        showlegend: false,
+        hovertemplate: '%{x:.2g}% unsegmented<extra>not in any structure</extra>',
+      });
+    }
+    // One bar needs no y tick - the table above already named it, and the axis then
+    // carries a single label wider than the bar it points at.
+    var single = bars.length === 1 && rows.length === 1;
+    Plotly.newPlot(plotEl, traces, {
+      barmode: 'stack', bargap: single ? 0.15 : 0.3,
+      margin: { l: single ? 8 : 150, r: 16, t: 6, b: 40 },
+      height: (single ? 62 : 30 * shown.length + 26) + 46,
+      xaxis: { title: '% of ' + wholeLabel, range: [0, 100.4], dtick: 25, ticksuffix: '%' },
+      yaxis: { type: 'category', automargin: !single, showticklabels: !single,
+               ticks: '', showgrid: false, linecolor: 'rgba(0,0,0,0)' },
+      showlegend: false, hovermode: 'closest',
+    }, { responsive: true, displayModeBar: false });
+  };
+
+  drawBars(container, averaged || objectBars);
+  if (averaged) {
+    perObjectFold(container, 'Show every ' + noun() + ' on its own', function(body) {
+      drawBars(body, objectBars);
     });
   }
-
-  // One object needs no y tick - the table above already named it, and the axis then
-  // carries a single label wider than the bar it points at.
-  var single = rows.length === 1;
-  Plotly.newPlot(plotEl, traces, {
-    barmode: 'stack',
-    bargap: single ? 0.15 : 0.3,
-    margin: { l: single ? 8 : 120, r: 16, t: 6, b: 40 },
-    height: (single ? 62 : 30 * rows.length + 26) + 46,
-    xaxis: { title: '% of ' + wholeLabel, range: [0, 100.4], dtick: 25, ticksuffix: '%' },
-    yaxis: { type: 'category', automargin: !single, showticklabels: !single,
-             ticks: '', showgrid: false, linecolor: 'rgba(0,0,0,0)' },
-    showlegend: false,
-    hovermode: 'closest',
-  }, { responsive: true, displayModeBar: false });
 
   var note;
   if (!useRegion) {
@@ -3053,6 +3292,11 @@ function compositionPanel(container, opt) {
     note = 'Nothing bounds ' + (rows.length > 1 ? 'these ' + noun(true) : 'this ' + noun())
       + ', so the whole is the region analysed - the image itself. Name one with '
       + '--object-mask to read these as shares of the ' + noun() + '.';
+  }
+  if (averaged) {
+    var mean = 'Each bar is the mean of its ' + noun(true) + (averaged.some(function(b){ return b.partial; })
+      ? ', over the ones that have each structure' : '') + '.';
+    note = note ? note + ' ' + mean : mean;
   }
   if (note) {
     container.insertAdjacentHTML('beforeend',
@@ -3292,12 +3536,7 @@ function renderPolarity() {
    * whole structure, with no instance to carry a distance - so its own row carries the
    * depth of its centre instead, which is the same question asked of the one point it has.
    */
-  var depthOf = function(row) {
-    var fromDistance = depthCol == null ? null : row[depthCol];
-    if (fromDistance != null && isFinite(fromDistance)) return fromDistance;
-    var ofCentre = row.polar_depth_um;
-    return ofCentre != null && isFinite(ofCentre) ? ofCentre : null;
-  };
+  var depthOf = function(row){ return polarDepth(row, mask); };
   var take = function(name, kind, row) {
     var axis = polarOffset(row.object_id, ref);
     var unit = polarUnit(row);
@@ -3305,7 +3544,7 @@ function renderPolarity() {
     kinds[name] = kind;
     var depth = depthOf(row);
     (relative[name] = relative[name] || []).push({
-      object_id: row.object_id, group_id: row.group_id, unit: unit,
+      object_id: row.object_id, group_id: row.group_id, unit: unit, weight: polarWeight(row),
       angle_deg: polarConeDeg(unit, axis.unit), dist_um: row.polar_dist_um,
       depth_um: depth
     });
@@ -3390,8 +3629,8 @@ function renderPolarity() {
   setHtml('pol-angle-label', 'Which way does each structure point, relative to '
     + dataName(ref) + '?');
   setHtml('pol-angle-desc', '<b>0° is towards ' + dataName(ref) + '</b>, 180° is straight'
-    + ' across the ' + noun() + ' from it. The <b>wedges</b> are how many instances sit at'
-    + ' each angle, scaled so the fullest wedge reaches the rim, and the <b>dashed outline</b>'
+    + ' across the ' + noun() + ' from it. The <b>wedges</b> are how much of the structure sits at'
+    + ' each angle (an instance counts by its size), scaled so the fullest wedge reaches the rim, and the <b>dashed outline</b>'
     + ' is the shape a population that cared nothing for the axis would have - not a flat'
     + ' one, since there is more room at 90° to the axis than along it, which is geometry'
     + ' rather than a measurement. The <b>arrow</b> is the average of those directions and'
@@ -3401,7 +3640,7 @@ function renderPolarity() {
     + ' more, so it is a dot on the rim at its own angle rather than an arrow - there is'
     + ' nothing for it to agree or disagree with.');
   var angleHost = document.getElementById('pol-angle-charts');
-  var ANGLE_BINS = 12;
+  var ANGLE_BINS = POLAR_ANGLE_BINS;
   structures.forEach(function(name) {
     var facets = facetsFor(name);
     var fallback = { name: name, color: entColor(name) };
@@ -3423,12 +3662,16 @@ function renderPolarity() {
         : (Math.cos(lo * Math.PI / 180) - Math.cos(hi * Math.PI / 180)) / 2);
     }
     var shares = facets.split(relative[name], fallback).map(function(f) {
+      // How much of the structure lies in each wedge, an instance counting by its size: three
+      // labels of one nucleus, two of them specks, are one nucleus and not three.
       var counts = new Array(ANGLE_BINS).fill(0);
-      f.rows.forEach(function(r) {
+      var sizes = polarWeights(f.rows), whole = 0;
+      f.rows.forEach(function(r, i) {
         var at = Math.min(ANGLE_BINS - 1, Math.floor(r.angle_deg / width));
-        if (at >= 0) counts[at]++;
+        if (at >= 0) counts[at] += sizes[i];
+        whole += sizes[i];
       });
-      return { facet: f, share: counts.map(function(c){ return c / (f.rows.length || 1); }) };
+      return { facet: f, share: counts.map(function(c){ return c / (whole || 1); }) };
     });
     var top = Math.max.apply(null, [Math.max.apply(null, expected)].concat(
       shares.map(function(x){ return Math.max.apply(null, x.share); })));
@@ -3452,10 +3695,10 @@ function renderPolarity() {
     // The average, one per object: length R, angle to the axis.
     mapObjects.forEach(function(id) {
       var axis = polarOffset(id, ref);
-      var units = relative[name].filter(function(r){ return r.object_id === id; })
-                                .map(function(r){ return r.unit; });
+      var mine = relative[name].filter(function(r){ return r.object_id === id; });
+      var units = mine.map(function(r){ return r.unit; });
       if (!axis || !units.length) return;
-      var found = polarityIndices(units, axis.unit);
+      var found = polarityIndices(units, axis.unit, polarWeights(mine));
       if (!found || !found.mean) return;
       var at = polarConeDeg(found.mean, axis.unit);
       var group = groupOfObject[String(id)];
@@ -3486,6 +3729,9 @@ function renderPolarity() {
                        tickfont: { size: 9 } }
       }
     }, { responsive: true, displayModeBar: false });
+    // The cone marker of the viewer is drawn on this plot, so it has to be findable.
+    el.dataset.rose = '1';
+    explainButton(el, polaritySpec(name, ref, 'angle'));
   });
 
   // ── the two collective measures, one per object ────────────────────────────
@@ -3515,7 +3761,8 @@ function renderPolarity() {
     });
     var rows = Object.keys(byObject).map(function(id) {
       var axis = polarOffset(id, ref);
-      var found = polarityIndices(byObject[id].map(function(r){ return r.unit; }), axis.unit);
+      var found = polarityIndices(byObject[id].map(function(r){ return r.unit; }), axis.unit,
+                                  polarWeights(byObject[id]));
       return { object_id: id, group_id: byObject[id][0].group_id,
                V: found.V, R: found.R, n: found.n };
     });
@@ -3528,6 +3775,7 @@ function renderPolarity() {
       series: facets.valuesOf(rows, 'V', fallback),
       title: panelTitle(name, 'V towards ' + ref), unit: 'V',
       noun: noun(), showFacetTicks: !facets.many,
+      explain: polaritySpec(name, ref, 'index'),
       range: [-1, 1],
       help: '<b>V</b>, the signed polarity index: <b>+1</b> every ' + dataName(name)
         + ' towards ' + dataName(ref) + ', <b>0</b> spread evenly about that axis,'
@@ -3542,6 +3790,7 @@ function renderPolarity() {
       series: facets.valuesOf(rows, 'R', fallback),
       title: panelTitle(name, 'R, agreement'), unit: 'R',
       noun: noun(), showFacetTicks: !facets.many,
+      explain: polaritySpec(name, ref, 'index'),
       range: [0, 1],
       help: '<b>R</b>, the polarity index: <b>0</b> when the ' + dataName(name)
         + ' directions cancel out - spread evenly all round - and <b>1</b> when every one'
@@ -3589,11 +3838,12 @@ function renderPolarity() {
       shapes: [{ type: 'line', xref: 'x', yref: 'paper', x0: 90, x1: 90, y0: 0, y1: 1,
                  line: { color: CS.ink3, width: 1, dash: 'dot' } }]
     }, { responsive: true, displayModeBar: false });
+    explainButton(el, polaritySpec(name, ref, 'where'));
   });
 
   // ── one circular map per object ────────────────────────────────────────────
-  setHtml('pol-map-label', 'Where everything sits in one ' + noun());
-  setHtml('pol-map-desc', 'One panel per ' + noun() + ', the whole layout at once: the'
+  setHtml('pol-map-label', 'Where does each structure sit in the ' + noun() + '?');
+  var cellMapDesc = ('One panel per ' + noun() + ', the whole layout at once: the'
     + ' angle to ' + dataName(ref) + ' round the circle, 0° at the right, and '
     + (toMask
         ? 'how far inside the ' + dataName(mask) + ' each instance sits as the radius, with'
@@ -3629,7 +3879,8 @@ function renderPolarity() {
   }).concat(['<span class="d-inline-flex align-items-center gap-1">'
       + '<span style="color:' + entColor(ref) + '">★</span>' + dataName(ref)
       + ', the reference, on 0°</span>',
-    '<span class="d-inline-flex align-items-center gap-1">◆ a structure’s own centre</span>'
+    '<span class="d-inline-flex align-items-center gap-1">◆ a structure’s centre in one '
+      + noun() + '</span>'
   ]).join(''));
   var mapHost = document.getElementById('pol-map-charts');
   var reach = 0;
@@ -3647,6 +3898,7 @@ function renderPolarity() {
     var radius = toMask ? refDepth[id] : (axis && axis.dist);
     if (radius != null && isFinite(radius) && radius > reach) reach = radius;
   });
+  var drawCellMaps = function(mapHost) {
   mapObjects.forEach(function(id) {
     var axis = polarOffset(id, ref);
     if (!axis) return;
@@ -3668,11 +3920,12 @@ function renderPolarity() {
                   opacity: rows.length > 1 ? 0.5 : 0.9, line: { width: 0 } },
         hovertemplate: (toMask ? '%{r:.2f} µm inside the ' + mask : '%{r:.2f} µm out')
           + ' at %{theta:.0f}°<extra>' + name + '</extra>' });
-      var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit);
+      var sizes = polarWeights(rows);
+      var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit, sizes);
       if (!found || !found.mean) return;
-      var distances = rows.map(radiusOf).sort(function(a, b){ return a - b; });
       traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
-        r: [quantileSorted(distances, 0.5)], theta: [polarAngleDeg(found.mean, frame)],
+        r: [weightedQuantile(rows.map(radiusOf), sizes, 0.5)],
+        theta: [polarAngleDeg(found.mean, frame)],
         marker: { symbol: 'diamond', size: 11, color: entColor(name),
                   line: { color: '#fff', width: 1.5 } },
         hovertemplate: 'centre of ' + name + ': %{r:.2f} µm '
@@ -3727,6 +3980,11 @@ function renderPolarity() {
                        ticktext: [ref, 'away'], tickfont: { size: 9 } }
       }
     }, { responsive: true, displayModeBar: false });
+    // The map holds every structure; the viewer draws one at a time, so the first with
+    // instances of its own, and the viewer lets the reader change it.
+    var mapped = structures.filter(function(n){ return kinds[n] === 'label'; })[0]
+      || structures[0];
+    explainButton(el, polaritySpec(mapped, ref, 'cellmap', id, toMask ? 'membrane' : 'centre'));
     if (sampled.length) {
       var note = document.createElement('div');
       note.className = 'chart-note';
@@ -3735,6 +3993,121 @@ function renderPolarity() {
       el.appendChild(note);
     }
   });
+  };
+
+  // ── one point per cell, one plot per group ─────────────────────────────────
+  //
+  // What the full circles above are made of, kept to what a reader compares: each cell's
+  // average for a structure - how far out it sits (the median) and which way it points (the
+  // mean direction) - as one diamond, so a group's cells sit in one plot and a group of seven
+  // is seven points and not seven circles. Only the angle *to the axis* is drawn, 0° to 180°,
+  // never the rotation about it: nothing in the data fixes that rotation, so full circles
+  // cannot be laid over one another, and half ones can.
+  var cellPoint = function(id, name) {
+    var axis = polarOffset(id, ref);
+    if (!axis) return null;
+    var rows = relative[name].filter(function(r) {
+      return r.object_id === id && radiusOf(r) != null;
+    });
+    if (!rows.length) return null;
+    var sizes = polarWeights(rows);
+    var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit, sizes);
+    if (!found || !found.mean) return null;
+    return { id: id, r: weightedQuantile(rows.map(radiusOf), sizes, 0.5),
+             cone: polarConeDeg(found.mean, axis.unit),
+             R: found.R, V: found.V, n: rows.length };
+  };
+  setHtml('pol-map-desc', 'One diamond per ' + noun() + ' and structure, one plot per group: how far'
+    + (toMask ? ' inside the ' + dataName(mask) : ' from the ' + noun() + ' centre')
+    + ' the structure sits on the whole (the radius, the middle of its instances), and how far'
+    + ' round from ' + dataName(ref) + ' its average direction points (the angle: <b>0° towards</b>'
+    + ' it, <b>180° away</b>). A star is ' + dataName(ref) + ' itself. The angle is the one to the'
+    + ' axis and nothing more - which side of it a structure falls on is arbitrary, not fixed by the data -'
+    + ' so the ' + noun(true) + ' of a group can share a plot.');
+
+  var mapGroups = [];
+  mapObjects.forEach(function(id) {
+    var g = groupOfObject[String(id)] || '';
+    var entry = mapGroups.find(function(e){ return e.group === g; });
+    if (!entry) mapGroups.push(entry = { group: g, ids: [] });
+    entry.ids.push(id);
+  });
+  var mappedStructure = structures.filter(function(n){ return kinds[n] === 'label'; })[0]
+    || structures[0];
+  mapGroups.forEach(function(entry) {
+    var traces = [];
+    structures.forEach(function(name) {
+      var points = entry.ids.map(function(id){ return cellPoint(id, name); })
+                            .filter(Boolean);
+      if (!points.length) return;
+      traces.push({ type: 'scatterpolar', mode: 'markers', name: name, showlegend: false,
+        r: points.map(function(q){ return q.r; }),
+        theta: points.map(function(q){ return q.cone; }),
+        text: points.map(function(q){ return String(q.id); }),
+        marker: { symbol: 'diamond', size: 11, color: entColor(name),
+                  line: { color: '#fff', width: 1.5 } },
+        hovertemplate: '%{text}: ' + escName(name) + ' %{r:.2f} µm '
+          + (toMask ? 'inside the ' + mask : 'out') + ' at %{theta:.0f}°<extra></extra>' });
+    });
+    var stars = entry.ids.map(function(id) {
+      var axis = polarOffset(id, ref);
+      var radius = toMask ? refDepth[id] : (axis && axis.dist);
+      return radius != null && isFinite(radius) ? { id: id, r: radius } : null;
+    }).filter(Boolean);
+    if (stars.length) {
+      traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
+        r: stars.map(function(q){ return q.r; }), theta: stars.map(function(){ return 0; }),
+        text: stars.map(function(q){ return String(q.id); }),
+        marker: { symbol: 'star', size: 12, color: entColor(ref),
+                  line: { color: '#fff', width: 1 } },
+        hovertemplate: '%{text}: ' + escName(ref) + ', the reference, %{r:.2f} µm<extra></extra>' });
+    }
+    if (!traces.length) return;
+    var el = document.createElement('div');
+    el.className = 'chart-cell';
+    el.style.width = '380px';
+    if (entry.group) {
+      var heading = document.createElement('div');
+      heading.style.cssText = 'font-size:.72rem;font-weight:600;color:' + CS.ink
+        + ';margin-bottom:2px;display:flex;align-items:center;gap:5px';
+      heading.innerHTML = '<span style="display:inline-block;width:9px;height:9px;'
+        + 'border-radius:50%;background:' + groupColor(entry.group) + '"></span>'
+        + escHtml(entry.group) + ' · ' + entry.ids.length + ' ' + noun(entry.ids.length !== 1);
+      el.appendChild(heading);
+    }
+    var plotEl = document.createElement('div');
+    el.appendChild(plotEl);
+    mapHost.appendChild(el);
+    Plotly.newPlot(plotEl, traces, {
+      margin: { l: 52, r: 52, t: 8, b: 26 }, height: 240,
+      showlegend: false,
+      polar: {
+        sector: [0, 180],
+        radialaxis: { range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02], angle: 90,
+                      nticks: 4, ticksuffix: ' µm', tickfont: { size: 9 } },
+        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
+                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
+                       tickfont: { size: 9 } }
+      }
+    }, { responsive: true, displayModeBar: false });
+    // A group's plot opens one of the group's own cells.
+    explainButton(el, polaritySpec(mappedStructure, ref, 'map', entry.ids[0],
+                                   toMask ? 'membrane' : 'centre'));
+  });
+
+  // The full circles, one per cell: what the points above were taken from, for whoever wants
+  // to look at one cell's whole layout.
+  perObjectFold(mapHost, 'Show each ' + noun() + '’s own map: every instance, round the full circle',
+    function(body) {
+      var words = document.createElement('p');
+      words.className = 'subsection-desc';
+      words.innerHTML = cellMapDesc;
+      body.appendChild(words);
+      var holder = document.createElement('div');
+      holder.className = 'charts-row';
+      body.appendChild(holder);
+      drawCellMaps(holder);
+    });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4475,7 +4848,27 @@ function makeStage(THREE, canvas, opts) {
     if ('normalBias' in key.shadow) key.shadow.normalBias = size * 0.003;
   };
 
+  // A turn laid over everything drawn: the cell rotated about its centre, which is how the
+  // viewer lays a chart's plane flat to the camera without moving a single vertex.
+  var pose = null;
+  var applyPose = function() {
+    scene.children.forEach(function(child) {
+      if (!(child.isMesh || child.isLineSegments || child.isGroup || child.isPoints)) return;
+      if (pose) {
+        child.matrixAutoUpdate = false;
+        child.matrix.copy(pose);
+        child.matrixWorldNeedsUpdate = true;
+        child.userData.posed = true;
+      } else if (child.userData.posed) {
+        child.matrixAutoUpdate = true;
+        child.userData.posed = false;
+        child.updateMatrix();
+      }
+    });
+  };
+
   var apply = function() {
+    applyPose();
     var sinPhi = Math.sin(spherical.phi);
     camera.position.set(
       target.x + spherical.radius * sinPhi * Math.sin(spherical.theta),
@@ -4489,6 +4882,36 @@ function makeStage(THREE, canvas, opts) {
   var stage = {
     THREE: THREE, scene: scene, camera: camera, renderer: renderer,
     draw: apply, frameShadow: frameShadow,
+    /** The camera's angles, read or set: how far round, and how far up from the pole. */
+    view: function(to, andDraw) {
+      if (to) {
+        spherical.theta = to.theta; spherical.phi = to.phi;
+        if (andDraw !== false) apply();
+      }
+      return { theta: spherical.theta, phi: spherical.phi };
+    },
+    /** Turn what is drawn (a Matrix4), or put it back (null). Drawn by the next draw. */
+    setPose: function(matrix) { pose = matrix; },
+    /**
+     * Make what is drawn more or less see-through, remembering what each thing was to begin
+     * with: the cell fades out as the points that stand for it fade in.
+     */
+    fade: function(amount) {
+      scene.children.forEach(function(child) {
+        var material = child.material;
+        if (!material || !(child.isMesh || child.isLineSegments)) return;
+        if (!material.userData.base) {
+          material.userData.base = { opacity: material.opacity, transparent: material.transparent,
+                                     depthWrite: material.depthWrite };
+        }
+        var base = material.userData.base;
+        material.opacity = base.opacity * amount;
+        material.transparent = base.transparent || amount < 1;
+        material.depthWrite = base.depthWrite && amount > 0.999;
+        material.needsUpdate = true;
+        child.visible = amount > 0.02;
+      });
+    },
     /** Frame the geometry. The lights are in the scene too, and sit outside it. */
     fit: function() {
       frameShadow();
@@ -4505,6 +4928,9 @@ function makeStage(THREE, canvas, opts) {
     },
     resize: function(width, height) {
       if (!width || !height) return;
+      // A frame costs what the scene costs, so a resize to the size it already is is no frame.
+      if (stage.width === width && stage.height === height) return;
+      stage.width = width; stage.height = height;
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
@@ -4569,6 +4995,32 @@ function makeStage(THREE, canvas, opts) {
 }
 
 /**
+ * Smooth vertex normals of one indexed triangle mesh: each face's normal, area-weighted,
+ * summed onto its three vertices. What three's computeVertexNormals does, done once per
+ * instance and kept on it - merging is repeated on every recolour, and recomputing the
+ * normals of millions of vertices each time was most of what a recolour cost.
+ */
+function vertexNormals(positions, indices) {
+  var normals = new Float32Array(positions.length);
+  for (var t = 0; t + 2 < indices.length; t += 3) {
+    var a = 3 * indices[t], b = 3 * indices[t + 1], c = 3 * indices[t + 2];
+    var ux = positions[b] - positions[a], uy = positions[b + 1] - positions[a + 1],
+        uz = positions[b + 2] - positions[a + 2];
+    var vx = positions[c] - positions[a], vy = positions[c + 1] - positions[a + 1],
+        vz = positions[c + 2] - positions[a + 2];
+    var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    normals[a] += nx; normals[a + 1] += ny; normals[a + 2] += nz;
+    normals[b] += nx; normals[b + 1] += ny; normals[b + 2] += nz;
+    normals[c] += nx; normals[c + 1] += ny; normals[c + 2] += nz;
+  }
+  for (var i = 0; i < normals.length; i += 3) {
+    var length = Math.hypot(normals[i], normals[i + 1], normals[i + 2]);
+    if (length > 0) { normals[i] /= length; normals[i + 1] /= length; normals[i + 2] /= length; }
+  }
+  return normals;
+}
+
+/**
  * Merge decoded instances into one geometry with per-vertex colours: one draw call for the
  * whole object, however it is coloured, because the colour rides on the vertices.
  */
@@ -4582,11 +5034,17 @@ function mergeInstances(THREE, items) {
 
   var positions = new Float32Array(vertexCount * 3);
   var colours = new Float32Array(vertexCount * 3);
+  var normals = new Float32Array(vertexCount * 3);
   var indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   var vertexOffset = 0, indexOffset = 0;
   items.forEach(function(item) {
     var src = item.geometry.positions, idx = item.geometry.indices;
     var rgb = item.rgb, offset = item.offset || [0, 0, 0];
+    // Lines have no surface to shade; a mesh's normals ride on the geometry it was decoded to.
+    if (!item.flat && idx.length % 3 === 0) {
+      normals.set(item.geometry.normals || (item.geometry.normals = vertexNormals(src, idx)),
+                  vertexOffset * 3);
+    }
     for (var i = 0; i < src.length; i += 3) {
       var at = vertexOffset * 3 + i;
       positions[at]     = src[i] + offset[0];
@@ -4602,8 +5060,8 @@ function mergeInstances(THREE, items) {
   var geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeVertexNormals();
   return geometry;
 }
 
@@ -4688,7 +5146,10 @@ function slider(labelText, spec, onCommit) {
   input.min = spec.min; input.max = spec.max; input.step = spec.step; input.value = spec.value;
   var show = function(v){ text.textContent = labelText + ' ' + spec.format(v); };
   show(Number(spec.value));
-  input.addEventListener('input', function(){ show(Number(input.value)); });
+  input.addEventListener('input', function() {
+    show(Number(input.value));
+    if (spec.onInput) spec.onInput(Number(input.value));
+  });
   input.addEventListener('change', function(){ onCommit(Number(input.value)); });
   wrap.append(text, input);
   return wrap;
@@ -4733,21 +5194,814 @@ function geometryHint(container, clause) {
   container.appendChild(hint);
 }
 
+// What is on screen for the object view, kept at module scope so that pinning a chart, letting
+// go of it, or changing a slider recolours what is already loaded instead of reading and
+// decoding it again: the stage and its canvas, one object's decoded structures by name, which
+// object the camera was last framed on, and which call of renderScene is the current one.
+var _sceneHolder = null;
+var _geomCache = { key: null, summary: null, byEntity: new Map() };
+var _framedFor = null;
+var _sceneRun = 0;
+
 // The object view's stage, kept at module scope so a re-render hands the same WebGL context
 // on rather than opening another one the browser will later drop.
 var _objectStage = null;
 // What the reader last chose, kept across re-renders so changing a filter does not reset the
 // view to the first object with structure colouring.
 var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: null,
-                   explode: 0, gap: null, maxGap: null };
+                   explode: 0, gap: null, maxGap: null,
+                   // The chart the viewer is explaining, if any (see pinToViewer), and the
+                   // two things a reader can slide to see how the 3D feeds that chart.
+                   explain: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0 };
+
+// ══════════════════════════════════════════════════════════════
+//  Explaining a chart in the viewer
+// ══════════════════════════════════════════════════════════════
+//
+// A chart says "median distance 0.2 µm" or "V = 0.4" about a whole population; what that is
+// *made of* is a shape in a cell. So a chart can hand the viewer a small description of
+// itself - a spec - and the viewer draws the same quantity on one object: the instances
+// coloured by the very column the chart plots, the groups at the very gap the slider sits
+// at, the axis and the cone an angle is measured against. The spec is data, not a callback,
+// so the viewer owns how it is drawn and a chart only has to say what it is.
+//
+//   kind   'metric'    one column of an instance, coloured on the instances
+//          'distance'  the same, to a target structure (which is drawn faint behind)
+//          'both'      the larger of two distances: close to two structures at once
+//          'group'     contact groups at the contacts slider's gap
+//          'polarity'  the reference axis and the directions measured against it
+//          'structure' one whole-structure mask, on its own
+
+/** Two panels are the same panel when their specs agree on what they are about. */
+function explainKey(spec) {
+  return [spec.kind, spec.aspect || '', spec.entity || '', spec.metric || '',
+          (spec.targets || []).join(','), spec.ref || '', spec.structure || '',
+          spec.objectId || '', spec.radius || ''].join('|');
+}
+
+/** The structures a spec needs loaded, besides the mask that bounds the object. */
+function explainEntities(spec) {
+  var names;
+  if (spec.kind === 'polarity') names = [spec.structure, spec.ref];
+  else names = [spec.entity].concat(spec.targets || []);
+  var bounding = boundingMaskName();
+  if (bounding) names.push(bounding);
+  return uniq(names.filter(Boolean));
+}
+
+/** The structures drawn solid; every other loaded one is drawn faint behind them. */
+function explainShown(spec) {
+  return new Set(spec.kind === 'polarity' ? [spec.structure, spec.ref] : [spec.entity]);
+}
+
+/** One instance's value from the joined columns: the larger of two for 'both', null if either is missing. */
+function explainedValue(maps, key) {
+  var values = maps.map(function(m){ return key in m ? m[key] : null; });
+  if (values.some(function(v){ return v === null; })) return null;
+  return Math.max.apply(null, values);
+}
+
+/** The report columns whose value colours the instances: one, or two for 'both'. */
+function explainValueCols(spec) {
+  return spec.metrics || (spec.metric ? [spec.metric] : []);
+}
+
+function objectHasStructure(objectId, name) {
+  var matches = function(r){ return String(r.object_id) === String(objectId) && r.entity_name === name; };
+  return INSTANCES.some(matches) || ENTS.some(matches);
+}
+
+/** Mark the chart cells whose spec is the one the viewer is showing. */
+function markPinned() {
+  var current = sceneState.explain ? explainKey(sceneState.explain) : null;
+  // Charts of one view are told apart by where they are: two plots that explain the same
+  // thing are not both the one pressed.
+  var seen = {};
+  document.querySelectorAll('.pin-3d').forEach(function(button) {
+    var key = button.dataset.explain;
+    seen[key] = seen[key] === undefined ? 0 : seen[key] + 1;
+    button.parentNode.classList.toggle('pinned',
+      current !== null && key === current && seen[key] === (sceneState.pinnedIndex || 0));
+  });
+  syncRoseMarkers();
+}
+
+/** Which of the charts with this button's spec it is, in page order. */
+function pinIndexOf(button) {
+  var same = [].filter.call(document.querySelectorAll('.pin-3d'), function(other) {
+    return other.dataset.explain === button.dataset.explain;
+  });
+  return same.indexOf(button);
+}
+
+/**
+ * Put a "Show in 3D" button on a chart cell. Pressing it again lets go.
+ *
+ * Always built, shown only when the report has geometry (the stylesheet decides): geometry
+ * can be added after the charts are drawn, and nothing then has to redraw them.
+ */
+function explainButton(cell, spec) {
+  if (!cell || !spec) return;
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'pin-3d';
+  // The icon comes from a font that needs the network; the words do not.
+  button.innerHTML = '<span class="pin-off"><i class="bi bi-badge-3d"></i>Show in 3D</span>'
+    + '<span class="pin-on"><i class="bi bi-badge-3d-fill"></i>Showing in 3D</span>';
+  button.title = 'Draw what this chart is about in the viewer';
+  button.dataset.explain = explainKey(spec);
+  button.addEventListener('click', function(){ pinToViewer(spec, pinIndexOf(button)); });
+  cell.classList.add('pinnable');
+  cell.appendChild(button);
+  markPinned();
+}
+
+/**
+ * Show a chart's subject in the viewer, or - given the spec already showing - let it go.
+ *
+ * What changes is only what the spec asks for: which object, which structures, how they are
+ * coloured. The object stays the one on screen where it has the structure, and moves to one
+ * that does where it has not, since a chart about a structure an object lacks has nothing to
+ * draw there.
+ */
+function pinToViewer(spec, index) {
+  if (!hasGeometry()) return;
+  var sameView = spec && sceneState.explain && explainKey(sceneState.explain) === explainKey(spec);
+  // Another chart of the view already showing: the viewer has nothing to change, and only
+  // which chart it is for does.
+  if (sameView && index !== undefined && index !== (sceneState.pinnedIndex || 0)) {
+    sceneState.pinnedIndex = index;
+    markPinned();
+    return;
+  }
+  var same = sameView;
+  if (!spec || same) {
+    sceneState.explain = null;
+    sceneState.entities = null;
+    sceneState.colourBy = 'entity';
+    sceneState.threshold = null;
+    sceneState.wedge = null;
+    sceneState.t = 0;
+  } else {
+    sceneState.explain = spec;
+    sceneState.pinnedIndex = index || 0;
+    dockState.tab = 'scene';
+    sceneState.entities = new Set(explainEntities(spec));
+    sceneState.threshold = null;
+    sceneState.wedge = null;
+    sceneState.t = 0;
+    sceneState.explode = 0;
+    sceneState.colourBy = spec.kind === 'group' ? 'group'
+      : (spec.kind === 'metric' || spec.kind === 'distance' || spec.kind === 'both')
+        ? 'metric' : 'entity';
+    var subject = spec.kind === 'polarity' ? spec.structure : spec.entity;
+    var wanted = spec.objectId || sceneState.objectId;
+    var here = GEOMETRY.filter(function(o){ return objectHasStructure(o.id, subject); });
+    var keep = here.find(function(o){ return String(o.id) === String(wanted); }) || here[0];
+    if (keep) sceneState.objectId = keep.id;
+    sceneState.maxGap = null;
+  }
+  markPinned();
+  renderScene();
+}
+
+/**
+ * Hand the viewer the contacts slider's gap, and the slider the viewer's.
+ * Both ends are one number, which is the point: the groups in the chart and the colours in
+ * the cell are the same groups.
+ */
+function contactGapUm() {
+  var slider = document.getElementById('ct-thr');
+  return slider ? +slider.value : null;
+}
+// What the chart sliders reach the open scene through: set while a scene is up.
+var _sceneApi = null;
+/** The contacts slider moved: if the viewer is showing groups, it follows. */
+function syncViewerGap(gap) {
+  if (_sceneApi && sceneState.explain && sceneState.explain.kind === 'group') {
+    _sceneApi.setGap(gap);
+  }
+}
+function setContactGap(gap) {
+  var slider = document.getElementById('ct-thr');
+  if (!slider) return;
+  slider.value = gap;
+  setText('ct-thr-val', fmtGap(+slider.value));
+  renderContacts();
+}
+
+
+/** A number for a readout: three figures, never an exponent for the sizes this page sees. */
+function fmtValue(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '–';
+  var a = Math.abs(v);
+  return a >= 100 ? v.toFixed(0) : String(Number(v.toPrecision(3)));
+}
+
+/** The structures with a direction of their own from the centre, other than the reference. */
+function polarityStructures(ref) {
+  return uniq(INSTANCES.filter(function(r){ return r.entity_name !== ref && polarUnit(r); })
+                       .map(function(r){ return r.entity_name; }));
+}
+
+/** Which structure a distance column measures to, whichever end or mean of it. */
+function targetOfColumn(col) {
+  var found = null;
+  DIST_TARGETS.forEach(function(t) {
+    var c = distColumnsFor(t);
+    if (c.min === col || c.mean === col || c.end === col) found = t;
+  });
+  return found;
+}
+
+/**
+ * The wedge being explained, marked on the polarity rose: a shaded sector over it, so the bar
+ * a reader is looking at in the chart and the shell of instances in the cell are the same
+ * thing. Only the pinned chart's, and gone with it.
+ */
+function syncRoseMarkers() {
+  var spec = sceneState.explain;
+  document.querySelectorAll('[data-rose]').forEach(function(plot) {
+    if (!plot.data || !window.Plotly) return;
+    var at = plot.data.findIndex(function(t){ return t.name === '__wedge'; });
+    var live = spec && spec.kind === 'polarity' && spec.aspect === 'angle'
+      && plot.classList.contains('pinned') && sceneState.wedge !== null;
+    if (!live) {
+      if (at >= 0) Plotly.deleteTraces(plot, at);
+      return;
+    }
+    var width = 180 / POLAR_ANGLE_BINS, centre = (sceneState.wedge + 0.5) * width;
+    if (at >= 0) {
+      Plotly.restyle(plot, { theta: [[centre]] }, [at]);
+    } else {
+      Plotly.addTraces(plot, { type: 'barpolar', name: '__wedge', r: [1.02], theta: [centre],
+        width: [width], marker: { color: 'rgba(28, 92, 171, .14)',
+                                  line: { color: '#1c5cab', width: 1.5 } },
+        hoverinfo: 'skip', showlegend: false });
+    }
+  });
+}
+
+// What each kind of chart says about itself. Prose only: what is drawn, in this report's own
+// words, and no figures - the viewer's readout is where counts are.
+
+function metricSpec(entity, col) {
+  var label = labelFor(col);
+  var named = dataName(entity);
+  return { kind: 'metric', entity: entity, metric: col, valueLabel: label,
+           unit: axisColUnit(col) || '',
+           title: entity + ' · ' + label.replace(/ \(.*\)$/, ''),
+           text: 'Every ' + named + ' instance of this ' + noun() + ', coloured by its '
+             + escHtml(label.replace(/ \(.*\)$/, '').toLowerCase()) + ' - the value each'
+             + ' point in the chart is made of.' };
+}
+
+function distanceSpec(entity, col) {
+  var target = targetOfColumn(col);
+  var tip = /_end_/.test(col);
+  var named = dataName(entity);
+  var spec = { kind: 'distance', entity: entity, metric: col, unit: 'µm',
+               targets: target ? [target] : [] };
+  spec.valueLabel = labelFor(col);
+  spec.title = entity + (tip ? ' ends' : '') + ' to ' + (target || distColLabel(col));
+  spec.text = target
+    ? 'Every ' + named + ' instance, coloured by how far '
+      + (tip ? 'its nearest end' : 'it') + ' is from the nearest ' + dataName(target)
+      + ', which is drawn faint behind. Slide the distance to keep only the instances that are'
+      + ' within it.'
+    : 'Every ' + named + ' instance, coloured by how far it is from the nearest other '
+      + named + '. Slide the distance to keep only the instances within it.';
+  return spec;
+}
+
+function bothSpec(entity, colA, colB) {
+  // The nearest of the structure's own kind has no target but itself.
+  var own = 'distance_to_closest_same_type_um';
+  var a = colA === own ? entity : targetOfColumn(colA);
+  var b = colB === own ? entity : targetOfColumn(colB);
+  var named = dataName(entity);
+  return { kind: 'both', entity: entity, metric: colA + '+' + colB, metrics: [colA, colB],
+           targets: [a, b].filter(Boolean), unit: 'µm',
+           valueLabel: 'Distance to the further of ' + (a || colA) + ' and ' + (b || colB) + ' (µm)',
+           title: entity + ' near ' + (a || colA) + ' and ' + (b || colB),
+           text: 'Every ' + named + ' instance, coloured by the <b>larger</b> of its two'
+             + ' distances - to ' + dataName(a || colA) + ' and to ' + dataName(b || colB)
+             + ' - which is the distance at which it is close to both. The two structures are'
+             + ' drawn faint behind. Slide the distance to keep the instances that are within it'
+             + ' of both.' };
+}
+
+function groupSpec(entity) {
+  return { kind: 'group', entity: entity, title: entity + ' groups',
+           text: 'Instances of ' + dataName(entity) + ' closer than the gap to one another chain'
+             + ' into a group, one colour each; an instance touching nothing is grey. The'
+             + ' slider is the chart’s own gap, so moving either moves both.' };
+}
+
+function structureSpec(entity) {
+  return { kind: 'structure', entity: entity, title: 'The whole ' + entity,
+           text: 'The ' + dataName(entity) + ' as one shape in this ' + noun()
+             + ' - the thing each measurement in the chart is taken of, once per '
+             + noun() + '.' };
+}
+
+/**
+ * The polarity charts all start from the same picture - the centre, and the arrow to the
+ * reference - and each adds what its own chart is made of.
+ */
+function polaritySpec(structure, ref, aspect, objectId, radius) {
+  var named = dataName(structure);
+  var common = 'From the ' + noun() + ' centre (the dot), the dark arrow points at '
+    + dataName(ref) + ': that direction is 0°. ';
+  var tail = {
+    angle: 'The ' + named + ' that lie in the wedge of angles you choose are solid and the rest'
+      + ' faint; the height of that wedge in the chart is how many are solid. Slide to step'
+      + ' round the wedges. The orange arrow is the average direction, and its length is R.',
+    index: 'Each dot is one ' + named + '. The orange arrow is their average direction: its'
+      + ' length is R, and the orange dot where it reaches along the dark arrow is V. Slide to'
+      + ' push every instance out to the same distance: only the directions count here, not'
+      + ' how far out they are.',
+    where: 'Each dot is one ' + named + '. Slide to lay them flat into the chart: how far round'
+      + ' from the dark arrow an instance is becomes its place across, and how far from the'
+      + ' centre it sits becomes its height.',
+    map: 'Each dot is one ' + named + ', and the orange diamond is the ' + noun() + '\u2019s average'
+      + ' of them - the one point this ' + noun() + ' is in the plot. Slide to turn the '
+      + noun() + ' into the chart: every instance is swung round the dark arrow into one'
+      + ' half-plane, which keeps its angle to the arrow and its distance and drops only which'
+      + ' side of the arrow it was on, the one thing the plot leaves out.',
+    cellmap: 'Each dot is one ' + named + '. Slide to lay the ' + noun() + ' flat into the full'
+      + ' circle: each instance is projected onto a plane through the dark arrow, its angle'
+      + ' round the circle is its angle in that plane, and its distance from the centre is the'
+      + ' radius. Which way is up in that plane is arbitrary.'
+  };
+  return { kind: 'polarity', structure: structure, ref: ref, aspect: aspect,
+           objectId: objectId || null, radius: radius || 'centre',
+           title: structure + ' towards ' + ref, text: common + tail[aspect] };
+}
+
+// ── polarity, on the meshes ─────────────────────────────────────────────────
+
+/** The mean of a mesh's vertices: where it sits, for working out where the centre is. */
+function meshCentroid(geometry) {
+  var p = geometry.positions, n = p.length / 3;
+  if (!n) return null;
+  var sum = [0, 0, 0];
+  for (var i = 0; i < p.length; i += 3) { sum[0] += p[i]; sum[1] += p[i + 1]; sum[2] += p[i + 2]; }
+  return [sum[0] / n, sum[1] / n, sum[2] / n];
+}
+
+function medianOf(values) {
+  if (!values.length) return null;
+  var sorted = values.slice().sort(function(a, b){ return a - b; });
+  return quantileSorted(sorted, 0.5);
+}
+
+/**
+ * How deep inside the bounding mask a reading sits, where there is one: its distance row to
+ * that mask for an instance, and the depth of its centre for a whole-structure mask, which
+ * has no instance to carry a distance. The charts and the viewer ask the same question, so
+ * it is asked here, once.
+ */
+function polarDepth(row, maskName) {
+  var col = maskName ? distColumnsFor(maskName).min : null;
+  var fromDistance = col == null ? null : row[col];
+  if (fromDistance != null && isFinite(fromDistance)) return Number(fromDistance);
+  var ofCentre = row.polar_depth_um;
+  return ofCentre != null && isFinite(ofCentre) ? Number(ofCentre) : null;
+}
+
+function polCross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+/**
+ * Where the object's centre is among the meshes, which way the reference lies from it, and
+ * the direction of every instance of the structure being read.
+ *
+ * The directions and distances are the report's own rows - the very numbers the charts are
+ * drawn from, so what the viewer counts is what a chart counts - turned from array order
+ * into the x, y, z the meshes are in. What a geometry file does not carry is the centre they
+ * are measured from, and the viewer needs one to draw from. Every instance says where it is
+ * (its mesh) and where it is from the centre (direction x distance), so each one implies a
+ * centre, and the median of those implied centres is where the arrows start. A mesh's mean
+ * vertex is not the measured centroid, which is why it is a median and not any one of them.
+ *
+ * The axis is the reference's offset from the centre, the same thing the charts' axis is,
+ * and `u` is the direction across it that the circular charts are drawn in, so a chart's
+ * angle is an angle in the plane of `axis` and `u`. `w` completes the three. Per instance:
+ * `angle` to the axis (what the rose and the half-circle plots use, however it is turned
+ * about the axis), `phi` how far round the axis it is, and `theta` its signed angle once
+ * projected onto that plane (what the full circles use).
+ *
+ * Null when there is nothing to measure towards.
+ */
+function polarityFrame(items, objectId, ref, structure, radiusMode) {
+  var axisAt = polarOffset(objectId, ref);
+  if (!axisAt) return null;
+  var toXyz = function(u){ return u.length === 3 ? [u[2], u[1], u[0]] : [u[1], u[0], 0]; };
+  var axis = toXyz(axisAt.unit);
+  var across = toXyz(polarFrame(axisAt.unit).u);
+  var third = polCross(axis, across);
+  var mask = boundingMaskName();
+  var byKey = new Map();
+  items.forEach(function(item) {
+    byKey.set(item.entity + '|' + (item.label === null ? '' : item.label), item);
+  });
+
+  // A structure with instances reads as them; one measured whole has the one row.
+  var readings = function(name) {
+    var rows = INSTANCES.filter(function(r) {
+      return String(r.object_id) === String(objectId) && r.entity_name === name;
+    });
+    if (!rows.length) {
+      rows = ENTS.filter(function(r) {
+        return String(r.object_id) === String(objectId) && r.entity_name === name;
+      });
+    }
+    var out = [];
+    rows.forEach(function(r) {
+      var unit = polarUnit(r), dist = r.polar_dist_um;
+      if (!unit || !(dist > 0) || !isFinite(dist)) return;
+      var key = name + '|' + (r.label_id === undefined || r.label_id === null ? '' : r.label_id);
+      out.push({ n: toXyz(unit), dist: Number(dist), depth: polarDepth(r, mask),
+                 weight: polarWeight(r), item: byKey.get(key) || null });
+    });
+    return out;
+  };
+  var units = readings(structure);
+  var votes = [[], [], []];
+  units.concat(readings(ref)).forEach(function(u) {
+    var at = u.item && meshCentroid(u.item.geometry);
+    if (at) for (var k = 0; k < 3; k++) votes[k].push(at[k] - u.n[k] * u.dist);
+  });
+  var centre;
+  if (votes[0].length) {
+    centre = votes.map(medianOf);
+  } else {
+    // Nothing placed on a mesh: the middle of what is drawn is the next best thing.
+    var sum = [0, 0, 0], n = 0;
+    items.forEach(function(item) {
+      var at = meshCentroid(item.geometry);
+      if (at) { for (var k = 0; k < 3; k++) sum[k] += at[k]; n++; }
+    });
+    if (!n) return null;
+    centre = sum.map(function(v){ return v / n; });
+  }
+  var sizes = polarWeights(units);
+  var reach = axisAt.dist, depthReach = null;
+  units.forEach(function(u, i) {
+    u.weight = sizes[i];
+    u.angle = polarConeDeg(u.n, axis);
+    u.phi = Math.atan2(polDot(u.n, third), polDot(u.n, across));
+    u.theta = Math.atan2(polDot(u.n, across), polDot(u.n, axis));
+    if (u.dist > reach) reach = u.dist;
+    if (u.depth != null && (depthReach === null || u.depth > depthReach)) depthReach = u.depth;
+  });
+  var found = polarityIndices(units.map(function(u){ return u.n; }), axis, sizes);
+  var diamond = null;
+  if (found && found.mean) {
+    var withDepth = units.filter(function(u){ return u.depth !== null; });
+    diamond = { n: found.mean,
+                dist: weightedQuantile(units.map(function(u){ return u.dist; }), sizes, 0.5),
+                depth: withDepth.length
+                  ? weightedQuantile(withDepth.map(function(u){ return u.depth; }),
+                                     withDepth.map(function(u){ return u.weight; }), 0.5)
+                  : null };
+  }
+  return { centre: centre, axis: axis, u: across, w: third, refDist: axisAt.dist,
+           reach: reach, depthReach: depthReach, units: units, diamond: diamond,
+           // How far out the chart's own radius goes: what its grid is drawn to.
+           plotReach: radiusMode === 'membrane' && depthReach ? depthReach : reach,
+           R: found ? found.R : null, V: found ? found.V : null,
+           mean: found && found.mean ? found.mean : null };
+}
+
+/** Which way a chart lays the instances out, by what the chart is. */
+var POLAR_LAYOUTS = { map: 'half', cellmap: 'circle', where: 'cart', index: 'unit' };
+/** The ones that lay the cell flat into a chart, and so turn it to face the camera. */
+var POLAR_FLATTENS = { map: true, cellmap: true, where: true };
+
+/** The radius the chart plots for one reading: its distance, or its depth read to the boundary. */
+function polarPlotRadius(frame, unit, radiusMode) {
+  if (radiusMode === 'membrane' && unit.depth != null && frame.depthReach != null) {
+    // The boundary at the rim and the deepest in the middle, the way the chart draws it.
+    return frame.depthReach - unit.depth;
+  }
+  return unit.dist;
+}
+
+/**
+ * Where one direction and distance is, a fraction `t` of the way from where it sits in the
+ * cell (t = 0) to where a chart plots it (t = 1).
+ *
+ * The three layouts are the three charts. `half` is the plot of angle to the axis against
+ * distance: the instance is turned about the axis into the half-plane of `axis` and `u`,
+ * which keeps its distance and its angle to the axis and loses only the rotation about it -
+ * which is the part the plot leaves out. `circle` is the full circle: the instance's angle
+ * once projected onto that plane, at its distance. `cart` is the scatter of angle against
+ * distance, angle across and distance up. The last two go there in a straight line.
+ * Writes x, y, z into `out` at `at`.
+ */
+function polarMorphPoint(frame, layout, n, dist, radius, t, out, at) {
+  var c = frame.centre, a = frame.axis, u = frame.u, w = frame.w;
+  var na = polDot(n, a), nu = polDot(n, u), nw = polDot(n, w);
+  var k;
+  if (layout === 'half') {
+    var r = dist + (radius - dist) * t;
+    var cone = Math.acos(Math.max(-1, Math.min(1, na)));
+    var phi = Math.atan2(nw, nu) * (1 - t);
+    var side = Math.sin(cone);
+    for (k = 0; k < 3; k++) {
+      out[at + k] = c[k] + r * (na * a[k] + side * (Math.cos(phi) * u[k] + Math.sin(phi) * w[k]));
+    }
+    return;
+  }
+  if (layout === 'unit') {
+    // Out along its own direction to one common distance: what is left once distance is
+    // set aside, which is all R and V look at.
+    var common = frame.reach * 1.1, reachNow = dist + (common - dist) * t;
+    for (k = 0; k < 3; k++) out[at + k] = c[k] + n[k] * reachNow;
+    return;
+  }
+  var along, up;
+  if (layout === 'cart') {
+    var coneAngle = Math.acos(Math.max(-1, Math.min(1, na)));
+    var span = frame.plotReach;
+    along = (coneAngle / Math.PI) * 2 * span - span;
+    up = radius;
+  } else {
+    var theta = Math.atan2(nu, na);
+    along = radius * Math.cos(theta);
+    up = radius * Math.sin(theta);
+  }
+  for (k = 0; k < 3; k++) {
+    var here = c[k] + dist * n[k];
+    var there = c[k] + along * a[k] + up * u[k];
+    out[at + k] = here + (there - here) * t;
+  }
+}
+
+/** Every instance of the frame at `t`, as a flat x, y, z array. */
+function polarMorphPositions(frame, layout, radiusMode, t) {
+  var out = new Float32Array(frame.units.length * 3);
+  frame.units.forEach(function(unit, i) {
+    polarMorphPoint(frame, layout, unit.n, unit.dist,
+                    polarPlotRadius(frame, unit, radiusMode), t, out, 3 * i);
+  });
+  return out;
+}
+
+/**
+ * The turn that lays the plot's plane flat to the camera: axis to the right, `u` up, `w`
+ * towards the viewer - which is how every circular chart is drawn - a fraction `t` of the
+ * way, about the object's centre.
+ */
+function polarMorphPose(THREE, frame, t) {
+  var a = frame.axis, u = frame.u, w = frame.w, c = frame.centre;
+  var turn = new THREE.Matrix4().set(a[0], a[1], a[2], 0, u[0], u[1], u[2], 0,
+                                     w[0], w[1], w[2], 0, 0, 0, 0, 1);
+  var full = new THREE.Quaternion().setFromRotationMatrix(turn);
+  var part = new THREE.Quaternion().slerpQuaternions(new THREE.Quaternion(), full, t);
+  return new THREE.Matrix4().makeTranslation(c[0], c[1], c[2])
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(part))
+    .multiply(new THREE.Matrix4().makeTranslation(-c[0], -c[1], -c[2]));
+}
+
+/** Two unit vectors across an axis, so a cone about it can be walked round. */
+function acrossAxis(axis) {
+  var seed = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  var u = polAdded(seed, polScaled(axis, -polDot(seed, axis)));
+  u = polScaled(u, 1 / polNorm(u));
+  var v = [axis[1] * u[2] - axis[2] * u[1], axis[2] * u[0] - axis[0] * u[2],
+           axis[0] * u[1] - axis[1] * u[0]];
+  return [u, v];
+}
+
+/** The angular bins of the rose: the wedges a reader counts. */
+var POLAR_ANGLE_BINS = 12;
+/** Which wedge of the rose an angle to the axis falls in: the last one takes 180° too. */
+function polarBinOf(angle) {
+  return Math.min(POLAR_ANGLE_BINS - 1, Math.floor(angle / (180 / POLAR_ANGLE_BINS)));
+}
+
+/**
+ * What is drawn over the cell for one polarity chart, in a group so a slider can swap it
+ * without touching the meshes.
+ *
+ * `o.aspect` says which chart. All of them have the centre, and the arrow to the
+ * reference. The rose adds a line to every instance and the shell of angles one wedge
+ * stands for. The two indices add the average direction, as an arrow as long as R whose
+ * reach along the axis is V, with the lines shortening to unit length to show that
+ * distance is not what they are about. The three plots add a point for each instance, and
+ * the grid of the chart they are on, both of which are moved by `o.t` from the cell to the
+ * chart.
+ */
+function polarityOverlay(THREE, frame, o) {
+  var group = new THREE.Group();
+  var c = frame.centre, a = frame.axis, L = frame.reach * 1.1;
+  var BLUE = new THREE.Color('#1c5cab'), GREY = new THREE.Color('#9aa3ad');
+  var vec = function(p){ return new THREE.Vector3(p[0], p[1], p[2]); };
+  var line = function(points, colour, opacity, parent) {
+    var geometry = new THREE.BufferGeometry().setFromPoints(points.map(vec));
+    var made = new THREE.Line(geometry, new THREE.LineBasicMaterial({
+      color: colour, transparent: opacity < 1, opacity: opacity, depthTest: false }));
+    made.renderOrder = 4;
+    (parent || group).add(made);
+    return made;
+  };
+  var segments = function(pairs, colour, opacity) {
+    var positions = [];
+    pairs.forEach(function(p){ positions.push(p[0][0], p[0][1], p[0][2], p[1][0], p[1][1], p[1][2]); });
+    var geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    var made = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      color: colour, transparent: true, opacity: opacity, depthTest: false }));
+    made.renderOrder = 4;
+    group.add(made);
+    return made;
+  };
+  var morphing = !!POLAR_LAYOUTS[o.aspect];
+  var layout = POLAR_LAYOUTS[o.aspect];
+  var t = morphing ? o.t : 0;
+
+  // The shell of angles between two cones about the axis: what one wedge of the rose counts.
+  if (o.aspect === 'angle') {
+    var loRad = o.wedge * Math.PI / POLAR_ANGLE_BINS, hiRad = loRad + Math.PI / POLAR_ANGLE_BINS;
+    var across = o.planar ? [[-a[1], a[0], 0]] : acrossAxis(a);
+    var K = o.planar ? 2 : 48, J = 4, wrap = !o.planar, rings = [];
+    for (var j = 0; j <= J; j++) {
+      var tt = loRad + (hiRad - loRad) * j / J, ring = [];
+      for (var k = 0; k < K; k++) {
+        var phi = o.planar ? (k ? Math.PI : 0) : 2 * Math.PI * k / K;
+        var sideways = o.planar
+          ? polScaled(across[0], Math.cos(phi))
+          : polAdded(polScaled(across[0], Math.cos(phi)), polScaled(across[1], Math.sin(phi)));
+        var dir = polAdded(polScaled(a, Math.cos(tt)), polScaled(sideways, Math.sin(tt)));
+        ring.push([c[0] + dir[0] * L, c[1] + dir[1] * L, c[2] + dir[2] * L]);
+      }
+      rings.push(ring);
+    }
+    var tri = [];
+    for (var r = 1; r <= J; r++) {
+      for (var q = 0; q < (wrap ? K : K - 1); q++) {
+        var q2 = (q + 1) % K;
+        tri.push(rings[r - 1][q], rings[r - 1][q2], rings[r][q]);
+        tri.push(rings[r - 1][q2], rings[r][q2], rings[r][q]);
+      }
+    }
+    var shell = new THREE.BufferGeometry();
+    shell.setAttribute('position', new THREE.Float32BufferAttribute([].concat.apply([], tri), 3));
+    group.add(new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
+      color: BLUE, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false })));
+    [rings[0], rings[J]].forEach(function(rim) {
+      var loop = new THREE[wrap ? 'LineLoop' : 'Line'](
+        new THREE.BufferGeometry().setFromPoints(rim.map(vec)),
+        new THREE.LineBasicMaterial({ color: BLUE }));
+      group.add(loop);
+    });
+  }
+
+  // The points that become the chart, and the chart's own grid under them.
+  if (morphing) {
+    var coords = polarMorphPositions(frame, layout, o.radiusMode, t);
+    var dots = new THREE.BufferGeometry();
+    dots.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+    var points = new THREE.Points(dots, new THREE.PointsMaterial({
+      color: new THREE.Color('#1c5cab'), size: 4, sizeAttenuation: false,
+      transparent: true, opacity: 0.85, depthTest: false }));
+    points.renderOrder = 6;
+    group.add(points);
+
+    var R = frame.plotReach;
+    var flat = !!POLAR_FLATTENS[o.aspect];
+    var at = function(x, y) {
+      return [c[0] + a[0] * x + frame.u[0] * y, c[1] + a[1] * x + frame.u[1] * y,
+              c[2] + a[2] * x + frame.u[2] * y];
+    };
+    var grid = [];
+    var arc = function(radius, from, to) {
+      var pieces = [], steps = 48;
+      for (var i = 0; i < steps; i++) {
+        var p = from + (to - from) * i / steps, q = from + (to - from) * (i + 1) / steps;
+        pieces.push([at(radius * Math.cos(p), radius * Math.sin(p)),
+                     at(radius * Math.cos(q), radius * Math.sin(q))]);
+      }
+      return pieces;
+    };
+    if (!flat) {
+      // Nothing to lay a grid on: the dots only move along their own directions.
+    } else if (layout === 'cart') {
+      grid.push([at(-R, 0), at(R, 0)], [at(-R, 0), at(-R, R)]);
+      [1 / 3, 2 / 3, 1].forEach(function(f){ grid.push([at(-R, R * f), at(R, R * f)]); });
+      [0, 1, 2, 3, 4].forEach(function(i) {
+        var x = -R + 2 * R * i / 4;
+        grid.push([at(x, 0), at(x, R)]);
+      });
+    } else {
+      var sweep = layout === 'half' ? [0, Math.PI] : [0, 2 * Math.PI];
+      [1 / 3, 2 / 3, 1].forEach(function(f){ grid = grid.concat(arc(R * f, sweep[0], sweep[1])); });
+      grid.push([at(0, 0), at(R, 0)], [at(0, 0), at(0, R)]);
+      if (layout === 'circle') grid.push([at(0, 0), at(-R, 0)], [at(0, 0), at(0, -R)]);
+      else grid.push([at(0, 0), at(-R, 0)]);
+    }
+    if (grid.length) {
+      var gridLines = segments(grid, 0x6b7480, 0.6 * t);
+      gridLines.renderOrder = 3;
+    }
+
+    // The cell's average for the structure - its middle distance, its mean direction: the
+    // one point a plot per group is made of.
+    if (frame.diamond && (layout === 'half' || layout === 'circle')) {
+      var where = new Float32Array(3);
+      var dRadius = o.radiusMode === 'membrane' && frame.diamond.depth != null
+        && frame.depthReach != null ? frame.depthReach - frame.diamond.depth : frame.diamond.dist;
+      polarMorphPoint(frame, layout, frame.diamond.n, frame.diamond.dist, dRadius, t, where, 0);
+      var gem = new THREE.Mesh(new THREE.OctahedronGeometry(Math.max(frame.reach * 0.06, 1e-6)),
+        new THREE.MeshBasicMaterial({ color: 0xd9480f, depthTest: false }));
+      gem.position.set(where[0], where[1], where[2]);
+      gem.renderOrder = 9;
+      group.add(gem);
+    }
+  }
+
+  // An arrow is a shaft and a head: a line is one pixel wide however it is asked for, and
+  // an average a tenth the length of the axis one cannot be read through that.
+  var head = Math.max(L * 0.05, 1e-6);
+  var arrow = function(dir, length, colour, order, width) {
+    var shaft = Math.max(length - head * 1.6, 0);
+    var material = new THREE.MeshBasicMaterial({ color: colour, depthTest: false });
+    var made = new THREE.Group();
+    var rod = new THREE.Mesh(new THREE.CylinderGeometry(head * width, head * width, shaft, 8),
+                             material);
+    rod.position.y = shaft / 2;
+    var tip = new THREE.Mesh(new THREE.ConeGeometry(head * 0.55, head * 1.6, 14), material);
+    tip.position.y = shaft + head * 0.8;
+    made.add(rod, tip);
+    made.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vec(dir).normalize());
+    made.position.copy(vec(c));
+    made.traverse(function(node){ node.renderOrder = order; });
+    return made;
+  };
+  group.add(arrow(a, L, 0x12161b, 6, 0.1));
+  if ((o.aspect === 'angle' || o.aspect === 'index') && frame.mean && frame.R > 0.01) {
+    group.add(arrow(frame.mean, frame.R * L, 0xd9480f, 7, 0.24));
+  }
+  // V: how far that average reaches along the axis. Dropped to it from the arrow's tip.
+  if (o.aspect === 'index' && frame.mean && frame.R > 0.01) {
+    var tip = [c[0] + frame.mean[0] * frame.R * L, c[1] + frame.mean[1] * frame.R * L,
+               c[2] + frame.mean[2] * frame.R * L];
+    var foot = [c[0] + a[0] * frame.V * L, c[1] + a[1] * frame.V * L, c[2] + a[2] * frame.V * L];
+    line([tip, foot], 0xd9480f, 0.9);
+    var bar = line([c, foot], 0xd9480f, 1);
+    bar.material.linewidth = 2;
+    var mark = new THREE.Mesh(new THREE.SphereGeometry(head * 0.45, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xd9480f, depthTest: false }));
+    mark.position.set(foot[0], foot[1], foot[2]);
+    mark.renderOrder = 9;
+    group.add(mark);
+  }
+
+  var dot = new THREE.Mesh(new THREE.SphereGeometry(head * 0.7, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x12161b, depthTest: false }));
+  dot.position.copy(vec(c));
+  dot.renderOrder = 8;
+  group.add(dot);
+  return group;
+}
 
 async function renderScene() {
   var controls = document.getElementById('scene-controls');
   var holderWrap = document.getElementById('scene-holder');
   var noteEl = document.getElementById('scene-note');
+  var explainEl = document.getElementById('scene-explain');
   controls.replaceChildren();
   holderWrap.replaceChildren();
+  explainEl.replaceChildren();
   noteEl.textContent = '';
+  // With geometry the viewer is a column of its own, beside the charts (see the stylesheet);
+  // without it, this section is where the page says how to get some.
+  var mainEl = document.getElementById('main-content');
+  var wasDocked = mainEl.classList.contains('docked');
+  mainEl.classList.toggle('docked', hasGeometry());
+  // The charts were drawn at the width the page had, and the viewer takes some of it: a
+  // chart only follows the window, so the ones already drawn would run on under the card.
+  if (wasDocked !== hasGeometry() && window.Plotly) {
+    requestAnimationFrame(function() {
+      document.querySelectorAll('.js-plotly-plot').forEach(function(plot) {
+        try { Plotly.Plots.resize(plot); } catch (e) { /* not on screen */ }
+      });
+    });
+  }
+  var topbarEl = document.getElementById('topbar');
+  mainEl.style.setProperty('--topbar-h', (topbarEl ? topbarEl.offsetHeight : 0) + 'px');
+  var explain = sceneState.explain;
+  var dockEl = document.getElementById('s-3d');
+  if (dockEl) dockEl.classList.toggle('explaining', !!explain);
+  syncDock();
+  // Two renders can overlap - a second pin before the first has read anything - and the
+  // older must not paint over the newer.
+  var run = ++_sceneRun;
+  var isLatest = function(){ return run === _sceneRun; };
 
   // Only the objects the filter leaves, so "the object in 3D" is one the rest of the page
   // is also about.
@@ -4766,14 +6020,22 @@ async function renderScene() {
   var metrics = geometryMetrics().concat(fromReport);
   if (!sceneState.metric || metrics.indexOf(sceneState.metric) < 0) sceneState.metric = metrics[0];
 
-  var stageParts = stageCanvas(holderWrap, 520);
+  // The same canvas every time: a new one would need a new WebGL context, and a browser
+  // gives up the oldest of those after a handful.
+  var stageParts = _sceneHolder;
+  if (stageParts) {
+    holderWrap.replaceChildren(stageParts.holder);
+    stageParts.holder.querySelectorAll('.stage-busy').forEach(function(el){ el.remove(); });
+    stageParts.holder.style.display = '';
+  } else {
+    stageParts = _sceneHolder = stageCanvas(holderWrap, 430);
+  }
   var holder = stageParts.holder, canvas = stageParts.canvas;
   // Under the scene, filled by the painting - which is where the scale's ends are known,
   // since they come from the instances on screen rather than from the whole report.
   var rampHost = document.getElementById('scene-scale');
   rampHost.replaceChildren();
   var loaded = null;
-  if (_objectStage) { _objectStage.dispose(); _objectStage = null; }
 
   /**
    * What is in this object's geometry file, and how big: the cheap query. One structure can
@@ -4781,6 +6043,10 @@ async function renderScene() {
    * are folded into one entry per name, which is what the reader toggles.
    */
   async function readSummary() {
+    // Keyed on the file: another object, or geometry added since, starts the cache over.
+    var key = sourceOf([current]);
+    if (_geomCache.key !== key) _geomCache = { key: key, summary: null, byEntity: new Map() };
+    if (_geomCache.summary) return _geomCache.summary;
     var rows = await queryRows(sceneSummarySql(sourceOf([current])));
     var gaps = await queryRows(sceneGapSql(sourceOf([current])));
     var byName = new Map();
@@ -4792,7 +6058,9 @@ async function renderScene() {
       entry.faces += Number(row.faces || 0);
       byName.set(name, entry);
     });
-    return { entities: [...byName.values()], widestGap: numOrNull((gaps[0] || {}).widest) };
+    _geomCache.summary = { entities: [...byName.values()],
+                           widestGap: numOrNull((gaps[0] || {}).widest) };
+    return _geomCache.summary;
   }
 
   async function readGeometry(summary) {
@@ -4801,74 +6069,239 @@ async function renderScene() {
       .map(function(e){ return e.name; });
     if (!wanted.length) return { instances: [], masks: [], edges: [] };
 
-    var metricCols = [...new Set([sceneState.metric, 'polar_dist_um',
-                                  'polar_nx', 'polar_ny', 'polar_nz'])]
+    // Every metric the file carries, not only the one on screen: what is read is kept, and a
+    // different colouring should not mean reading it again.
+    var metricCols = [...new Set(geometryMetrics().concat(
+      ['polar_dist_um', 'polar_nx', 'polar_ny', 'polar_nz']))]
       .filter(function(col){ return fromReport.indexOf(col) < 0; });
-    // A report-only metric is joined on by structure and label instead of selected.
-    var joined = fromReport.indexOf(sceneState.metric) >= 0
+    // A report-only metric is joined on by structure and label instead of selected. A chart
+    // being explained always is: it plots a column of the report's own rows, which the
+    // geometry file may not carry, and the join works for any of them.
+    var joined = explain ? null : fromReport.indexOf(sceneState.metric) >= 0
       ? reportMetricValues(current.id, sceneState.metric) : null;
-    var rows = await queryRows(
-      sceneGeometrySql(sourceOf([current]), wanted, metricCols));
+    var explained = explain ? explainValueCols(explain)
+      .map(function(col){ return reportMetricValues(current.id, col); }) : null;
 
-    // Every instance of every structure that is switched on, so nothing is silently
-    // missing; what gives instead is how finely each one is tessellated.
-    setSurfaceDetail(rows.length);
+    // Only the structures not already read for this object.
+    var source = sourceOf([current]);
+    var missing = wanted.filter(function(name){ return !_geomCache.byEntity.has(name); });
+    if (missing.length) {
+      var rows = await queryRows(sceneGeometrySql(source, missing, metricCols));
+      if (!isLatest()) return null;
+      // Every instance of every structure that is switched on, so nothing is silently
+      // missing; what gives instead is how finely each one is tessellated.
+      setSurfaceDetail(summary.entities
+        .filter(function(e){ return sceneState.entities.has(e.name); })
+        .reduce(function(n, e){ return n + e.instances + e.masks; }, 0) || rows.length);
+      missing.forEach(function(name){ _geomCache.byEntity.set(name, { instances: [], masks: [] }); });
+      rows.forEach(function(row) {
+        var drawable = decodeDrawable(row);
+        if (!drawable) return;
+        var vals = {};
+        metricCols.forEach(function(col){ vals[col] = numOrNull(row[col]); });
+        var entry = _geomCache.byEntity.get(String(row.entity));
+        (row.row_type === 'file' ? entry.masks : entry.instances).push({
+          entity: String(row.entity),
+          label: row.label === null || row.label === undefined ? null : String(row.label),
+          vals: vals,
+          polar: { dist: numOrNull(row.polar_dist_um) || 0,
+                   n: [numOrNull(row.polar_nx) || 0, numOrNull(row.polar_ny) || 0,
+                       numOrNull(row.polar_nz) || 0] },
+          geometry: drawable.geometry,
+          flat: drawable.flat,
+          kind: String(row.surface_kind || 'mesh')
+        });
+      });
+    }
 
+    // What is drawn is a thin copy of what was read: the surfaces are shared, while the
+    // value that colours an item and the marks a slider puts on it belong to this render.
     var instances = [], masks = [];
-    rows.forEach(function(row) {
-      var drawable = decodeDrawable(row);
-      if (!drawable) return;
-      var key = String(row.entity) + '|'
-        + (row.label === null || row.label === undefined ? '' : String(row.label));
-      var item = {
-        entity: String(row.entity),
-        label: row.label === null || row.label === undefined ? null : String(row.label),
-        metric: joined ? (key in joined ? joined[key] : null)
-                       : numOrNull(row[sceneState.metric]),
-        polar: { dist: numOrNull(row.polar_dist_um) || 0,
-                 n: [numOrNull(row.polar_nx) || 0, numOrNull(row.polar_ny) || 0,
-                     numOrNull(row.polar_nz) || 0] },
-        geometry: drawable.geometry,
-        flat: drawable.flat,
-        kind: String(row.surface_kind || 'mesh')
-      };
-      (row.row_type === 'file' ? masks : instances).push(item);
+    var copy = function(read) {
+      var key = read.entity + '|' + (read.label === null ? '' : read.label);
+      var value = explained ? explainedValue(explained, key)
+        : joined ? (key in joined ? joined[key] : null)
+        : (read.vals[sceneState.metric] === undefined ? null : read.vals[sceneState.metric]);
+      return { entity: read.entity, label: read.label, metric: value, polar: read.polar,
+               geometry: read.geometry, flat: read.flat, kind: read.kind };
+    };
+    wanted.forEach(function(name) {
+      var read = _geomCache.byEntity.get(name);
+      if (!read) return;
+      read.instances.forEach(function(item){ instances.push(copy(item)); });
+      read.masks.forEach(function(item){ masks.push(copy(item)); });
     });
 
-    var edges = [];
-    if (sceneState.colourBy === 'group' && sceneState.gap !== null) {
-      edges = (await queryRows(sceneEdgesSql(sourceOf([current]), sceneState.gap)))
-        .map(function(e){ return { a: e.ea + '|' + e.la, b: e.eb + '|' + e.lb }; });
+    var edges = await readEdges();
+    // Where the centre is among the meshes, for the arrows a polarity chart is explained by.
+    var frame = null;
+    if (explain && explain.kind === 'polarity') {
+      frame = polarityFrame(instances.concat(masks), current.id, explain.ref,
+                            explain.structure, explain.radius);
+      // The wedge to begin on is the fullest: the tallest bar of the chart it explains.
+      if (frame && sceneState.wedge === null) {
+        var counts = new Array(POLAR_ANGLE_BINS).fill(0);
+        frame.units.forEach(function(u){ counts[polarBinOf(u.angle)]++; });
+        sceneState.wedge = counts.indexOf(Math.max.apply(null, counts));
+      }
     }
-    return { instances: instances, masks: masks, edges: edges };
+    return { instances: instances, masks: masks, edges: edges, frame: frame };
+  }
+
+  async function readEdges() {
+    if (sceneState.colourBy !== 'group' || sceneState.gap === null) return [];
+    return (await queryRows(sceneEdgesSql(sourceOf([current]), sceneState.gap)))
+      .map(function(e){ return { a: e.ea + '|' + e.la, b: e.eb + '|' + e.lb }; });
+  }
+
+  // The structure a chart is about, and the ones drawn solid for it. The rest of what is
+  // loaded is there to measure against and is drawn faint.
+  var subject = explain ? (explain.kind === 'polarity' ? explain.structure : explain.entity) : null;
+  var shown = explain ? explainShown(explain) : null;
+  // What the overlay of the polarity view was drawn into, so a slider can swap it alone.
+  // It lives on the stage, which outlasts this render: an overlay left by the last one is
+  // still in the scene.
+  function clearOverlay() {
+    var stage = _objectStage;
+    if (!stage || !stage.overlay) return;
+    stage.scene.remove(stage.overlay);
+    stage.overlay.traverse(function(node) {
+      if (node.geometry) node.geometry.dispose();
+      if (node.material) node.material.dispose();
+    });
+    stage.overlay = null;
+  }
+
+  /**
+   * Which instances a chart's slider has put out of play.
+   *
+   * A chart about "at most this far" or "within this angle" is a count of the instances
+   * that qualify, so the ones that do not are drawn faint rather than removed: they are
+   * still there, and where they sit is part of the picture.
+   */
+  function applyThreshold() {
+    if (!explain || !loaded) return;
+    var subjects = loaded.instances.filter(function(i){ return i.entity === subject; });
+    subjects.forEach(function(item){ item.dim = false; });
+    if (explain.kind === 'polarity') {
+      // Only the rose puts instances out of play - those outside the wedge. The others turn
+      // the whole cell into a chart, and leave none behind.
+      if (!loaded.frame || explain.aspect !== 'angle') return;
+      var counted = new Set();
+      loaded.frame.units.forEach(function(u) {
+        if (!u.item) return;
+        u.item.dim = polarBinOf(u.angle) !== sceneState.wedge;
+        counted.add(u.item);
+      });
+      // Without a direction there is nothing to be inside the wedge.
+      subjects.forEach(function(item){ if (!counted.has(item)) item.dim = true; });
+    } else if (sceneState.colourBy === 'metric' && sceneState.threshold !== null) {
+      subjects.forEach(function(item) {
+        item.dim = !isFinite(item.metric) || item.metric === null
+          || item.metric > sceneState.threshold;
+      });
+    }
+  }
+
+  /**
+   * Repaint with the busy overlay up. A repaint is one synchronous stretch, so the overlay
+   * has to be on screen before it starts: wait a frame, or it is only ever seen afterwards.
+   */
+  async function repaintWhile(text) {
+    var done = busy(holder, text);
+    await new Promise(function(resolve){ requestAnimationFrame(function(){ setTimeout(resolve, 0); }); });
+    try { paint(); } finally { done(); }
+  }
+
+  /** Draw the polarity arrows and cone over the meshes. Cheap, so a slider can call it live. */
+  function paintOverlay(andDraw) {
+    var stage = _objectStage;
+    if (!stage || !loaded || !isLatest()) return;
+    clearOverlay();
+    if (explain && explain.kind === 'polarity' && loaded.frame) {
+      stage.overlay = polarityOverlay(stage.THREE, loaded.frame, {
+        aspect: explain.aspect, wedge: sceneState.wedge || 0, t: sceneState.t,
+        planar: PLANAR, radiusMode: explain.radius, colour: litEntColour(explain.structure) });
+      stage.scene.add(stage.overlay);
+    }
+    if (andDraw !== false) stage.draw();
+  }
+
+  /**
+   * Turn the cell into the chart, as far as the slider says: the whole cell rotated until the
+   * chart's plane faces the camera, the cell itself fading as the points that stand for it
+   * take over, and the camera swinging round to look at it square on. Put back, camera
+   * included, when the slider is.
+   */
+  function applyMorph() {
+    var stage = _objectStage;
+    if (!stage) return;
+    var morph = explain && explain.kind === 'polarity' && POLAR_FLATTENS[explain.aspect]
+      && loaded && loaded.frame;
+    if (!morph) {
+      stage.setPose(null);
+      stage.fade(1);
+      if (stage.morphFrom) { stage.view(stage.morphFrom, false); stage.morphFrom = null; }
+      return;
+    }
+    var t = sceneState.t;
+    stage.setPose(polarMorphPose(stage.THREE, loaded.frame, t));
+    stage.fade(1 - t);
+    if (t > 0 && !stage.morphFrom) stage.morphFrom = stage.view();
+    if (!stage.morphFrom) return;
+    if (t === 0) {
+      stage.view(stage.morphFrom, false);
+      stage.morphFrom = null;
+    } else {
+      // Round the short way, to straight on: the plane's normal is the camera's z.
+      var from = stage.morphFrom;
+      var turn = ((-from.theta + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+      stage.view({ theta: from.theta + turn * t, phi: from.phi + (Math.PI / 2 - from.phi) * t },
+                 false);
+    }
+  }
+
+  /** A slider moved a polarity view: redraw what is over the cell and turn it, no more. */
+  function refreshPolar() {
+    var stage = _objectStage;
+    if (!stage || !loaded || !isLatest()) return;
+    paintOverlay(false);
+    applyMorph();
+    stage.draw();
   }
 
   /** Paint what is loaded, with the current colouring and explode factor. */
   function paint() {
     var stage = _objectStage;
-    if (!stage || !loaded) return;
+    if (!stage || !loaded || !isLatest()) return;
     var THREE = stage.THREE;
     stage.clear();
+    applyThreshold();
 
     // Colours come from the report's full structure list, not the drawn subset, so turning a
     // structure off does not recolour the ones left.
     var colourOf;
     rampHost.replaceChildren();
+    var inSubject = loaded.instances.filter(function(item){
+      return !explain || item.entity === subject;
+    });
     if (sceneState.colourBy === 'metric') {
-      var values = loaded.instances.map(function(i){ return i.metric; }).filter(isFinite);
+      var values = inSubject.map(function(i){ return i.metric; }).filter(isFinite);
       var low = Math.min.apply(null, values), high = Math.max.apply(null, values);
       var span = high - low || 1;
       colourOf = function(item) {
-        return isFinite(item.metric) ? viridisAt((item.metric - low) / span)
+        return isFinite(item.metric) && item.metric !== null
+          ? viridisAt((item.metric - low) / span)
           : [0.6, 0.6, 0.6].map(toLinear);
       };
       // Which colour was which value, from the instances actually on screen.
       if (values.length) {
-        rampHost.appendChild(colourRamp({ label: labelFor(sceneState.metric),
-                                          low: low, high: high }));
+        rampHost.appendChild(colourRamp({
+          label: explain && explain.valueLabel ? explain.valueLabel : labelFor(sceneState.metric),
+          low: low, high: high }));
       }
     } else if (sceneState.colourBy === 'group') {
-      var keys = loaded.instances.map(function(i){ return i.entity + '|' + i.label; });
+      var keys = inSubject.map(function(i){ return i.entity + '|' + i.label; });
       var groups = contactGroups(keys, loaded.edges);
       var clusterColour = new Map();
       colourOf = function(item) {
@@ -4885,11 +6318,26 @@ async function renderScene() {
       colourOf = function(item){ return toLinearRgb(litEntColour(item.entity)); };
     }
 
+    // Faint where the chart being explained is not about it: the structures it only
+    // measures against, and whatever a slider has put out of play.
+    var ghostly = function(item) {
+      return !!explain && (!shown.has(item.entity) || item.dim === true);
+    };
     var asItem = function(item) {
-      return { geometry: item.geometry, rgb: colourOf(item), kind: item.kind,
+      return { geometry: item.geometry, kind: item.kind, flat: item.flat, rgb: colourOf(item),
                offset: explodeOffset(item.polar, sceneState.explode) };
     };
-    var solid = loaded.instances.filter(function(i){ return !i.flat; }).map(asItem);
+    // Put out of play by a slider: grey. Only measured against: its own colour, faint.
+    var asGhost = function(item) {
+      var out = asItem(item);
+      out.rgb = item.dim === true ? [0.62, 0.64, 0.68].map(toLinear)
+        : toLinearRgb(litEntColour(item.entity));
+      return out;
+    };
+    var solid = loaded.instances.filter(function(i){ return !i.flat && !ghostly(i); })
+      .map(asItem);
+    var faint = loaded.instances.filter(function(i){ return !i.flat && ghostly(i); })
+      .map(asGhost);
 
     // A plane has no surface to shade: same merge, built as LineSegments.
     var surfaces = mergeInstances(THREE, solid);
@@ -4906,11 +6354,23 @@ async function renderScene() {
       mesh.receiveShadow = true;
       stage.scene.add(mesh);
     }
+    var faintSurfaces = mergeInstances(THREE, faint);
+    if (faintSurfaces) {
+      stage.scene.add(new THREE.Mesh(faintSurfaces, new THREE.MeshPhongMaterial({
+        vertexColors: true, side: THREE.DoubleSide, shininess: 14, specular: 0x0d0d10,
+        transparent: true, opacity: 0.16, depthWrite: false })));
+    }
     var outlines = mergeInstances(THREE, loaded.instances
-      .filter(function(i){ return i.flat; }).map(asItem));
+      .filter(function(i){ return i.flat && !ghostly(i); }).map(asItem));
     if (outlines) {
       stage.scene.add(new THREE.LineSegments(outlines,
         new THREE.LineBasicMaterial({ vertexColors: true })));
+    }
+    var faintOutlines = mergeInstances(THREE, loaded.instances
+      .filter(function(i){ return i.flat && ghostly(i); }).map(asGhost));
+    if (faintOutlines) {
+      stage.scene.add(new THREE.LineSegments(faintOutlines, new THREE.LineBasicMaterial({
+        vertexColors: true, transparent: true, opacity: 0.3 })));
     }
 
     // Only the mask that bounds the object is see-through, and it has to be: it encloses
@@ -4920,32 +6380,253 @@ async function renderScene() {
     // In a plane a boundary line does the enclosing job without any transparency.
     var bounding = (OBJECTS[0] || {}).object_mask_name;
     loaded.masks.forEach(function(mask) {
-      var geometry = mergeInstances(THREE, [{ geometry: mask.geometry, rgb: colourOf(mask) }]);
+      var geometry = mergeInstances(THREE, [{ geometry: mask.geometry,
+        rgb: explain ? toLinearRgb(litEntColour(mask.entity)) : colourOf(mask) }]);
       if (!geometry) return;
+      var asContext = ghostly(mask);
       if (mask.flat) {
         stage.scene.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-          vertexColors: true, transparent: true, opacity: 0.55 })));
+          vertexColors: true, transparent: true, opacity: asContext ? 0.3 : 0.55 })));
         return;
       }
       var encloses = bounding != null && mask.entity === String(bounding);
+      var seeThrough = encloses || asContext;
       var surface = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
         vertexColors: true, side: THREE.DoubleSide,
         shininess: 14, specular: 0x0d0d10,
-        transparent: encloses, opacity: encloses ? 0.12 : 1,
-        depthWrite: !encloses
+        transparent: seeThrough, opacity: encloses ? 0.12 : asContext ? 0.16 : 1,
+        depthWrite: !seeThrough
       }));
-      if (!encloses) { surface.castShadow = true; surface.receiveShadow = true; }
+      if (!seeThrough) { surface.castShadow = true; surface.receiveShadow = true; }
       stage.scene.add(surface);
     });
 
+    paintOverlay(false);
+    applyMorph();
     stage.frameShadow();
     stage.draw();
+    writeExplain();
+  }
+
+  // The readout under the explanation, kept so a slider can rewrite it as it moves.
+  var readoutEl = null;
+
+  /** The range of what a metric-coloured chart plots, over the instances on screen. */
+  function subjectValues() {
+    return loaded ? loaded.instances.filter(function(i){ return i.entity === subject; })
+      .map(function(i){ return i.metric; })
+      .filter(function(v){ return v !== null && isFinite(v); }) : [];
+  }
+
+  /** What the chart's number is, counted on this object, as the slider currently has it. */
+  function readoutHtml(live) {
+    if (!explain || !loaded) return '';
+    var named = dataName(subject || '');
+    if (explain.kind === 'polarity') {
+      var frame = loaded.frame;
+      if (!frame) return 'Nothing to measure from: ' + escHtml(explain.ref)
+        + ' has no direction from the centre in this ' + noun() + '.';
+      var total = frame.units.length.toLocaleString();
+      var indices = 'R <b>' + (frame.R === null ? '–' : frame.R.toFixed(2)) + '</b>, V <b>'
+        + (frame.V === null ? '–' : frame.V.toFixed(2)) + '</b> for this ' + noun();
+      if (explain.aspect === 'angle') {
+        var wedge = live === undefined ? sceneState.wedge : live;
+        var width = 180 / POLAR_ANGLE_BINS;
+        var here = frame.units.filter(function(u){ return polarBinOf(u.angle) === wedge; });
+        var whole = frame.units.reduce(function(n, u){ return n + u.weight; }, 0);
+        var share = here.reduce(function(n, u){ return n + u.weight; }, 0) / (whole || 1);
+        return '<b>' + here.length.toLocaleString() + '</b> of <b>' + total + '</b> ' + named
+          + ' lie between <b>' + Math.round(wedge * width) + '°</b> and <b>'
+          + Math.round((wedge + 1) * width) + '°</b> of ' + dataName(explain.ref) + ', <b>'
+          + fmtPct(share, 1) + '</b> of them by size: the height of this wedge<br>' + indices;
+      }
+      if (explain.aspect === 'index') return '<b>' + total + '</b> ' + named + '<br>' + indices;
+      if (explain.aspect === 'where') {
+        return '<b>' + total + '</b> ' + named + ', each at its angle to ' + dataName(explain.ref)
+          + ' and its distance from the centre';
+      }
+      return '<b>' + total + '</b> ' + named + ', and the cell\u2019s average of them as the'
+        + ' orange diamond';
+    }
+    if (explain.kind === 'group') {
+      var gap = live === undefined ? sceneState.gap : live;
+      var keys = loaded.instances.filter(function(i){ return i.entity === subject; })
+        .map(function(i){ return i.entity + '|' + i.label; });
+      var groups = contactGroups(keys, loaded.edges);
+      var sizes = new Map();
+      keys.forEach(function(k) {
+        var root = groups.rootOf(k);
+        sizes.set(root, groups.sizeOfRoot(root));
+      });
+      var grouped = 0, count = 0, largest = 0;
+      sizes.forEach(function(size) {
+        if (size < 2) return;
+        grouped += size; count++; largest = Math.max(largest, size);
+      });
+      return '<b>' + grouped.toLocaleString() + '</b> of <b>' + keys.length.toLocaleString()
+        + '</b> ' + named + ' touch another within <b>' + fmtGap(gap) + ' µm</b>, in <b>'
+        + count.toLocaleString() + '</b> group' + (count === 1 ? '' : 's')
+        + (count ? ', the largest of <b>' + largest + '</b>' : '');
+    }
+    if (explain.kind === 'structure') return '';
+    var values = subjectValues();
+    if (!values.length) return 'None of the ' + named + ' here has this measurement.';
+    var top = Math.max.apply(null, values);
+    var at = live !== undefined ? live : (sceneState.threshold === null ? top : sceneState.threshold);
+    var under = values.filter(function(v){ return v <= at; }).length;
+    return '<b>' + under.toLocaleString() + '</b> of <b>' + values.length.toLocaleString()
+      + '</b> ' + named + ' at or below <b>' + fmtValue(at) + (explain.unit ? ' ' + explain.unit : '')
+      + '</b>';
+  }
+
+  /** Rewrite the readout in place; called on every repaint and live from the sliders. */
+  function writeExplain(live) {
+    if (readoutEl) readoutEl.innerHTML = readoutHtml(live);
+  }
+
+  /**
+   * The panel under the viewer: what the pinned chart is about, the slider that ties the
+   * picture to it, and a count of what the picture shows. Built once per load - the
+   * sliders keep their grip while the scene repaints behind them.
+   */
+  function buildExplain(summary) {
+    explainEl.replaceChildren();
+    readoutEl = null;
+    if (!explain) {
+      var empty = document.createElement('p');
+      empty.className = 'explain-empty';
+      empty.innerHTML = 'Press <b>Show in 3D</b> on a chart to see here what it is about, on'
+        + ' one ' + noun() + '.';
+      explainEl.appendChild(empty);
+      return;
+    }
+    var head = document.createElement('div');
+    head.className = 'explain-head';
+    var title = document.createElement('span');
+    title.className = 'explain-title';
+    title.textContent = explain.title;
+    var release = document.createElement('button');
+    release.type = 'button';
+    release.className = 'explain-release';
+    release.textContent = 'Back to the whole ' + noun();
+    release.addEventListener('click', function(){ pinToViewer(explain); });
+    head.append(title, release);
+    var body = document.createElement('p');
+    body.className = 'explain-body';
+    body.innerHTML = explain.text;
+    var scope = document.createElement('p');
+    scope.className = 'explain-scope';
+    var pooled = scopedObjectNames().length;
+    scope.textContent = 'Drawn for ' + current.id + ' alone' + (pooled > 1
+      ? '; the chart pools ' + pooled + ' ' + noun(true) + '.' : '.');
+    // What to touch and what it says come first, under the picture; the words explaining the
+    // picture follow, since they are read once and the slider is used again and again.
+    explainEl.append(head);
+
+    if (explain.kind === 'polarity') {
+      // The map holds every structure and a chart of one holds only that one, so the
+      // structure the arrows go to is the reader's to change.
+      var candidates = polarityStructures(explain.ref);
+      if (candidates.length > 1) {
+        var pick = document.createElement('div');
+        pick.className = 'ctrl-bar';
+        pick.appendChild(selector('Lines to', candidates, explain.structure, function(value) {
+          pinToViewer(polaritySpec(value, explain.ref, explain.aspect, explain.objectId));
+        }));
+        explainEl.appendChild(pick);
+      }
+    }
+    if (explain.kind === 'polarity' && loaded && loaded.frame) {
+      var key = document.createElement('div');
+      key.className = 'explain-key';
+      var swatch = function(colour, words) {
+        return '<span><i style="background:' + colour + '"></i>' + words + '</span>';
+      };
+      var aspect = explain.aspect;
+      key.innerHTML = swatch('#12161b', 'towards ' + escHtml(explain.ref) + ' (0°)')
+        + (aspect === 'angle'
+            ? swatch('#1c5cab', 'the wedge of angles')
+              + swatch('#d9480f', 'average direction, length R')
+            : aspect === 'index'
+              ? swatch('#1c5cab', 'one instance each')
+                + swatch('#d9480f', 'average, length R; the dot is V')
+              : swatch('#1c5cab', 'one instance each')
+                + (aspect === 'where' ? '' : swatch('#d9480f', 'the ' + noun() + '\u2019s average')));
+      explainEl.appendChild(key);
+      if (aspect === 'angle') {
+        var binWidth = 180 / POLAR_ANGLE_BINS;
+        explainEl.appendChild(slider('Wedge', {
+          min: 0, max: POLAR_ANGLE_BINS - 1, step: 1, value: sceneState.wedge || 0,
+          format: function(v){ return Math.round(v * binWidth) + '°–' + Math.round((v + 1) * binWidth) + '°'; },
+          onInput: function(v) {
+            sceneState.wedge = v;
+            paintOverlay();
+            writeExplain(v);
+            syncRoseMarkers();
+          }
+        }, async function(v) {
+          sceneState.wedge = v;
+          await repaintWhile('Drawing…');
+          syncRoseMarkers();
+        }));
+      } else if (aspect === 'index') {
+        explainEl.appendChild(slider('Distances', {
+          min: 0, max: 1, step: 0.01, value: sceneState.t,
+          format: function(v) {
+            return v < 0.005 ? 'as they are' : v > 0.995 ? 'all the same'
+              : Math.round(100 * v) + '% of the way to the same';
+          },
+          onInput: function(v){ sceneState.t = v; refreshPolar(); }
+        }, function(v){ sceneState.t = v; refreshPolar(); }));
+      } else {
+        explainEl.appendChild(slider('Showing', {
+          min: 0, max: 1, step: 0.01, value: sceneState.t,
+          format: function(v) {
+            return v < 0.005 ? 'the ' + noun() : v > 0.995 ? 'the chart'
+              : Math.round(100 * v) + '% of the way to the chart';
+          },
+          onInput: function(v){ sceneState.t = v; refreshPolar(); }
+        }, function(v){ sceneState.t = v; refreshPolar(); }));
+      }
+    } else if (explain.kind === 'group' && summary.widestGap !== null) {
+      explainEl.appendChild(slider('Touching within', {
+        min: 0, max: sceneState.maxGap, step: sceneState.maxGap / 100, value: sceneState.gap,
+        format: function(v){ return fmtGap(v) + ' µm'; },
+        onInput: function(v){ writeExplain(v); }
+      }, async function(v) {
+        sceneState.gap = v;
+        loaded.edges = await readEdges();
+        await repaintWhile('Drawing…');
+        // After the viewer, not before: the charts' redraw is the slow half.
+        setTimeout(function(){ setContactGap(v); }, 0);
+      }));
+    } else if (explain.kind !== 'structure' && explain.kind !== 'polarity'
+               && explain.kind !== 'group') {
+      var values = subjectValues();
+      if (values.length > 1) {
+        var low = Math.min.apply(null, values), high = Math.max.apply(null, values);
+        explainEl.appendChild(slider('Show those at or below', {
+          min: low, max: high, step: (high - low) / 200 || 1,
+          value: sceneState.threshold === null ? high : sceneState.threshold,
+          format: function(v){ return fmtValue(v) + (explain.unit ? ' ' + explain.unit : ''); },
+          onInput: function(v){ writeExplain(v); }
+        }, async function(v) {
+          sceneState.threshold = v >= high ? null : v;
+          await repaintWhile('Drawing…');
+        }));
+      }
+    }
+    readoutEl = document.createElement('div');
+    readoutEl.className = 'explain-readout';
+    explainEl.append(readoutEl, body, scope);
+    writeExplain();
   }
 
   async function draw(refit) {
-    var done = busy(holder, 'Reading geometry…');
+    var done = busy(holder, _geomCache.summary ? 'Drawing…' : 'Reading geometry…');
     try {
       var summary = await readSummary();
+      if (!isLatest()) return;
       if (sceneState.entities === null) {
         // Start with the labelled structures: the masks are big, and mostly in the way.
         sceneState.entities = new Set(summary.entities
@@ -4959,7 +6640,13 @@ async function renderScene() {
         sceneState.maxGap = summary.widestGap;
         sceneState.gap = summary.widestGap === null ? null : summary.widestGap * 0.25;
       }
-      loaded = await readGeometry(summary);
+      // A chart of contact groups has a gap of its own; the viewer takes it from there.
+      if (explain && explain.kind === 'group' && contactGapUm() !== null) {
+        sceneState.gap = contactGapUm();
+      }
+      var read = await readGeometry(summary);
+      if (!read || !isLatest()) return;
+      loaded = read;
       if (!_objectStage) {
         _objectStage = makeStage(await loadThree(), canvas);
         new ResizeObserver(function() {
@@ -4968,10 +6655,22 @@ async function renderScene() {
       }
       paint();
       _objectStage.resize(holder.clientWidth, holder.clientHeight);
-      if (refit !== false) _objectStage.fit();
+      // Framed once per object: pinning a chart changes what is drawn and how, not where the
+      // reader was looking, and turning the camera back each time would undo their work.
+      if (refit !== false && _framedFor !== current.id) {
+        _objectStage.fit();
+        _framedFor = current.id;
+      }
 
-      var drawn = loaded.instances.length;
       buildControls(summary);
+      buildExplain(summary);
+      syncRoseMarkers();
+      // Said, not left as an empty box: the chart is about something this object has no
+      // surface for - a structure written without geometry, say.
+      if (explain && !loaded.instances.concat(loaded.masks).some(function(i){ return i.entity === subject; })) {
+        noteEl.textContent = 'There is no geometry for ' + subject + ' in this ' + noun()
+          + ', so there is nothing to draw it from.';
+      }
     } catch (error) {
       holder.style.display = 'none';
       noteEl.textContent = 'Could not read the geometry: ' + geometryProblem(error);
@@ -4989,12 +6688,15 @@ async function renderScene() {
       controls.appendChild(selector(Noun(), objects.map(function(o){ return o.id; }),
         current.id, function(value) {
           sceneState.objectId = value;
-          sceneState.entities = null;
+          sceneState.entities = explain ? new Set(explainEntities(explain)) : null;
           sceneState.maxGap = null;
           renderScene();
         }, shortOf));
     }
 
+    // A chart being explained has already said how things are coloured and which structures
+    // matter, so the free controls would only contradict it.
+    if (explain) return;
     var colourings = ['entity', 'metric'];
     if (summary.widestGap !== null) colourings.push('group');
     controls.appendChild(selector('Colour by', colourings, sceneState.colourBy, function(value) {
@@ -5053,13 +6755,34 @@ async function renderScene() {
         draw(false);
       });
       var swatch = document.createElement('span');
-      swatch.style.cssText = 'display:inline-block;width:9px;height:9px;border-radius:2px;'
-        + 'background:' + litEntColour(entity.name);
+      swatch.className = 'dot';
+      swatch.style.background = litEntColour(entity.name);
+      label.className = 'scene-chip';
       label.append(box, swatch, entity.name);
       chips.appendChild(label);
     });
     controls.appendChild(chips);
   }
+
+  // Only the latest gap is drawn: dragging the chart's slider asks faster than the contacts
+  // can be read, and a stale answer arriving last would put the viewer behind the chart.
+  var gapAsked = 0;
+  _sceneApi = {
+    setGap: async function(gap) {
+      var mine = ++gapAsked;
+      if (!loaded || !explain || explain.kind !== 'group') return;
+      sceneState.gap = gap;
+      var track = explainEl.querySelector('input[type=range]');
+      if (track) {
+        track.value = gap;
+        track.dispatchEvent(new Event('input'));
+      }
+      var edges = await readEdges();
+      if (mine !== gapAsked) return;
+      loaded.edges = edges;
+      paint();
+    }
+  };
 
   await draw(true);
 }
@@ -5188,6 +6911,100 @@ async function openInstance(item, title) {
   stage.fit();
 }
 
+
+// ── the instances, in the viewer ────────────────────────────────────────────
+//
+// The gallery used to sit under each structure's charts, which put the shapes behind a
+// scroll from the numbers they explain and left the viewer's column empty of them. With a
+// viewer beside the charts, it is a tab of it: the same cards, one structure at a time, and
+// the structure follows the one the charts are on until the reader picks another.
+var dockState = { tab: 'scene', entity: null, followed: null, drawn: null };
+
+/** Structures with geometry to browse: labelled ones card by card, masks one per object. */
+function galleryChoices() {
+  var labels = uniq(INSTANCES.map(function(r){ return r.entity_name; }));
+  var masks = uniq(ENTS.filter(function(r){ return r.entity_kind === 'mask'; })
+                       .map(function(r){ return r.entity_name; }))
+    .filter(function(name){ return labels.indexOf(name) < 0; });
+  return { labels: labels, masks: masks };
+}
+
+function showDockTab(tab, entity) {
+  if (!hasGeometry()) return;
+  dockState.tab = tab;
+  if (entity) dockState.entity = entity;
+  syncDock();
+}
+
+/** Which of the viewer's two tabs is up; the gallery is only (re)drawn when it is. */
+function syncDock() {
+  var scene = document.getElementById('dock-scene');
+  var gallery = document.getElementById('dock-gallery');
+  var tabs = document.getElementById('dock-tabs');
+  if (!scene || !gallery || !tabs) return;
+  var browsing = hasGeometry() && dockState.tab === 'gallery';
+  scene.classList.toggle('d-none', browsing);
+  gallery.classList.toggle('d-none', !browsing);
+  tabs.replaceChildren();
+  [['scene', Noun()], ['gallery', 'Instances']].forEach(function(entry) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dock-tab' + ((entry[0] === 'gallery') === browsing ? ' active' : '');
+    button.textContent = entry[1];
+    button.addEventListener('click', function(){ showDockTab(entry[0]); });
+    tabs.appendChild(button);
+  });
+  if (browsing) renderDockGallery();
+}
+
+function renderDockGallery() {
+  var host = document.getElementById('dock-gallery');
+  var choices = galleryChoices();
+  var all = choices.labels.concat(choices.masks);
+  if (!all.length) { host.replaceChildren(); return; }
+  if (all.indexOf(dockState.entity) < 0) {
+    dockState.entity = all.indexOf(st.statsEntity) >= 0 ? st.statsEntity : all[0];
+  }
+  var kind = choices.labels.indexOf(dockState.entity) >= 0 ? 'label' : 'file';
+  // Redrawn when what it shows changes, not on every repaint of the page around it: reading
+  // and drawing a strip of shapes is the one slow thing here.
+  var key = [dockState.entity, st.only, plotGroupBy, GEOMETRY.length, kind].join('|');
+  if (dockState.drawn === key && host.childNodes.length) return;
+  dockState.drawn = key;
+  host.replaceChildren();
+  var bar = document.createElement('div');
+  bar.className = 'ctrl-bar';
+  var labelOf = new Map(all.map(function(name) {
+    return [name, name + (choices.masks.indexOf(name) >= 0 ? ' (one per ' + noun() + ')' : '')];
+  }));
+  bar.appendChild(selector('Structure', all, dockState.entity, function(value) {
+    dockState.entity = value;
+    renderDockGallery();
+  }, labelOf));
+  var strip = document.createElement('div');
+  host.append(bar, strip);
+  // Two rows to begin with: the column is wide, and one row of it is a lot of empty card.
+  renderGallery(strip, dockState.entity, kind === 'file' ? 'file' : undefined,
+                { rows: GALLERY_ROWS[1] });
+}
+
+/**
+ * Where a structure's gallery goes: with geometry, in the viewer, and here only a way to
+ * open it there; without, the gallery's own explanation of how to get some.
+ */
+function galleryOrPointer(container, entity, rowType) {
+  if (!hasGeometry()) { renderGallery(container, entity, rowType); return; }
+  container.replaceChildren();
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'explain-release';
+  button.style.cssText = 'font-size:.78rem;padding:.25rem .8rem;margin-bottom:.8rem';
+  button.textContent = 'Browse the ' + entity + (rowType === 'file' ? ' of every ' + noun()
+    : ' instances') + ' in the viewer →';
+  button.addEventListener('click', function(){ showDockTab('gallery', entity); });
+  container.appendChild(button);
+}
+
 /**
  * The gallery strip for one structure, inside its block.
  *
@@ -5196,7 +7013,7 @@ async function openInstance(item, title) {
  * a strip of six livers side by side, which is the only place in the report the shapes
  * themselves can be compared rather than their numbers.
  */
-function renderGallery(container, entity, rowType) {
+function renderGallery(container, entity, rowType, opts) {
   container.replaceChildren();
   var masks = rowType === 'file';
   var thing = masks ? 'mask' : 'instance';
@@ -5209,7 +7026,8 @@ function renderGallery(container, entity, rowType) {
   }
 
   var metrics = geometryMetrics();
-  var state = { metric: metrics[0], order: 'highest', rows: GALLERY_ROWS[0] };
+  var state = { metric: metrics[0], order: 'highest',
+                rows: (opts && opts.rows) || GALLERY_ROWS[0] };
   var bar = document.createElement('div');
   bar.className = 'ctrl-bar';
   var grid = document.createElement('div');
@@ -5449,6 +7267,7 @@ function distributionPanel(host, opts) {
   el.className = 'chart-cell';
   el.style.width = (opts.width || PANEL_WIDTH) + 'px';
   host.appendChild(el);
+  if (opts.explain) explainButton(el, opts.explain);
   if (opts.heading) {
     var heading = document.createElement('div');
     heading.style.cssText = 'font-size:.72rem;font-weight:600;color:' + CS.ink
@@ -5723,6 +7542,10 @@ function pairPanels(host, opts) {
     panel.className = 'chart-cell';
     panel.style.width = '300px';
     row.appendChild(panel);
+    // A pair of distances is for instances of one structure; a group's pair is for groups,
+    // which the viewer draws as the groups themselves.
+    if (opts.noun === 'group' && opts.entity) explainButton(panel, groupSpec(opts.entity));
+    else if (opts.entity) explainButton(panel, bothSpec(opts.entity, pair[0], pair[1]));
     var plotEl = document.createElement('div');
     panel.appendChild(plotEl);
 
@@ -5902,6 +7725,12 @@ function renderEntityStats() {
     st.statsEntity = sel.value;
     renderEntityStats();
   };
+  // The viewer's instance gallery goes where the charts go, once: after that it is the
+  // reader's, and a filter changing under them does not take their choice away.
+  if (st.statsEntity !== '__all__' && st.statsEntity !== dockState.followed) {
+    dockState.followed = st.statsEntity;
+    dockState.entity = st.statsEntity;
+  }
   var showLabels = st.statsEntity === '__all__' ? presentLabels
     : presentLabels.filter(function(e){ return e === st.statsEntity; });
   var showMasks = st.statsEntity === '__all__' ? presentMasks
@@ -5987,12 +7816,13 @@ function renderEntityStats() {
         unit: axisColUnit(metric) || null,
         help: metricHelp(metric, 'instance_'),
         noun: ent,
+        explain: metricSpec(ent, metric),
         showFacetTicks: !facets.many
       });
     });
 
     // ── the instances themselves ──────────────────────────────────────────────
-    renderGallery(slot('gallery'), ent);
+    galleryOrPointer(slot('gallery'), ent);
 
     // Which objects each facet is made of: a chance distribution is per object, and a
     // facet is read against its own objects pooled, not against the batch.
@@ -6073,6 +7903,7 @@ function renderEntityStats() {
           title: panelTitle(ent, 'to ' + title), unit: 'µm',
           help: metricHelp(col, 'instance_'),
           noun: ent, showFacetTicks: !facets.many,
+          explain: distanceSpec(ent, col),
           footnote: targets ? 'Nearest of ' + targets.toLocaleString() + ' '
                                 + dataName(target) + ' instances.' : null
         });
@@ -6090,7 +7921,8 @@ function renderEntityStats() {
           series: facets.valuesOf(rows, col, fallback),
           title: panelTitle(ent, 'end to ' + endTarget.replace(/_/g, ' ')), unit: 'µm',
           help: metricHelp(col, 'instance_'),
-          noun: ent, showFacetTicks: !facets.many
+          noun: ent, showFacetTicks: !facets.many,
+          explain: distanceSpec(ent, col)
         });
       });
     }
@@ -6101,7 +7933,7 @@ function renderEntityStats() {
       reveal('both-label'); reveal('both-desc');
       var dims = orderDistDims(d2cols);
       pairPanels(slot('both'), {
-        series: facets.split(rows, fallback), dims: dims, noun: ent,
+        series: facets.split(rows, fallback), dims: dims, noun: ent, entity: ent,
         allMean: dims.every(function(c){ return /_mean_um$/.test(c); })
       });
     }
@@ -6233,7 +8065,7 @@ function renderEntityStats() {
         + noun() + ', with the value under it. Click one to look at it properly.</p>'
       + '<div data-slot="mask-gallery"></div>';
     container.appendChild(block);
-    renderGallery(block.querySelector('[data-slot="mask-gallery"]'), ent, 'file');
+    galleryOrPointer(block.querySelector('[data-slot="mask-gallery"]'), ent, 'file');
     if (!mRows.length) return;
     var mkEl = block.querySelector('[data-slot="mask"]');
 
@@ -6251,6 +8083,7 @@ function renderEntityStats() {
         series: maskFacets.valuesOf(mRows, m.col, { name: ent, color: color }),
         title: panelTitle(ent, m.label.toLowerCase()), unit: m.unit || null,
         help: metricHelp(m.col), noun: noun(), width: 280,
+        explain: structureSpec(ent),
         showFacetTicks: !maskFacets.many
       });
     });
@@ -6585,6 +8418,7 @@ function initContactsControls() {
     slider.oninput = function() {
       setText('ct-thr-val', fmtGap(+this.value));
       renderContacts();
+      syncViewerGap(+this.value);
     };
   } else if (+slider.value > maxGap) {
     slider.value = maxGap;
@@ -6712,7 +8546,8 @@ function renderGroupSizes(scope, entity, thr, named) {
       series: sizeSeries, title: entity + ' per group (groups of 2+)',
       unit: 'instances', noun: 'group', width: 340, height: 268,
       showFacetTicks: !facets.many,
-      help: 'How many instances chained together into one group at the current gap.'
+      help: 'How many instances chained together into one group at the current gap.',
+      explain: groupSpec(entity)
     });
   } else {
     chartsEl.innerHTML = '<div class="text-muted small">No groups of 2+ at this gap.</div>';
@@ -6723,7 +8558,7 @@ function renderGroupSizes(scope, entity, thr, named) {
     title: '% of ' + entity + ' reaching another', unit: '%', noun: noun(),
     width: 340, height: 268, showFacetTicks: !facets.many,
     // A share is out of a hundred whether or not any object gets near either end.
-    range: [0, 104]
+    range: [0, 104], explain: groupSpec(entity)
   });
 
   var share = function(part, whole) {
@@ -6735,7 +8570,9 @@ function renderGroupSizes(scope, entity, thr, named) {
       || String(a.object_id).localeCompare(String(b.object_id));
   });
   var hasGroups = groupNames().length > 0;
-  tableEl.innerHTML = '<table class="table table-sm table-hover mb-0" style="min-width:420px">'
+  tableEl.replaceChildren();
+  perObjectFold(tableEl, 'Show the numbers for each ' + noun(), function(body) {
+  body.innerHTML = '<table class="table table-sm table-hover mb-0" style="min-width:420px">'
     + '<thead class="table-light"><tr>'
     + (hasGroups ? '<th>group</th>' : '')
     + '<th>' + escHtml(noun()) + '</th><th class="text-end">' + escHtml(entity) + ' (n)</th>'
@@ -6756,6 +8593,7 @@ function renderGroupSizes(scope, entity, thr, named) {
           + '<td class="text-end">' + (mean ? mean.toFixed(1) : '–') + '</td></tr>';
       }).join('')
     + '</tbody></table>';
+  });
 }
 
 /**
@@ -6799,7 +8637,7 @@ function renderGroupReach(scope, entity, thr, named) {
       // instance's voxels", which is not what this panel measures.
       help: 'The nearest any member of the group gets to ' + dataName(distColLabel(col))
         + '. 0 means the group overlaps it somewhere.',
-      showFacetTicks: !facets.many
+      showFacetTicks: !facets.many, explain: groupSpec(entity)
     });
   });
 
@@ -6813,7 +8651,8 @@ function renderGroupReach(scope, entity, thr, named) {
       + ' means most groups bridge the two. The panels above read the same way for single'
       + ' instances.');
     pairPanels(bothEl, {
-      series: facets.split(rows, fallback), dims: orderDistDims(targets), noun: 'group'
+      series: facets.split(rows, fallback), dims: orderDistDims(targets), noun: 'group',
+      entity: entity
     });
   } else {
     bothWrap.classList.add('d-none');
@@ -6881,7 +8720,7 @@ function renderGroupBaseline(scope, entity, thr, named) {
       series: series, title: entity + ' group to ' + distColLabel(col),
       unit: '% of same-size groups beaten',
       noun: 'group', showFacetTicks: !facets.many, range: [0, 104], reference: 50,
-      noSignificance: true, width: 300,
+      noSignificance: true, width: 300, explain: groupSpec(entity),
       footnote: footnote ? '<div class="fit-note">' + footnote + '</div>' : ''
     });
   });
@@ -7002,6 +8841,17 @@ if (typeof globalThis !== 'undefined') {
     quantileSorted: quantileSorted, finitePairs: finitePairs,
     decodePayload: decodePayload, mergeInstances: mergeInstances,
     contactGroups: contactGroups, explodeOffset: explodeOffset,
+    // Explaining a chart in the viewer: the specs a chart hands over, and the maths the
+    // viewer draws them with.
+    explainKey: explainKey, explainEntities: explainEntities, explainShown: explainShown,
+    explainedValue: explainedValue, targetOfColumn: targetOfColumn, fmtValue: fmtValue,
+    metricSpec: metricSpec, distanceSpec: distanceSpec, bothSpec: bothSpec,
+    groupSpec: groupSpec, polaritySpec: polaritySpec,
+    structureSpec: structureSpec, polarityStructures: polarityStructures,
+    polarityFrame: polarityFrame,
+    polarMorphPositions: polarMorphPositions, polarBinOf: polarBinOf,
+    polarWeight: polarWeight, polarWeights: polarWeights, weightedQuantile: weightedQuantile,
+    clearPolarOffsets: function(){ _POLAR_OFFSETS = {}; },
     toRgb: toRgb, viridisAt: viridisAt,
     pluralise: pluralise,
     toHsl: toHsl, hslToHex: hslToHex, litColour: litColour,
