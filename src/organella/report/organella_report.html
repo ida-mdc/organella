@@ -134,9 +134,7 @@ code { font-size: .85em; color: var(--ink); background: var(--surface-2);
 .cs-chip-kind { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em;
   padding: 0 .38rem; color: var(--ink-3); }
 
-.data-name { font-family: var(--sans); font-weight: 600; color: var(--ink);
-  background: var(--surface-2); box-shadow: 0 0 0 .16em var(--surface-2);
-  border-radius: 1px; white-space: nowrap; }
+.data-name { font-family: var(--sans); font-weight: 600; color: var(--ink); white-space: nowrap; }
 h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-title .data-name { font-size: .92em; }
 
@@ -451,6 +449,25 @@ details.per-object > .per-object-body { padding-top: .5rem; }
 .prose-toggle { font: inherit; font-size: .76rem; color: var(--accent); background: none; border: 0;
   padding: 0; margin: -.45rem 0 .9rem; cursor: pointer; display: block; }
 
+.pill-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: 0 0 1.1rem; }
+.pill-label { font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+  margin-right: .3rem; }
+.pill { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .82rem;
+  padding: .28rem .85rem; border: 1px solid var(--rule-2); border-radius: 999px; background: var(--paper);
+  color: var(--ink-2); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.pill:hover { border-color: var(--ink-3); color: var(--ink); }
+.pill i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.pill small { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pill.active small { color: rgba(255,255,255,.65); }
+details.cc-source { margin-top: .4rem; font-size: .72rem; color: var(--ink-3); }
+details.cc-source > summary { cursor: pointer; list-style: none; color: var(--accent); }
+details.cc-source > summary::-webkit-details-marker { display: none; }
+details.cc-source > summary::before { content: "\25B8"; display: inline-block; width: .9rem; }
+details.cc-source[open] > summary::before { content: "\25BE"; }
+details.cc-source p { margin: .3rem 0 0; line-height: 1.5; }
+details.cc-source code { font-size: .95em; }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -506,9 +523,9 @@ details.per-object > .per-object-body { padding-top: .5rem; }
       <select id="flt-only" class="form-select form-select-sm" style="width:auto"></select>
     </div>
     <div class="d-flex align-items-center" style="gap:.35rem">
-      <span class="small" style="color:var(--ink-3);white-space:nowrap">Charts</span>
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Show as</span>
       <select id="plot-style" class="form-select form-select-sm" style="width:auto">
-        <option value="distribution">Distributions</option>
+        <option value="distribution">Boxes</option>
         <option value="histogram">Histograms</option>
       </select>
     </div>
@@ -664,10 +681,8 @@ organella process experiment/ \
     <p class="section-subtitle">Every question the report answers about one structure, in
       one place: how big its instances are, how far they sit from everything else, as labels, as individual pixels of a label, and as label groups by proximity.</p>
     <div class="big" id="entity-coverage"></div>
-    <div class="d-flex align-items-center gap-2 mb-3">
-      <label class="form-label small mb-0 text-muted">Structure</label>
-      <select id="stats-entity-select" class="form-select form-select-sm" style="width:auto"></select>
-    </div>
+    <div class="pill-row" id="entity-pills" role="tablist" aria-label="Structure"></div>
+    <select id="stats-entity-select" class="d-none" aria-hidden="true"></select>
     <div id="entity-stats-container"></div>
   </div>
 
@@ -8085,6 +8100,8 @@ function distributionPanel(host, opts) {
   // How many of what each box is made of, on the chart and not in a section's prose: a
   // reader looking at one panel should not have to scroll to learn what it is a picture of.
   el.appendChild(sizeLine(series, opts.noun, dotsDrawn));
+  var from = sourceFold(opts, series, comparisons);
+  if (from) el.appendChild(from);
   if (opts.footnote) {
     var footnote = document.createElement('div');
     footnote.className = 'chart-note';
@@ -8104,6 +8121,48 @@ function distributionPanel(host, opts) {
   // the same comparison goes underneath as text instead of being dropped.
   if (!bracketed) significanceNote(el, comparisons, opts.unit);
   return el;
+}
+
+/**
+ * "Where this comes from", folded under a chart: which rows and which column it is made of, what
+ * one box and one diamond are, and what was compared. A reader who doubts a picture should be able to
+ * find what it is a picture of without leaving the card.
+ */
+function sourceFold(opts, series, comparisons) {
+  var spec = opts.explain;
+  var cols = spec ? (spec.metrics || (spec.metric ? [spec.metric] : [])) : [];
+  var perCell = opts.noun === noun(), perGroup = opts.noun === 'group';
+  if (!cols.length && !perGroup) return null;
+  var total = series.reduce(function(n, f){ return n + f.values.length; }, 0);
+  var lines = [];
+  if (cols.length) {
+    lines.push('<b>What:</b> the report\u2019s <code>' + cols.map(escHtml).join('</code>, <code>')
+      + '</code>' + (perCell ? ', one value per ' + escHtml(noun()) + '.'
+        : ' of every ' + escHtml(opts.noun ? singularOf(opts.noun) : 'instance') + ' - '
+          + total.toLocaleString() + ' rows, one value each.'));
+  } else {
+    lines.push('<b>What:</b> one value per group of touching instances at the current gap, taken from the'
+      + ' contact rows (' + total.toLocaleString() + ' groups).');
+  }
+  var withUnits = series.some(function(f){ return f.units && f.units.length < f.values.length; });
+  lines.push('<b>Drawn:</b> ' + (withUnits
+    ? 'the box is every value of a group; each diamond is the median of one ' + escHtml(noun()) + '.'
+    : 'one box per group, over the values above.'));
+  if (comparisons.length) {
+    var t = comparisons[0].test;
+    lines.push('<b>Compared:</b> Mann\u2013Whitney U, two-sided (' + t.method + '), on one median per '
+      + escHtml(noun()) + ' - ' + t.n1 + ' against ' + t.n2 + '. The lowest p that many allows is '
+      + formatP(t.pMin).replace('p = ', '') + '.');
+  }
+  var fold = document.createElement('details');
+  fold.className = 'cc-source';
+  fold.innerHTML = '<summary>Where this comes from</summary><p>' + lines.join('<br>') + '</p>';
+  return fold;
+}
+
+/** "granules" for a structure's plural that is already one, "cell" for "cells". */
+function singularOf(word) {
+  return /ss$/i.test(word) ? word : String(word).replace(/s$/i, '');
 }
 
 /**
@@ -8423,6 +8482,32 @@ function renderEntityStats() {
     st.statsEntity = sel.value;
     renderEntityStats();
   };
+  // Structures as pills in the colours the rest of the page gives them, not a dropdown that
+  // reads as a filter on the whole page: this is a choice of which structure the charts below
+  // are about, and its answer should be visible without opening anything.
+  var pills = document.getElementById('entity-pills');
+  if (pills && pills.replaceChildren) {
+    pills.replaceChildren();
+    var label = document.createElement('span');
+    label.className = 'pill-label';
+    label.textContent = 'Structure';
+    pills.appendChild(label);
+    [['__all__', 'All structures', null, null]].concat(allEnts.map(function(e) {
+      return [e, e, entColor(e), presentMasks.indexOf(e) >= 0 ? 'mask' : null];
+    })).forEach(function(entry) {
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'pill' + (st.statsEntity === entry[0] ? ' active' : '');
+      pill.innerHTML = (entry[2] ? '<i style="background:' + entry[2] + '"></i>' : '')
+        + escHtml(entry[1]) + (entry[3] ? ' <small>' + entry[3] + '</small>' : '');
+      pill.addEventListener('click', function() {
+        st.statsEntity = entry[0];
+        sel.value = entry[0];
+        renderEntityStats();
+      });
+      pills.appendChild(pill);
+    });
+  }
   // The viewer's instance gallery goes where the charts go, once: after that it is the
   // reader's, and a filter changing under them does not take their choice away.
   if (st.statsEntity !== '__all__' && st.statsEntity !== dockState.followed) {
