@@ -575,6 +575,10 @@ body { background-color: var(--paper);
 .chart-cell, .glance-card, .diff-block { animation: settle .45s var(--ease) both; }
 @media (prefers-reduced-motion: reduce) { .chart-cell, .glance-card, .diff-block { animation: none; } }
 
+.group-strip { margin: .5rem 0 .2rem; }
+.group-strip-label { font-size: .72rem; color: var(--ink-3); margin-bottom: .25rem; }
+.group-strip canvas { display: block; width: 100%; border-radius: 8px; background: #0d1218; padding: 4px 6px; box-sizing: border-box; }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -5330,7 +5334,9 @@ function colourRamp(opts) {
   var stops = [];
   for (var i = 0; i <= 10; i++) stops.push(viridisHexAt(i / 10) + ' ' + (i * 10) + '%');
   var number = function(v) {
-    return v == null || !isFinite(v) ? '–' : Number(v).toPrecision(3);
+    if (v == null || !isFinite(v)) return '–';
+    // Counts are whole numbers: "6.50e+3" is not how anyone reads a group of 6,496.
+    return opts.whole ? Math.round(v).toLocaleString() : Number(v).toPrecision(3);
   };
   el.innerHTML = (opts.label ? '<span class="ramp-label">' + escHtml(opts.label) + '</span>' : '')
     + '<span>' + number(opts.low) + '</span>'
@@ -6235,9 +6241,11 @@ function bothSpec(entity, colA, colB) {
 
 function groupSpec(entity) {
   return { kind: 'group', entity: entity, title: entity + ' groups',
-           text: 'Instances of ' + dataName(entity) + ' closer than the gap to one another chain'
-             + ' into a group, one colour each; an instance touching nothing is grey. The'
-             + ' slider is the chart’s own gap, so moving either moves both.' };
+           text: 'Instances of ' + dataName(entity) + ' closer than the gap to one another chain into a group.'
+             + ' Each group is coloured by how large it is, on the scale below the cell, and an instance'
+             + ' touching nothing is grey; the strip is every group as a bar, which is what the charts'
+             + ' count. Widen the gap and groups merge: the colours shift towards one large network. The'
+             + ' slider is the chart\u2019s own gap, so moving either moves both.' };
 }
 
 function structureSpec(entity) {
@@ -7364,17 +7372,20 @@ async function renderScene() {
     } else if (sceneState.colourBy === 'group') {
       var keys = inSubject.map(function(i){ return i.entity + '|' + i.label; });
       var groups = contactGroups(keys, loaded.edges);
-      var clusterColour = new Map();
+      // By size, on the report's one colour scale: what the group charts plot is how large
+      // groups are, and a palette of arbitrary colours says only that there are several. A
+      // single network that holds nearly everything is then one colour, and the small groups
+      // beside it are another.
+      var biggest = 2;
+      keys.forEach(function(k){ biggest = Math.max(biggest, groups.sizeOfRoot(groups.rootOf(k))); });
+      var span = Math.log(biggest / 2) || 1;
       colourOf = function(item) {
-        var root = groups.rootOf(item.entity + '|' + item.label);
-        // A singleton touches nothing: grey it, so the clusters are what stands out.
-        if (groups.sizeOfRoot(root) < 2) return [0.72, 0.72, 0.75].map(toLinear);
-        if (!clusterColour.has(root)) {
-          clusterColour.set(root,
-            toLinearRgb(litColour(CS.series[clusterColour.size % CS.series.length])));
-        }
-        return clusterColour.get(root);
+        var size = groups.sizeOfRoot(groups.rootOf(item.entity + '|' + item.label));
+        // A singleton touches nothing: grey, so the groups are what stands out.
+        if (size < 2) return [0.34, 0.37, 0.42].map(toLinear);
+        return viridisAt(biggest > 2 ? Math.log(size / 2) / span : 0.5);
       };
+      rampHost.appendChild(colourRamp({ label: 'Instances in the group (log scale)', low: 2, high: biggest, whole: true }));
     } else {
       colourOf = function(item){ return toLinearRgb(litEntColour(item.entity)); };
     }
@@ -7482,6 +7493,22 @@ async function renderScene() {
       .filter(function(v){ return v !== null && isFinite(v); }) : [];
   }
 
+  /** The groups on screen: their sizes, largest first, and how many instances touch nothing. */
+  function currentGroups() {
+    var keys = loaded.instances.filter(function(i){ return i.entity === subject; })
+      .map(function(i){ return i.entity + '|' + i.label; });
+    var groups = contactGroups(keys, loaded.edges);
+    var seen = new Map();
+    keys.forEach(function(k) {
+      var root = groups.rootOf(k);
+      seen.set(root, groups.sizeOfRoot(root));
+    });
+    var sizes = [], alone = 0;
+    seen.forEach(function(size){ if (size < 2) alone++; else sizes.push(size); });
+    sizes.sort(function(x, y){ return y - x; });
+    return { sizes: sizes, alone: alone, total: keys.length };
+  }
+
   /** What the chart's number is, counted on this object, as the slider currently has it. */
   function readoutHtml(live) {
     if (!explain || !loaded) return '';
@@ -7517,23 +7544,14 @@ async function renderScene() {
     }
     if (explain.kind === 'group') {
       var gap = live === undefined ? sceneState.gap : live;
-      var keys = loaded.instances.filter(function(i){ return i.entity === subject; })
-        .map(function(i){ return i.entity + '|' + i.label; });
-      var groups = contactGroups(keys, loaded.edges);
-      var sizes = new Map();
-      keys.forEach(function(k) {
-        var root = groups.rootOf(k);
-        sizes.set(root, groups.sizeOfRoot(root));
-      });
-      var grouped = 0, count = 0, largest = 0;
-      sizes.forEach(function(size) {
-        if (size < 2) return;
-        grouped += size; count++; largest = Math.max(largest, size);
-      });
-      return '<b>' + grouped.toLocaleString() + '</b> of <b>' + keys.length.toLocaleString()
-        + '</b> ' + named + ' touch another within <b>' + fmtGap(gap) + ' µm</b>, in <b>'
-        + count.toLocaleString() + '</b> group' + (count === 1 ? '' : 's')
-        + (count ? ', the largest of <b>' + largest + '</b>' : '');
+      var found = currentGroups();
+      var grouped = found.sizes.reduce(function(n, v){ return n + v; }, 0);
+      var largest = found.sizes[0] || 0;
+      return '<b>' + grouped.toLocaleString() + '</b> of <b>' + found.total.toLocaleString()
+        + '</b> ' + named + ' touch another within <b>' + fmtGap(gap) + ' \u00b5m</b>, in <b>'
+        + found.sizes.length.toLocaleString() + '</b> group' + (found.sizes.length === 1 ? '' : 's')
+        + (largest ? '<br>the largest holds <b>' + largest.toLocaleString() + '</b> ('
+            + fmtPct(largest, found.total) + ')' : '');
     }
     if (explain.kind === 'structure') return '';
     var values = subjectValues();
@@ -7546,9 +7564,35 @@ async function renderScene() {
       + '</b>';
   }
 
+  var stripEl = null;
+  /**
+   * One bar per group, tallest first, in the colour that group has in the cell: the very
+   * values the group-size chart plots, set out so a bar can be matched to a blob.
+   */
+  function drawGroupStrip() {
+    if (!stripEl || !loaded) return;
+    var found = currentGroups();
+    var width = stripEl.clientWidth || 300, height = 64, ratio = window.devicePixelRatio || 1;
+    stripEl.width = width * ratio; stripEl.height = height * ratio;
+    stripEl.style.height = height + 'px';
+    var g = stripEl.getContext('2d');
+    g.scale(ratio, ratio);
+    g.clearRect(0, 0, width, height);
+    var sizes = found.sizes.slice(0, 90);
+    if (!sizes.length) return;
+    var top = sizes[0], span = Math.log(top / 2) || 1, gap = sizes.length > 45 ? 1 : 2;
+    var each = Math.max(2, (width - gap * (sizes.length - 1)) / sizes.length);
+    sizes.forEach(function(size, i) {
+      var h = Math.max(2, (Math.log(size) / Math.log(top)) * (height - 4));
+      g.fillStyle = viridisHexAt(top > 2 ? Math.log(size / 2) / span : 0.5);
+      g.fillRect(i * (each + gap), height - h, each, h);
+    });
+  }
+
   /** Rewrite the readout in place; called on every repaint and live from the sliders. */
   function writeExplain(live) {
     if (readoutEl) readoutEl.innerHTML = readoutHtml(live);
+    drawGroupStrip();
   }
 
   /**
@@ -7559,6 +7603,7 @@ async function renderScene() {
   function buildExplain(summary) {
     explainEl.replaceChildren();
     readoutEl = null;
+    stripEl = null;
     // Nothing pinned: the status line above the viewer says what it is showing, and a box here
     // saying the same again was the first thing a reader met and the least useful.
     if (!explain) return;
@@ -7647,6 +7692,13 @@ async function renderScene() {
         }, function(v){ sceneState.t = v; refreshPolar(); }));
       }
     } else if (explain.kind === 'group' && summary.widestGap !== null) {
+      var stripWrap = document.createElement('div');
+      stripWrap.className = 'group-strip';
+      stripWrap.innerHTML = '<div class="group-strip-label">Every group, largest first (bar height: size, log scale)</div>';
+      stripEl = document.createElement('canvas');
+      stripEl.style.width = '100%';
+      stripWrap.appendChild(stripEl);
+      explainEl.appendChild(stripWrap);
       explainEl.appendChild(slider('Touching within', {
         min: 0, max: sceneState.maxGap, step: sceneState.maxGap / 100, value: sceneState.gap,
         format: function(v){ return fmtGap(v) + ' µm'; },
