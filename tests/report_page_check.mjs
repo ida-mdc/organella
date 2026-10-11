@@ -567,6 +567,20 @@ if (job.explain) {
                  wn: Math.hypot(...frame.w), plotReach: frame.plotReach, reach: frame.reach },
       };
     }
+    if (f.groups) {
+      // Every structure of the cell as the map draws it: the viewer's own diamond for each,
+      // beside the plot's point for the same cell, which come from the same rows.
+      const names = R.polarSubjects(f.reference);
+      const whole = R.polarityFrame(items, f.object, f.reference, names[0], 'centre', names.slice(1));
+      out.explain.groups = {
+        names,
+        viewer: whole && whole.groups.map((g) => ({
+          name: g.name, n: g.units.length,
+          cone: g.diamond ? R.polarConeDeg(g.diamond.n, whole.axis) : null,
+          dist: g.diamond ? g.diamond.dist : null })),
+        plot: names.map((n) => R.polarCellPoint(f.object, f.reference, n, 'centre')),
+      };
+    }
     out.explain.frame = frame && {
       centre: frame.centre, axis: frame.axis, refDist: frame.refDist, reach: frame.reach,
       angles: frame.units.map((u) => u.angle), matched: frame.units.filter((u) => u.item).length,

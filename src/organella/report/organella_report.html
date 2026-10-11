@@ -354,7 +354,7 @@ details.per-object > summary::-webkit-details-marker { display: none; }
 details.per-object > .per-object-body { padding-top: .5rem; }
 .explain-key { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .72rem;
   color: var(--ink-3); margin: .5rem 0 .2rem; }
-.explain-key i { display: inline-block; width: 16px; height: 3px; vertical-align: middle;
+.explain-key i { box-shadow: 0 0 0 1px rgba(20, 24, 29, .25); display: inline-block; width: 16px; height: 3px; vertical-align: middle;
   margin-right: .3rem; border-radius: 2px; }
 
 /* ── Orientation: the section nav, and the top of the report ─────────── */
@@ -541,7 +541,9 @@ body { background-color: var(--paper);
 .pill.active { background: var(--ink); box-shadow: 0 4px 12px rgba(20, 24, 29, .22); }
 .pin-3d { background: rgba(255, 255, 255, .9); }
 .pin-3d:hover { box-shadow: 0 0 0 3px rgba(47, 107, 255, .14); }
-.chart-cell.pinned .pin-3d { background: var(--dapi); border-color: var(--dapi); }
+.chart-cell.pinned .pin-3d { background: var(--dapi); border-color: var(--dapi); color: #fff; }
+.chart-cell.pinned .pin-off { display: none; }
+.chart-cell.pinned .pin-on { display: inline; }
 .form-range { accent-color: var(--dapi); }
 
 /* The stage: dark, with a vignette, like looking down an eyepiece */
@@ -4691,9 +4693,11 @@ function renderPolarity() {
     || structures[0];
   mapGroups.forEach(function(entry) {
     var traces = [];
+    var byCell = {};
     structures.forEach(function(name) {
       var points = entry.ids.map(function(id){ return cellPoint(id, name); })
                             .filter(Boolean);
+      points.forEach(function(q) { (byCell[q.id] = byCell[q.id] || []).push({ r: q.r, theta: q.cone }); });
       if (!points.length) return;
       traces.push({ type: 'scatterpolar', mode: 'markers', name: name, showlegend: false,
         r: points.map(function(q){ return q.r; }),
@@ -4746,6 +4750,8 @@ function renderPolarity() {
       }
     }, { responsive: true, displayModeBar: false });
     // A group's plot opens one of the group's own cells.
+    plotEl.dataset.map = '1';
+    plotEl._cells = byCell;
     explainButton(el, polaritySpec(mappedStructure, ref, 'map', entry.ids[0],
                                    toMask ? 'membrane' : 'centre'));
   });
@@ -5927,7 +5933,9 @@ function explainKey(spec) {
 /** The structures a spec needs loaded, besides the mask that bounds the object. */
 function explainEntities(spec) {
   var names;
-  if (spec.kind === 'polarity') names = [spec.structure, spec.ref];
+  if (spec.kind === 'polarity' && (spec.aspect === 'map' || spec.aspect === 'cellmap')) {
+    names = polarSubjects(spec.ref).concat([spec.ref]);
+  } else if (spec.kind === 'polarity') names = [spec.structure, spec.ref];
   else names = [spec.entity].concat(spec.targets || []);
   var bounding = boundingMaskName();
   if (bounding) names.push(bounding);
@@ -5936,6 +5944,9 @@ function explainEntities(spec) {
 
 /** The structures drawn solid; every other loaded one is drawn faint behind them. */
 function explainShown(spec) {
+  if (spec.kind === 'polarity' && (spec.aspect === 'map' || spec.aspect === 'cellmap')) {
+    return new Set(polarSubjects(spec.ref).concat([spec.ref]));
+  }
   return new Set(spec.kind === 'polarity' ? [spec.structure, spec.ref] : [spec.entity]);
 }
 
@@ -5969,6 +5980,7 @@ function markPinned() {
       current !== null && key === current && seen[key] === (sceneState.pinnedIndex || 0));
   });
   syncRoseMarkers();
+  syncMapMarkers();
 }
 
 /** Show one cell in the viewer, as a diamond in a chart was pressed. */
@@ -6122,6 +6134,33 @@ function targetOfColumn(col) {
  * a reader is looking at in the chart and the shell of instances in the cell are the same
  * thing. Only the pinned chart's, and gone with it.
  */
+/**
+ * The cell the viewer is showing, ringed on the group plot it belongs to: its diamonds - one
+ * per structure - are the viewer's picture, so the two should be findable against each other.
+ */
+function syncMapMarkers() {
+  var spec = sceneState.explain;
+  document.querySelectorAll('[data-map]').forEach(function(plot) {
+    if (!plot.data || !window.Plotly) return;
+    var at = plot.data.findIndex(function(t){ return t.name === '__cell'; });
+    var mine = spec && spec.kind === 'polarity' && spec.aspect === 'map'
+      && plot.parentNode.classList.contains('pinned')
+      ? (plot._cells || {})[String(sceneState.objectId)] : null;
+    if (!mine || !mine.length) {
+      if (at >= 0) Plotly.deleteTraces(plot, at);
+      return;
+    }
+    var update = { r: [mine.map(function(q){ return q.r; })], theta: [mine.map(function(q){ return q.theta; })] };
+    if (at >= 0) {
+      Plotly.restyle(plot, update, [at]);
+    } else {
+      Plotly.addTraces(plot, { type: 'scatterpolar', mode: 'markers', name: '__cell', showlegend: false,
+        r: update.r[0], theta: update.theta[0], hoverinfo: 'skip',
+        marker: { symbol: 'circle-open', size: 22, color: '#14181d', line: { color: '#14181d', width: 2.2 } } });
+    }
+  });
+}
+
 function syncRoseMarkers() {
   var spec = sceneState.explain;
   document.querySelectorAll('[data-rose]').forEach(function(plot) {
@@ -6214,32 +6253,34 @@ function structureSpec(entity) {
  */
 function polaritySpec(structure, ref, aspect, objectId, radius) {
   var named = dataName(structure);
-  var common = 'From the ' + noun() + ' centre (the dot), the dark arrow points at '
+  var common = 'From the ' + noun() + ' centre (the dot), the light arrow points at '
     + dataName(ref) + ': that direction is 0°. ';
   var tail = {
     angle: 'The ' + named + ' that lie in the wedge of angles you choose are solid and the rest'
       + ' faint; the height of that wedge in the chart is how many are solid. Slide to step'
       + ' round the wedges. The orange arrow is the average direction, and its length is R.',
     index: 'Each dot is one ' + named + '. The orange arrow is their average direction: its'
-      + ' length is R, and the orange dot where it reaches along the dark arrow is V. Slide to'
+      + ' length is R, and the orange dot where it reaches along the light arrow is V. Slide to'
       + ' push every instance out to the same distance: only the directions count here, not'
       + ' how far out they are.',
     where: 'Each dot is one ' + named + '. Slide to lay them flat into the chart: how far round'
-      + ' from the dark arrow an instance is becomes its place across, and how far from the'
+      + ' from the light arrow an instance is becomes its place across, and how far from the'
       + ' centre it sits becomes its height.',
-    map: 'Each dot is one ' + named + ', and the orange diamond is the ' + noun() + '\u2019s average'
-      + ' of them - the one point this ' + noun() + ' is in the plot. Slide to turn the '
-      + noun() + ' into the chart: every instance is swung round the dark arrow into one'
-      + ' half-plane, which keeps its angle to the arrow and its distance and drops only which'
-      + ' side of the arrow it was on, the one thing the plot leaves out.',
+    map: 'Every dot is one instance of one structure, in that structure\u2019s colour. Slide to turn the '
+      + noun() + ' into the plot: first each instance is swung round the light arrow into one half-plane,'
+      + ' which keeps its angle to the arrow and its distance and drops only which side it was on - the one'
+      + ' thing the plot leaves out; then the instances of each structure gather into one diamond, their'
+      + ' average, which is what the plot draws for this ' + noun() + '. The ring on the chart marks this'
+      + ' ' + noun() + '\u2019s diamonds, and the faint ones that arrive are the rest of its group.',
     cellmap: 'Each dot is one ' + named + '. Slide to lay the ' + noun() + ' flat into the full'
-      + ' circle: each instance is projected onto a plane through the dark arrow, its angle'
+      + ' circle: each instance is projected onto a plane through the light arrow, its angle'
       + ' round the circle is its angle in that plane, and its distance from the centre is the'
       + ' radius. Which way is up in that plane is arbitrary.'
   };
   return { kind: 'polarity', structure: structure, ref: ref, aspect: aspect,
            objectId: objectId || null, radius: radius || 'centre',
-           title: structure + ' towards ' + ref, text: common + tail[aspect] };
+           title: (aspect === 'map' || aspect === 'cellmap' ? 'Every structure' : structure) + ' towards ' + ref,
+           text: common + tail[aspect] };
 }
 
 
@@ -6428,7 +6469,7 @@ function polCross(a, b) {
  *
  * Null when there is nothing to measure towards.
  */
-function polarityFrame(items, objectId, ref, structure, radiusMode) {
+function polarityFrame(items, objectId, ref, structure, radiusMode, extra) {
   var axisAt = polarOffset(objectId, ref);
   if (!axisAt) return null;
   var toXyz = function(u){ return u.length === 3 ? [u[2], u[1], u[0]] : [u[1], u[0], 0]; };
@@ -6446,7 +6487,8 @@ function polarityFrame(items, objectId, ref, structure, radiusMode) {
     var rows = INSTANCES.filter(function(r) {
       return String(r.object_id) === String(objectId) && r.entity_name === name;
     });
-    if (!rows.length) {
+    var whole = !rows.length;
+    if (whole) {
       rows = ENTS.filter(function(r) {
         return String(r.object_id) === String(objectId) && r.entity_name === name;
       });
@@ -6459,13 +6501,17 @@ function polarityFrame(items, objectId, ref, structure, radiusMode) {
       out.push({ n: toXyz(unit), dist: Number(dist), depth: polarDepth(r, mask),
                  weight: polarWeight(r), item: byKey.get(key) || null });
     });
+    out.whole = whole;
     return out;
   };
-  var units = readings(structure);
+  var names = [structure].concat(extra || []);
+  var read = names.map(readings);
   var votes = [[], [], []];
-  units.concat(readings(ref)).forEach(function(u) {
-    var at = u.item && meshCentroid(u.item.geometry);
-    if (at) for (var k = 0; k < 3; k++) votes[k].push(at[k] - u.n[k] * u.dist);
+  read.concat([readings(ref)]).forEach(function(list) {
+    list.forEach(function(u) {
+      var at = u.item && meshCentroid(u.item.geometry);
+      if (at) for (var k = 0; k < 3; k++) votes[k].push(at[k] - u.n[k] * u.dist);
+    });
   });
   var centre;
   if (votes[0].length) {
@@ -6480,33 +6526,106 @@ function polarityFrame(items, objectId, ref, structure, radiusMode) {
     if (!n) return null;
     centre = sum.map(function(v){ return v / n; });
   }
-  var sizes = polarWeights(units);
   var reach = axisAt.dist, depthReach = null;
-  units.forEach(function(u, i) {
-    u.weight = sizes[i];
-    u.angle = polarConeDeg(u.n, axis);
-    u.phi = Math.atan2(polDot(u.n, third), polDot(u.n, across));
-    u.theta = Math.atan2(polDot(u.n, across), polDot(u.n, axis));
-    if (u.dist > reach) reach = u.dist;
-    if (u.depth != null && (depthReach === null || u.depth > depthReach)) depthReach = u.depth;
+  var describe = function(units) {
+    var sizes = polarWeights(units);
+    units.forEach(function(u, i) {
+      u.weight = sizes[i];
+      u.angle = polarConeDeg(u.n, axis);
+      u.phi = Math.atan2(polDot(u.n, third), polDot(u.n, across));
+      u.theta = Math.atan2(polDot(u.n, across), polDot(u.n, axis));
+      if (u.dist > reach) reach = u.dist;
+      if (u.depth != null && (depthReach === null || u.depth > depthReach)) depthReach = u.depth;
+    });
+    var found = polarityIndices(units.map(function(u){ return u.n; }), axis, sizes);
+    var diamond = null;
+    if (found && found.mean) {
+      var withDepth = units.filter(function(u){ return u.depth !== null; });
+      diamond = { n: found.mean,
+                  dist: weightedQuantile(units.map(function(u){ return u.dist; }), sizes, 0.5),
+                  depth: withDepth.length
+                    ? weightedQuantile(withDepth.map(function(u){ return u.depth; }),
+                                       withDepth.map(function(u){ return u.weight; }), 0.5)
+                    : null };
+    }
+    return { units: units, diamond: diamond, found: found };
+  };
+  var groups = read.map(function(units, i) {
+    var d = describe(units);
+    d.name = names[i];
+    d.whole = !!units.whole;
+    return d;
   });
-  var found = polarityIndices(units.map(function(u){ return u.n; }), axis, sizes);
-  var diamond = null;
-  if (found && found.mean) {
-    var withDepth = units.filter(function(u){ return u.depth !== null; });
-    diamond = { n: found.mean,
-                dist: weightedQuantile(units.map(function(u){ return u.dist; }), sizes, 0.5),
-                depth: withDepth.length
-                  ? weightedQuantile(withDepth.map(function(u){ return u.depth; }),
-                                     withDepth.map(function(u){ return u.weight; }), 0.5)
-                  : null };
-  }
-  return { centre: centre, axis: axis, u: across, w: third, refDist: axisAt.dist,
-           reach: reach, depthReach: depthReach, units: units, diamond: diamond,
+  // Where the reference itself sits, for the star: its distance, and how deep inside the mask.
+  var refUnits = readings(ref);
+  var refDepth = null;
+  refUnits.forEach(function(u) {
+    if (u.depth != null && (refDepth === null || u.depth > refDepth)) refDepth = u.depth;
+  });
+  if (refDepth !== null && (depthReach === null || refDepth > depthReach)) depthReach = refDepth;
+  var first = groups[0];
+  return { centre: centre, axis: axis, u: across, w: third, refDist: axisAt.dist, refDepth: refDepth,
+           reach: reach, depthReach: depthReach, units: first.units, diamond: first.diamond,
+           groups: groups,
            // How far out the chart's own radius goes: what its grid is drawn to.
            plotReach: radiusMode === 'membrane' && depthReach ? depthReach : reach,
-           R: found ? found.R : null, V: found ? found.V : null,
-           mean: found && found.mean ? found.mean : null };
+           R: first.found ? first.found.R : null, V: first.found ? first.found.V : null,
+           mean: first.found && first.found.mean ? first.found.mean : null };
+}
+
+/**
+ * The structures a map of the whole cell shows, in the chart's order: the ones with instances
+ * first, then the ones measured whole. Everything with a direction from the centre, except the
+ * reference (which is the axis) and the mask that bounds the cell.
+ */
+function polarSubjects(ref) {
+  var bounding = boundingMaskName();
+  var labels = uniq(INSTANCES.filter(function(r){ return polarUnit(r); })
+                             .map(function(r){ return r.entity_name; }))
+    .filter(function(n){ return n !== ref && n !== bounding; });
+  var masks = uniq(ENTS.filter(function(r){ return r.entity_kind === 'mask' && polarUnit(r); })
+                       .map(function(r){ return r.entity_name; }))
+    .filter(function(n){ return n !== ref && n !== bounding && labels.indexOf(n) < 0; });
+  return labels.concat(masks);
+}
+
+/** The other cells of this cell's group, as the group plot has them: one point per structure. */
+function polarOthers(spec, currentId) {
+  if (spec.aspect !== 'map') return [];
+  var mine = OBJECTS.find(function(o){ return String(o.object_id) === String(currentId); });
+  var group = mine ? mine.group_id : null;
+  var out = [];
+  OBJECTS.forEach(function(o) {
+    if (String(o.object_id) === String(currentId) || (o.group_id || null) !== (group || null)) return;
+    polarSubjects(spec.ref).forEach(function(name) {
+      var point = polarCellPoint(o.object_id, spec.ref, name, spec.radius);
+      if (point) out.push(point);
+    });
+  });
+  return out;
+}
+
+/**
+ * One cell's point for one structure, as the group plot draws it: how far out (the size-
+ * weighted median of the radius) and the angle to the axis of the mean direction. Read from the
+ * report's rows, so a cell the viewer is not showing can still be placed. Null where the cell
+ * has nothing of the structure, or no axis to measure from.
+ */
+function polarCellPoint(objectId, ref, name, radiusMode) {
+  var axis = polarOffset(objectId, ref);
+  if (!axis) return null;
+  var mask = boundingMaskName();
+  var rows = INSTANCES.filter(function(r){ return String(r.object_id) === String(objectId) && r.entity_name === name; });
+  if (!rows.length) rows = ENTS.filter(function(r){ return String(r.object_id) === String(objectId) && r.entity_name === name; });
+  rows = rows.filter(function(r){ return polarUnit(r) && r.polar_dist_um > 0; });
+  var toMask = radiusMode === 'membrane';
+  rows = rows.filter(function(r){ return !toMask || polarDepth(r, mask) != null; });
+  if (!rows.length) return null;
+  var sizes = polarWeights(rows);
+  var found = polarityIndices(rows.map(polarUnit), axis.unit, sizes);
+  if (!found || !found.mean) return null;
+  return { id: objectId, name: name, cone: polarConeDeg(found.mean, axis.unit),
+           r: weightedQuantile(rows.map(function(r){ return toMask ? polarDepth(r, mask) : r.polar_dist_um; }), sizes, 0.5) };
 }
 
 /** Which way a chart lays the instances out, by what the chart is. */
@@ -6696,21 +6815,113 @@ function polarityOverlay(THREE, frame, o) {
 
   // The points that become the chart, and the chart's own grid under them.
   if (morphing) {
-    var coords = polarMorphPositions(frame, layout, o.radiusMode, t);
-    var dots = new THREE.BufferGeometry();
-    dots.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
-    var points = new THREE.Points(dots, new THREE.PointsMaterial({
-      color: new THREE.Color('#5aa2ff'), size: 4, sizeAttenuation: false,
-      transparent: true, opacity: 0.85, depthTest: false }));
-    points.renderOrder = 6;
-    group.add(points);
-
+    var whole = o.aspect === 'map' || o.aspect === 'cellmap';
+    // The group plot is one point per structure, so after the cell has been laid flat its
+    // instances gather into that point; the circle and the scatter keep every instance.
+    var collapses = o.aspect === 'map';
+    var ease = function(x){ return x * x * (3 - 2 * x); };
+    var s0 = collapses ? Math.min(1, t / 0.6) : t;
+    var sT = ease(s0);
+    var kT = collapses ? ease(Math.max(0, Math.min(1, (t - 0.6) / 0.4))) : 0;
+    var groups = whole ? frame.groups
+      : [{ name: null, units: frame.units, diamond: frame.diamond }];
+    var colourOf = function(name) {
+      return new THREE.Color((o.colours && name && o.colours[name]) || '#5aa2ff');
+    };
+    var radiusOfDiamond = function(d) {
+      return o.radiusMode === 'membrane' && d.depth != null && frame.depthReach != null
+        ? frame.depthReach - d.depth : d.dist;
+    };
+    var gemSize = Math.max(frame.reach * 0.05, 1e-6);
     var R = frame.plotReach;
     var flat = !!POLAR_FLATTENS[o.aspect];
     var at = function(x, y) {
       return [c[0] + a[0] * x + frame.u[0] * y, c[1] + a[1] * x + frame.u[1] * y,
               c[2] + a[2] * x + frame.u[2] * y];
     };
+
+    groups.forEach(function(g) {
+      var tint = colourOf(g.name);
+      var target = null;
+      if (g.diamond) {
+        target = new Float32Array(3);
+        polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond), 1,
+                        target, 0);
+      }
+      var coords = new Float32Array(g.units.length * 3);
+      g.units.forEach(function(unit, i) {
+        polarMorphPoint(frame, layout, unit.n, unit.dist,
+                        polarPlotRadius(frame, unit, o.radiusMode), sT, coords, 3 * i);
+        if (kT > 0 && target) {
+          for (var q = 0; q < 3; q++) coords[3 * i + q] += (target[q] - coords[3 * i + q]) * kT;
+        }
+      });
+      var dots = new THREE.BufferGeometry();
+      dots.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+      // Invisible at the start - they are the cell's own instances, and the cell is drawn - and
+      // faint at the end, when only the point they gathered into should be read.
+      var points = new THREE.Points(dots, new THREE.PointsMaterial({
+        color: tint, size: 3.2, sizeAttenuation: false, transparent: true,
+        opacity: Math.min(1, s0 * 6) * (1 - 0.88 * kT), depthTest: false }));
+      points.renderOrder = 6;
+      group.add(points);
+
+      // The cell's average for the structure - its middle distance, its mean direction: the
+      // one point a plot per group is made of.
+      if (g.diamond && (layout === 'half' || layout === 'circle')) {
+        var where = new Float32Array(3);
+        polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond),
+                        sT, where, 0);
+        var gem = new THREE.Mesh(new THREE.OctahedronGeometry(gemSize * (0.8 + 0.7 * Math.max(sT, kT))),
+          new THREE.MeshBasicMaterial({ color: tint, depthTest: false }));
+        gem.scale.set(1, 1.25, 0.3);
+        gem.position.set(where[0], where[1], where[2]);
+        gem.renderOrder = 9;
+        group.add(gem);
+        var rim = new THREE.LineSegments(new THREE.EdgesGeometry(gem.geometry),
+          new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true,
+                                        opacity: 0.9 }));
+        rim.position.copy(gem.position);
+        rim.scale.copy(gem.scale);
+        rim.renderOrder = 10;
+        group.add(rim);
+      }
+    });
+
+    // The rest of the group, as the plot shows them: one faint diamond per cell and
+    // structure, in the plane of this cell's own axis, arriving as the instances gather.
+    if (collapses && kT > 0 && o.others && o.radiusMode !== 'membrane') {
+      o.others.forEach(function(point) {
+        var theta = point.cone * Math.PI / 180;
+        var where = at(point.r * Math.cos(theta), point.r * Math.sin(theta));
+        var ghost = new THREE.Mesh(new THREE.OctahedronGeometry(gemSize * 0.75),
+          new THREE.MeshBasicMaterial({ color: colourOf(point.name), transparent: true,
+                                        opacity: 0.55 * kT, depthTest: false }));
+        ghost.position.set(where[0], where[1], where[2]);
+        ghost.renderOrder = 8;
+        group.add(ghost);
+      });
+    }
+
+    // Axis labels, on the plot itself: the plane has to say what its directions are.
+    var label = function(text, x, y, colour, width) {
+      var canvas = document.createElement('canvas');
+      canvas.width = 384; canvas.height = 72;
+      var g2 = canvas.getContext('2d');
+      g2.font = '600 34px system-ui, sans-serif';
+      g2.textAlign = 'center'; g2.textBaseline = 'middle';
+      g2.lineWidth = 7; g2.strokeStyle = 'rgba(8,12,17,.85)'; g2.strokeText(text, 192, 38);
+      g2.fillStyle = colour; g2.fillText(text, 192, 38);
+      var texture = new THREE.CanvasTexture(canvas);
+      var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false,
+        transparent: true, opacity: Math.min(1, sT * 1.5) }));
+      var p = at(x, y);
+      sprite.position.set(p[0], p[1], p[2]);
+      sprite.scale.set(width, width * 72 / 384, 1);
+      sprite.renderOrder = 12;
+      group.add(sprite);
+    };
+
     var grid = [];
     var arc = function(radius, from, to) {
       var pieces = [], steps = 48;
@@ -6738,22 +6949,31 @@ function polarityOverlay(THREE, frame, o) {
       else grid.push([at(0, 0), at(-R, 0)]);
     }
     if (grid.length) {
-      var gridLines = segments(grid, 0x6b7480, 0.6 * t);
+      var gridLines = segments(grid, 0xa9b8cc, 0.75 * sT);
       gridLines.renderOrder = 3;
     }
-
-    // The cell's average for the structure - its middle distance, its mean direction: the
-    // one point a plot per group is made of.
-    if (frame.diamond && (layout === 'half' || layout === 'circle')) {
-      var where = new Float32Array(3);
-      var dRadius = o.radiusMode === 'membrane' && frame.diamond.depth != null
-        && frame.depthReach != null ? frame.depthReach - frame.diamond.depth : frame.diamond.dist;
-      polarMorphPoint(frame, layout, frame.diamond.n, frame.diamond.dist, dRadius, t, where, 0);
-      var gem = new THREE.Mesh(new THREE.OctahedronGeometry(Math.max(frame.reach * 0.06, 1e-6)),
-        new THREE.MeshBasicMaterial({ color: 0xffa940, depthTest: false }));
-      gem.position.set(where[0], where[1], where[2]);
-      gem.renderOrder = 9;
-      group.add(gem);
+    if (flat && whole) {
+      var inkText = '#e9eef5', wide = R * 1.0;
+      label('towards ' + (o.refName || 'the reference') + '  0\u00b0', R * 0.62, -R * 0.13, inkText, wide * 0.9);
+      label('away  180\u00b0', -R * 0.78, -R * 0.13, inkText, wide * 0.7);
+      label('90\u00b0', 0, R * 1.12, inkText, wide * 0.35);
+      [1 / 3, 2 / 3, 1].forEach(function(f) {
+        var value = o.radiusMode === 'membrane' && frame.depthReach
+          ? frame.depthReach * (1 - f) : R * f;
+        label(fmtValue(value) + ' µm' + (o.radiusMode === 'membrane' ? ' in' : ''),
+              R * 0.2, R * f, '#b9c7d8', wide * 0.5);
+      });
+      // The reference itself, a star on the 0° line where it sits.
+      var starAt = new Float32Array(3);
+      var refRadius = o.radiusMode === 'membrane' && frame.refDepth != null && frame.depthReach != null
+        ? frame.depthReach - frame.refDepth : frame.refDist;
+      polarMorphPoint(frame, layout, frame.axis, frame.refDist, refRadius, sT, starAt, 0);
+      var star = new THREE.Mesh(new THREE.OctahedronGeometry(gemSize * 1.1),
+        new THREE.MeshBasicMaterial({ color: colourOf(o.refName), depthTest: false }));
+      star.scale.set(1, 1, 0.35);
+      star.position.set(starAt[0], starAt[1], starAt[2]);
+      star.renderOrder = 11;
+      group.add(star);
     }
   }
 
@@ -6971,8 +7191,11 @@ async function renderScene() {
     // Where the centre is among the meshes, for the arrows a polarity chart is explained by.
     var frame = null;
     if (explain && explain.kind === 'polarity') {
+      var whole = explain.aspect === 'map' || explain.aspect === 'cellmap';
+      var subjectsHere = whole ? polarSubjects(explain.ref) : [explain.structure];
       frame = polarityFrame(instances.concat(masks), current.id, explain.ref,
-                            explain.structure, explain.radius);
+                            subjectsHere[0] || explain.structure, explain.radius,
+                            subjectsHere.slice(1));
       // The wedge to begin on is the fullest: the tallest bar of the chart it explains.
       if (frame && sceneState.wedge === null) {
         var counts = new Array(POLAR_ANGLE_BINS).fill(0);
@@ -7054,9 +7277,12 @@ async function renderScene() {
     if (!stage || !loaded || !isLatest()) return;
     clearOverlay();
     if (explain && explain.kind === 'polarity' && loaded.frame) {
+      var colours = {};
+      polarSubjects(explain.ref).concat([explain.ref]).forEach(function(n){ colours[n] = litEntColour(n); });
       stage.overlay = polarityOverlay(stage.THREE, loaded.frame, {
         aspect: explain.aspect, wedge: sceneState.wedge || 0, t: sceneState.t,
-        planar: PLANAR, radiusMode: explain.radius, colour: litEntColour(explain.structure) });
+        planar: PLANAR, radiusMode: explain.radius, colour: litEntColour(explain.structure),
+        colours: colours, refName: explain.ref, others: polarOthers(explain, current.id) });
       stage.scene.add(stage.overlay);
     }
     if (andDraw !== false) stage.draw();
@@ -7081,7 +7307,7 @@ async function renderScene() {
     }
     var t = sceneState.t;
     stage.setPose(polarMorphPose(stage.THREE, loaded.frame, t));
-    stage.fade(1 - t);
+    stage.fade(1 - Math.min(1, t * 2));
     if (t > 0 && !stage.morphFrom) stage.morphFrom = stage.view();
     if (!stage.morphFrom) return;
     if (t === 0) {
@@ -7283,8 +7509,11 @@ async function renderScene() {
         return '<b>' + total + '</b> ' + named + ', each at its angle to ' + dataName(explain.ref)
           + ' and its distance from the centre';
       }
-      return '<b>' + total + '</b> ' + named + ', and the cell\u2019s average of them as the'
-        + ' orange diamond';
+      var counts = frame.groups.filter(function(g){ return g.units.length; }).map(function(g) {
+        return '<b>' + g.units.length.toLocaleString() + '</b> ' + escHtml(g.name);
+      });
+      return counts.join(' \u00b7 ') + '<br>in ' + escHtml(String(current.id))
+        + ', each structure one diamond in the plot';
     }
     if (explain.kind === 'group') {
       var gap = live === undefined ? sceneState.gap : live;
@@ -7344,7 +7573,7 @@ async function renderScene() {
     // What to touch and what it says come first, under the picture; the words explaining the
     // picture follow, since they are read once and the slider is used again and again.
 
-    if (explain.kind === 'polarity') {
+    if (explain.kind === 'polarity' && explain.aspect !== 'map' && explain.aspect !== 'cellmap') {
       // The map holds every structure and a chart of one holds only that one, so the
       // structure the arrows go to is the reader's to change.
       var candidates = polarityStructures(explain.ref);
@@ -7371,8 +7600,11 @@ async function renderScene() {
             : aspect === 'index'
               ? swatch('#5aa2ff', 'one instance each')
                 + swatch('#ffa940', 'average, length R; the dot is V')
-              : swatch('#5aa2ff', 'one instance each')
-                + (aspect === 'where' ? '' : swatch('#ffa940', 'the ' + noun() + '\u2019s average')));
+              : (aspect === 'map' || aspect === 'cellmap')
+                ? polarSubjects(explain.ref).map(function(n){ return swatch(litEntColour(n), escHtml(n)); }).join('')
+                  + swatch(litEntColour(explain.ref), escHtml(explain.ref) + ' (the reference)')
+                  + '<span>\u25c6 one point per structure</span>'
+                : swatch('#5aa2ff', 'one instance each'));
       explainEl.appendChild(key);
       if (aspect === 'angle') {
         var binWidth = 180 / POLAR_ANGLE_BINS;
@@ -7403,6 +7635,11 @@ async function renderScene() {
         explainEl.appendChild(slider('Showing', {
           min: 0, max: 1, step: 0.01, value: sceneState.t,
           format: function(v) {
+            if (aspect === 'map') {
+              return v < 0.005 ? 'the ' + noun() : v > 0.995 ? 'the plot, one diamond per structure'
+                : v < 0.6 ? 'turning the ' + noun() + ' into the plot'
+                : 'gathering each structure into its diamond';
+            }
             return v < 0.005 ? 'the ' + noun() : v > 0.995 ? 'the chart'
               : Math.round(100 * v) + '% of the way to the chart';
           },
@@ -7489,6 +7726,7 @@ async function renderScene() {
       buildControls(summary);
       buildExplain(summary);
       syncRoseMarkers();
+      syncMapMarkers();
       // Said, not left as an empty box: the chart is about something this object has no
       // surface for - a structure written without geometry, say.
       if (explain && !loaded.instances.concat(loaded.masks).some(function(i){ return i.entity === subject; })) {
@@ -9828,6 +10066,7 @@ if (typeof globalThis !== 'undefined') {
     structureSpec: structureSpec, polarityStructures: polarityStructures,
     polarityFrame: polarityFrame,
     polarMorphPositions: polarMorphPositions, polarBinOf: polarBinOf,
+    polarSubjects: polarSubjects, polarCellPoint: polarCellPoint,
     polarWeight: polarWeight, polarWeights: polarWeights, weightedQuantile: weightedQuantile,
     clearPolarOffsets: function(){ _POLAR_OFFSETS = {}; },
     toRgb: toRgb, viridisAt: viridisAt,

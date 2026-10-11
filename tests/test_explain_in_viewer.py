@@ -94,6 +94,25 @@ def test_a_plane_is_a_frame_with_no_third_axis(ring_rows_2d):
     assert sorted(round(a) for a in frame["angles"]) == [45, 45, 135, 135]
 
 
+# ── the map of the whole cell ────────────────────────────────────────────────
+
+
+def test_the_viewers_diamond_for_a_structure_is_the_plots_point_for_it(ring_rows):
+    """Both are read from the same rows, so the last frame of the slider is the plot.
+
+    The mitochondria sit on a ring and cancel, so they have no mean direction and no point;
+    every structure that has one must agree to the digit between the two.
+    """
+    got = _explained(ring_rows, [3, 1, 2], groups=True)["groups"]
+    assert "mito" in got["names"] and "nucleus" not in got["names"], "the reference is the axis"
+    for viewer, plot in zip(got["viewer"], got["plot"]):
+        if plot is None:
+            assert viewer["cone"] is None
+            continue
+        assert viewer["cone"] == pytest.approx(plot["cone"], abs=1e-6)
+        assert viewer["dist"] == pytest.approx(plot["r"], abs=1e-9)
+
+
 # ── turning the cell into the chart ──────────────────────────────────────────
 
 
