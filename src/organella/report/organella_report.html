@@ -354,6 +354,11 @@ details.per-object > summary::-webkit-details-marker { display: none; }
 details.per-object > .per-object-body { padding-top: .5rem; }
 .explain-key { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .72rem;
   color: var(--ink-3); margin: .5rem 0 .2rem; }
+.explain-key .muted { color: var(--ink-3); font-style: italic; }
+.explain-key .sw { width: 12px; height: 12px; border-radius: 3px; }
+.explain-key .sw.ramp { width: 28px; }
+.explain-key .sw.lum { background: linear-gradient(90deg, #f5f5f5, #555); }
+.explain-key .sw.viridis { background: linear-gradient(90deg, #440154, #21908d, #fde725); }
 .explain-key i { box-shadow: 0 0 0 1px rgba(20, 24, 29, .25); display: inline-block; width: 16px; height: 3px; vertical-align: middle;
   margin-right: .3rem; border-radius: 2px; }
 
@@ -5315,6 +5320,23 @@ function fromLinear(channel) {
  * legend, a thumbnail and a surface in the 3D scene are the same colours at the same
  * values - which is the whole point of showing the scale.
  */
+/**
+ * The distance ramp: brightness only, near is bright and far is dim, with no hue at all.
+ * A distance is always measured *to* a structure, and every structure is a hue; a ramp with
+ * a hue in it eventually matches one of them and the picture says the wrong thing. Never
+ * darker than a dark grey, so the far end is still on the page.
+ */
+function distRampAt(t) {
+  var clamped = Math.max(0, Math.min(1, isFinite(t) ? t : 1));
+  var v = 0.97 - 0.72 * clamped;   // sRGB brightness
+  var linear = toLinear(v);
+  return [linear, linear, linear];
+}
+function distRampHexAt(t) {
+  var v = Math.round((0.97 - 0.72 * Math.max(0, Math.min(1, t))) * 255).toString(16).padStart(2, '0');
+  return '#' + v + v + v;
+}
+
 function viridisHexAt(t) {
   return '#' + viridisAt(t).map(function(channel) {
     return Math.round(fromLinear(channel) * 255).toString(16).padStart(2, '0');
@@ -5332,7 +5354,8 @@ function colourRamp(opts) {
   var el = document.createElement('div');
   el.className = 'colour-ramp';
   var stops = [];
-  for (var i = 0; i <= 10; i++) stops.push(viridisHexAt(i / 10) + ' ' + (i * 10) + '%');
+  var hexAt = opts.ramp === 'distance' ? distRampHexAt : viridisHexAt;
+  for (var i = 0; i <= 10; i++) stops.push(hexAt(i / 10) + ' ' + (i * 10) + '%');
   var number = function(v) {
     if (v == null || !isFinite(v)) return '–';
     // Counts are whole numbers: "6.50e+3" is not how anyone reads a group of 6,496.
@@ -6213,12 +6236,13 @@ function distanceSpec(entity, col) {
   spec.valueLabel = labelFor(col);
   spec.title = entity + (tip ? ' ends' : '') + ' to ' + (target || distColLabel(col));
   spec.text = target
-    ? 'Every ' + named + ' instance, coloured by how far '
+    ? 'Every ' + named + ' instance is shaded by how far '
       + (tip ? 'its nearest end' : 'it') + ' is from the nearest ' + dataName(target)
-      + ', which is drawn faint behind. Slide the distance to keep only the instances that are'
-      + ' within it.'
-    : 'Every ' + named + ' instance, coloured by how far it is from the nearest other '
-      + named + '. Slide the distance to keep only the instances within it.';
+      + ': bright is near, dim is far - brightness only, so no colour here is a structure\u2019s. '
+      + dataName(target) + ' is drawn see-through in its own colour. Slide the distance to keep only'
+      + ' the instances within it.'
+    : 'Every ' + named + ' instance is shaded by how far it is from the nearest other '
+      + named + ': bright is near, dim is far. Slide the distance to keep only the instances within it.';
   return spec;
 }
 
@@ -6232,20 +6256,56 @@ function bothSpec(entity, colA, colB) {
            targets: [a, b].filter(Boolean), unit: 'µm',
            valueLabel: 'Distance to the further of ' + (a || colA) + ' and ' + (b || colB) + ' (µm)',
            title: entity + ' near ' + (a || colA) + ' and ' + (b || colB),
-           text: 'Every ' + named + ' instance, coloured by the <b>larger</b> of its two'
-             + ' distances - to ' + dataName(a || colA) + ' and to ' + dataName(b || colB)
-             + ' - which is the distance at which it is close to both. The two structures are'
-             + ' drawn faint behind. Slide the distance to keep the instances that are within it'
-             + ' of both.' };
+           text: 'Every ' + named + ' instance is shaded by the <b>larger</b> of its two distances - to '
+             + dataName(a || colA) + ' and to ' + dataName(b || colB) + ' - which is the distance at which'
+             + ' it is close to both: bright is near both, dim is far from at least one. The two structures'
+             + ' are drawn see-through in their own colours. Slide the distance to keep the instances within'
+             + ' it of both.' };
 }
 
-function groupSpec(entity) {
-  return { kind: 'group', entity: entity, title: entity + ' groups',
-           text: 'Instances of ' + dataName(entity) + ' closer than the gap to one another chain into a group.'
-             + ' Each group is coloured by how large it is, on the scale below the cell, and an instance'
-             + ' touching nothing is grey; the strip is every group as a bar, which is what the charts'
-             + ' count. Widen the gap and groups merge: the colours shift towards one large network. The'
-             + ' slider is the chart\u2019s own gap, so moving either moves both.' };
+/**
+ * The group charts are five different questions about the same groups, so five pictures:
+ * how large they are (`size`), whether an instance is in one at all (`share`), how close a
+ * group gets to a structure (`reach`, and `both` for two of them at once), and that same
+ * closeness set against groups of the same size (`baseline`).
+ */
+function groupSpec(entity, aspect, cols) {
+  aspect = aspect || 'size';
+  var named = dataName(entity);
+  var targets = (cols || []).map(function(c){ return targetOfColumn(c); }).filter(Boolean);
+  var spec = { kind: 'group', aspect: aspect, entity: entity, metrics: cols || null,
+               metric: (cols || []).join('+') || null, targets: targets, unit: 'µm' };
+  var gap = ' Instances closer than the gap to one another chain into a group, and the slider is the'
+    + ' chart’s own gap, so moving either moves both.';
+  if (aspect === 'share') {
+    spec.title = '% of ' + entity + ' reaching another';
+    spec.text = 'Each ' + named + ' instance is either in a group of two or more - drawn in its own colour - or'
+      + ' touches nothing and is dim. The chart’s number is the share of instances that are in a group.' + gap;
+  } else if (aspect === 'reach' || aspect === 'baseline') {
+    var t = targets[0];
+    spec.valueLabel = 'Closest approach of the group to ' + (t || 'the structure') + ' (µm)';
+    spec.title = entity + ' group to ' + (t || (cols && cols[0]) || 'a structure');
+    spec.text = 'Each group of ' + named + ' is shaded by its closest approach to ' + dataName(t || 'the structure')
+      + ': the nearest any member gets. Bright is near, dim is far - brightness only, so no colour here is a'
+      + ' structure’s. ' + dataName(t || 'It') + ' is drawn see-through in its own colour; instances touching'
+      + ' nothing are not groups and stay faint.'
+      + (aspect === 'baseline'
+          ? ' The chart scores each distance against groups of the same size that could have formed by chance, because'
+            + ' a larger group reaches closer whatever it is made of; the picture is the distance underneath the score.'
+          : '') + gap;
+  } else if (aspect === 'both') {
+    spec.valueLabel = 'Closest approach to the further of ' + targets.join(' and ') + ' (µm)';
+    spec.title = entity + ' groups near ' + targets.join(' and ');
+    spec.text = 'Each group of ' + named + ' is shaded by the larger of its two closest approaches - to '
+      + targets.map(dataName).join(' and ') + ' - the distance at which the group reaches both. Bright is near both. The'
+      + ' two structures are drawn see-through in their own colours.' + gap;
+  } else {
+    spec.title = entity + ' groups';
+    spec.text = 'Each group of ' + named + ' is coloured by how large it is, on the scale below the cell, and an instance'
+      + ' touching nothing is dim; the strip is every group as a bar, which is what the charts count. Widen the gap'
+      + ' and groups merge: the colours shift towards one large network.' + gap;
+  }
+  return spec;
 }
 
 function structureSpec(entity) {
@@ -6266,7 +6326,7 @@ function polaritySpec(structure, ref, aspect, objectId, radius) {
   var tail = {
     angle: 'The ' + named + ' that lie in the wedge of angles you choose are solid and the rest'
       + ' faint; the height of that wedge in the chart is how many are solid. Slide to step'
-      + ' round the wedges. The orange arrow is the average direction, and its length is R.',
+      + ' round the wedges. The thick white arrow is the average direction, and its length is R.',
     index: 'Each dot is one ' + named + '. The orange arrow is their average direction: its'
       + ' length is R, and the orange dot where it reaches along the light arrow is V. Slide to'
       + ' push every instance out to the same distance: only the directions count here, not'
@@ -6759,8 +6819,26 @@ function polarBinOf(angle) {
 function polarityOverlay(THREE, frame, o) {
   var group = new THREE.Group();
   var c = frame.centre, a = frame.axis, L = frame.reach * 1.1;
-  var BLUE = new THREE.Color('#5aa2ff'), GREY = new THREE.Color('#6b7683');
+  // Overlays are neutral: a hue on this stage means a structure, and blue and orange are the two
+  // groups everywhere else in the report.
+  var BLUE = new THREE.Color('#ffffff');
   var vec = function(p){ return new THREE.Vector3(p[0], p[1], p[2]); };
+  // A word on the picture: colour is for structures, so what an arrow or a ring *is* is written.
+  var textAt = function(text, p, colour, width, opacity) {
+    var canvas = document.createElement('canvas');
+    canvas.width = 384; canvas.height = 72;
+    var g2 = canvas.getContext('2d');
+    g2.font = '600 34px system-ui, sans-serif';
+    g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    g2.lineWidth = 7; g2.strokeStyle = 'rgba(8,12,17,.9)'; g2.strokeText(text, 192, 38);
+    g2.fillStyle = colour; g2.fillText(text, 192, 38);
+    var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas),
+      depthTest: false, transparent: true, opacity: opacity === undefined ? 1 : opacity }));
+    sprite.position.set(p[0], p[1], p[2]);
+    sprite.scale.set(width, width * 72 / 384, 1);
+    sprite.renderOrder = 12;
+    group.add(sprite);
+  };
   var line = function(points, colour, opacity, parent) {
     var geometry = new THREE.BufferGeometry().setFromPoints(points.map(vec));
     var made = new THREE.Line(geometry, new THREE.LineBasicMaterial({
@@ -6780,6 +6858,7 @@ function polarityOverlay(THREE, frame, o) {
     group.add(made);
     return made;
   };
+  var sT0 = function(oo){ return POLAR_FLATTENS[oo.aspect] ? oo.t : 0; };
   var morphing = !!POLAR_LAYOUTS[o.aspect];
   var layout = POLAR_LAYOUTS[o.aspect];
   var t = morphing ? o.t : 0;
@@ -6812,7 +6891,7 @@ function polarityOverlay(THREE, frame, o) {
     var shell = new THREE.BufferGeometry();
     shell.setAttribute('position', new THREE.Float32BufferAttribute([].concat.apply([], tri), 3));
     group.add(new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
-      color: BLUE, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false })));
+      color: BLUE, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })));
     [rings[0], rings[J]].forEach(function(rim) {
       var loop = new THREE[wrap ? 'LineLoop' : 'Line'](
         new THREE.BufferGeometry().setFromPoints(rim.map(vec)),
@@ -6834,7 +6913,7 @@ function polarityOverlay(THREE, frame, o) {
     var groups = whole ? frame.groups
       : [{ name: null, units: frame.units, diamond: frame.diamond }];
     var colourOf = function(name) {
-      return new THREE.Color((o.colours && name && o.colours[name]) || '#5aa2ff');
+      return new THREE.Color((o.colours && name && o.colours[name]) || o.colour || '#ffffff');
     };
     var radiusOfDiamond = function(d) {
       return o.radiusMode === 'membrane' && d.depth != null && frame.depthReach != null
@@ -6913,21 +6992,7 @@ function polarityOverlay(THREE, frame, o) {
 
     // Axis labels, on the plot itself: the plane has to say what its directions are.
     var label = function(text, x, y, colour, width) {
-      var canvas = document.createElement('canvas');
-      canvas.width = 384; canvas.height = 72;
-      var g2 = canvas.getContext('2d');
-      g2.font = '600 34px system-ui, sans-serif';
-      g2.textAlign = 'center'; g2.textBaseline = 'middle';
-      g2.lineWidth = 7; g2.strokeStyle = 'rgba(8,12,17,.85)'; g2.strokeText(text, 192, 38);
-      g2.fillStyle = colour; g2.fillText(text, 192, 38);
-      var texture = new THREE.CanvasTexture(canvas);
-      var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false,
-        transparent: true, opacity: Math.min(1, sT * 1.5) }));
-      var p = at(x, y);
-      sprite.position.set(p[0], p[1], p[2]);
-      sprite.scale.set(width, width * 72 / 384, 1);
-      sprite.renderOrder = 12;
-      group.add(sprite);
+      textAt(text, at(x, y), colour, width, Math.min(1, sT * 1.5));
     };
 
     var grid = [];
@@ -6959,6 +7024,13 @@ function polarityOverlay(THREE, frame, o) {
     if (grid.length) {
       var gridLines = segments(grid, 0xa9b8cc, 0.75 * sT);
       gridLines.renderOrder = 3;
+    }
+    if (flat && layout === 'cart') {
+      var ink = '#e9eef5', soft = '#b9c7d8';
+      [[-R, '0\u00b0'], [0, '90\u00b0'], [R, '180\u00b0']].forEach(function(e) { label(e[1], e[0], -R * 0.09, ink, R * 0.3); });
+      label('angle to ' + (o.refName || 'the reference') + '  (0\u00b0 = towards it)', 0, -R * 0.2, ink, R * 1.15);
+      [1 / 3, 2 / 3, 1].forEach(function(f) { label(fmtValue(R * f) + ' \u00b5m', -R * 1.12, R * f, soft, R * 0.42); });
+      label('distance from the ' + noun() + ' centre', -R * 1.05, R * 1.12, ink, R * 0.95);
     }
     if (flat && whole) {
       var inkText = '#e9eef5', wide = R * 1.0;
@@ -7003,21 +7075,28 @@ function polarityOverlay(THREE, frame, o) {
     made.traverse(function(node){ node.renderOrder = order; });
     return made;
   };
-  group.add(arrow(a, L, 0xeef1f5, 6, 0.1));
+  group.add(arrow(a, L, 0xc9d6e6, 6, 0.1));
+  if (!POLAR_FLATTENS[o.aspect] || sT0(o) < 0.05) {
+    textAt('towards ' + (o.refName || 'the reference') + '  0\u00b0',
+           [c[0] + a[0] * L * 0.78, c[1] + a[1] * L * 0.78 + L * 0.09, c[2] + a[2] * L * 0.78], '#dbe5f1', L * 0.62);
+  }
   if ((o.aspect === 'angle' || o.aspect === 'index') && frame.mean && frame.R > 0.01) {
-    group.add(arrow(frame.mean, frame.R * L, 0xffa940, 7, 0.24));
+    group.add(arrow(frame.mean, frame.R * L, 0xffffff, 7, 0.26));
+    textAt('average  R ' + frame.R.toFixed(2), [c[0] + frame.mean[0] * frame.R * L * 1.05, c[1] + frame.mean[1] * frame.R * L * 1.05 - L * 0.1,
+           c[2] + frame.mean[2] * frame.R * L * 1.05], '#ffffff', L * 0.5);
   }
   // V: how far that average reaches along the axis. Dropped to it from the arrow's tip.
   if (o.aspect === 'index' && frame.mean && frame.R > 0.01) {
     var tip = [c[0] + frame.mean[0] * frame.R * L, c[1] + frame.mean[1] * frame.R * L,
                c[2] + frame.mean[2] * frame.R * L];
     var foot = [c[0] + a[0] * frame.V * L, c[1] + a[1] * frame.V * L, c[2] + a[2] * frame.V * L];
-    line([tip, foot], 0xffa940, 0.9);
-    var bar = line([c, foot], 0xffa940, 1);
+    line([tip, foot], 0xffffff, 0.9);
+    var bar = line([c, foot], 0xffffff, 1);
     bar.material.linewidth = 2;
     var mark = new THREE.Mesh(new THREE.SphereGeometry(head * 0.45, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffa940, depthTest: false }));
+      new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
     mark.position.set(foot[0], foot[1], foot[2]);
+    textAt('V ' + frame.V.toFixed(2), [foot[0], foot[1] - L * 0.1, foot[2]], '#ffffff', L * 0.4);
     mark.renderOrder = 9;
     group.add(mark);
   }
@@ -7186,6 +7265,9 @@ async function renderScene() {
         : joined ? (key in joined ? joined[key] : null)
         : (read.vals[sceneState.metric] === undefined ? null : read.vals[sceneState.metric]);
       return { entity: read.entity, label: read.label, metric: value, polar: read.polar,
+               // One value per column the chart reads, for a chart that reads several (a group's
+               // closest approach to each of two structures).
+               vals: explained ? explained.map(function(m){ return key in m ? m[key] : null; }) : null,
                geometry: read.geometry, flat: read.flat, kind: read.kind };
     };
     wanted.forEach(function(name) {
@@ -7239,6 +7321,29 @@ async function renderScene() {
   }
 
   /**
+   * Each group's closest approach to what the chart measures it against: the nearest any member
+   * gets to each structure, and - for two structures - the larger of the two. Null for an
+   * instance touching nothing, which is not a group, and for a group with no value.
+   */
+  function groupReach() {
+    var items = loaded.instances.filter(function(i){ return i.entity === subject; });
+    var groups = contactGroups(items.map(function(i){ return i.entity + '|' + i.label; }), loaded.edges);
+    var columns = (explain.metrics || []).length, best = new Map();
+    items.forEach(function(item) {
+      var root = groups.rootOf(item.entity + '|' + item.label);
+      var row = best.get(root);
+      if (!row) { row = []; for (var j = 0; j < columns; j++) row.push(Infinity); best.set(root, row); }
+      (item.vals || []).forEach(function(v, j){ if (v !== null && isFinite(v) && v < row[j]) row[j] = v; });
+    });
+    var values = new Map();
+    best.forEach(function(row, root) {
+      var done = groups.sizeOfRoot(root) >= 2 && row.length && row.every(isFinite);
+      values.set(root, done ? Math.max.apply(null, row) : null);
+    });
+    return { values: values, groups: groups };
+  }
+
+  /**
    * Which instances a chart's slider has put out of play.
    *
    * A chart about "at most this far" or "within this angle" is a count of the instances
@@ -7261,10 +7366,21 @@ async function renderScene() {
       });
       // Without a direction there is nothing to be inside the wedge.
       subjects.forEach(function(item){ if (!counted.has(item)) item.dim = true; });
-    } else if (sceneState.colourBy === 'metric' && sceneState.threshold !== null) {
+    } else if (explain.kind === 'group' && (explain.aspect === 'reach' || explain.aspect === 'both'
+                                            || explain.aspect === 'baseline')) {
+      // Only groups have a closest approach: what touches nothing is out of play, and so is a
+      // group further than the slider's value.
+      var reach = groupReach();
       subjects.forEach(function(item) {
-        item.dim = !isFinite(item.metric) || item.metric === null
-          || item.metric > sceneState.threshold;
+        var v = reach.values.get(reach.groups.rootOf(item.entity + '|' + item.label));
+        item.dim = v === null || v === undefined || (sceneState.threshold !== null && v > sceneState.threshold);
+      });
+    } else if (sceneState.colourBy === 'metric') {
+      // An instance with no value is faint, never painted a colour of the scale; and past the
+      // slider's value it is faint too.
+      subjects.forEach(function(item) {
+        item.dim = item.metric === null || !isFinite(item.metric)
+          || (sceneState.threshold !== null && item.metric > sceneState.threshold);
       });
     }
   }
@@ -7355,37 +7471,59 @@ async function renderScene() {
       return !explain || item.entity === subject;
     });
     if (sceneState.colourBy === 'metric') {
-      var values = inSubject.map(function(i){ return i.metric; }).filter(isFinite);
+      var values = inSubject.map(function(i){ return i.metric; }).filter(function(v){ return v !== null && isFinite(v); });
       var low = Math.min.apply(null, values), high = Math.max.apply(null, values);
       var span = high - low || 1;
+      var byDistance = !!explain && (explain.kind === 'distance' || explain.kind === 'both');
+      var ramp = byDistance ? distRampAt : viridisAt;
       colourOf = function(item) {
         return isFinite(item.metric) && item.metric !== null
-          ? viridisAt((item.metric - low) / span)
-          : [0.6, 0.6, 0.6].map(toLinear);
+          ? ramp((item.metric - low) / span) : [0.4, 0.4, 0.4].map(toLinear);
       };
       // Which colour was which value, from the instances actually on screen.
       if (values.length) {
         rampHost.appendChild(colourRamp({
           label: explain && explain.valueLabel ? explain.valueLabel : labelFor(sceneState.metric),
-          low: low, high: high }));
+          low: low, high: high, ramp: byDistance ? 'distance' : 'viridis' }));
       }
     } else if (sceneState.colourBy === 'group') {
       var keys = inSubject.map(function(i){ return i.entity + '|' + i.label; });
       var groups = contactGroups(keys, loaded.edges);
-      // By size, on the report's one colour scale: what the group charts plot is how large
-      // groups are, and a palette of arbitrary colours says only that there are several. A
-      // single network that holds nearly everything is then one colour, and the small groups
-      // beside it are another.
-      var biggest = 2;
-      keys.forEach(function(k){ biggest = Math.max(biggest, groups.sizeOfRoot(groups.rootOf(k))); });
-      var span = Math.log(biggest / 2) || 1;
-      colourOf = function(item) {
-        var size = groups.sizeOfRoot(groups.rootOf(item.entity + '|' + item.label));
-        // A singleton touches nothing: grey, so the groups are what stands out.
-        if (size < 2) return [0.34, 0.37, 0.42].map(toLinear);
-        return viridisAt(biggest > 2 ? Math.log(size / 2) / span : 0.5);
-      };
-      rampHost.appendChild(colourRamp({ label: 'Instances in the group (log scale)', low: 2, high: biggest, whole: true }));
+      var aspect = explain && explain.kind === 'group' ? explain.aspect : 'size';
+      var alone = [0.34, 0.37, 0.42].map(toLinear);
+      var rootOfItem = function(item){ return groups.rootOf(item.entity + '|' + item.label); };
+      if (aspect === 'share') {
+        // In a group or not, and nothing more: the chart is the share that are.
+        var own = toLinearRgb(litEntColour(subject));
+        colourOf = function(item){ return groups.sizeOfRoot(rootOfItem(item)) < 2 ? alone : own; };
+      } else if (aspect === 'reach' || aspect === 'both' || aspect === 'baseline') {
+        // How close a group gets to the structure, on the hue-free ramp.
+        var reach = groupReach(), all = [];
+        reach.values.forEach(function(v){ if (v !== null) all.push(v); });
+        var lowest = Math.min.apply(null, all), highest = Math.max.apply(null, all);
+        colourOf = function(item) {
+          var v = reach.values.get(rootOfItem(item));
+          return v === null || v === undefined ? alone : distRampAt((v - lowest) / ((highest - lowest) || 1));
+        };
+        if (all.length) {
+          rampHost.appendChild(colourRamp({ label: explain.valueLabel, low: lowest, high: highest, ramp: 'distance' }));
+        }
+      } else {
+        // By size, on the report's one colour scale: what the group charts plot is how large
+        // groups are, and a palette of arbitrary colours says only that there are several. A
+        // single network that holds nearly everything is then one colour, and the small groups
+        // beside it are another.
+        var biggest = 2;
+        keys.forEach(function(k){ biggest = Math.max(biggest, groups.sizeOfRoot(groups.rootOf(k))); });
+        var span = Math.log(biggest / 2) || 1;
+        colourOf = function(item) {
+          var size = groups.sizeOfRoot(rootOfItem(item));
+          // A singleton touches nothing: grey, so the groups are what stands out.
+          if (size < 2) return alone;
+          return viridisAt(biggest > 2 ? Math.log(size / 2) / span : 0.5);
+        };
+        rampHost.appendChild(colourRamp({ label: 'Instances in the group (log scale)', low: 2, high: biggest, whole: true }));
+      }
     } else {
       colourOf = function(item){ return toLinearRgb(litEntColour(item.entity)); };
     }
@@ -7406,10 +7544,15 @@ async function renderScene() {
         : toLinearRgb(litEntColour(item.entity));
       return out;
     };
+    // What a distance is measured to: its own colour (the one it has in every legend), see-through
+    // so the instances measured can be seen against it, and unmistakably there.
+    var isTarget = function(item){ return !!explain && (explain.targets || []).indexOf(item.entity) >= 0; };
     var solid = loaded.instances.filter(function(i){ return !i.flat && !ghostly(i); })
       .map(asItem);
-    var faint = loaded.instances.filter(function(i){ return !i.flat && ghostly(i); })
+    var faint = loaded.instances.filter(function(i){ return !i.flat && ghostly(i) && !isTarget(i); })
       .map(asGhost);
+    var targetItems = loaded.instances.filter(function(i){ return !i.flat && isTarget(i); })
+      .map(function(i) { var o = asItem(i); o.rgb = toLinearRgb(litEntColour(i.entity)); return o; });
 
     // A plane has no surface to shade: same merge, built as LineSegments.
     var surfaces = mergeInstances(THREE, solid);
@@ -7438,6 +7581,12 @@ async function renderScene() {
       stage.scene.add(new THREE.LineSegments(outlines,
         new THREE.LineBasicMaterial({ vertexColors: true })));
     }
+    var targetSurfaces = mergeInstances(THREE, targetItems);
+    if (targetSurfaces) {
+      stage.scene.add(new THREE.Mesh(targetSurfaces, new THREE.MeshPhongMaterial({
+        vertexColors: true, side: THREE.DoubleSide, shininess: 20, specular: 0x0d0d10,
+        transparent: true, opacity: 0.5, depthWrite: false })));
+    }
     var faintOutlines = mergeInstances(THREE, loaded.instances
       .filter(function(i){ return i.flat && ghostly(i); }).map(asGhost));
     if (faintOutlines) {
@@ -7463,10 +7612,11 @@ async function renderScene() {
       }
       var encloses = bounding != null && mask.entity === String(bounding);
       var seeThrough = encloses || asContext;
+      var targeted = !!explain && (explain.targets || []).indexOf(mask.entity) >= 0;
       var surface = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
         vertexColors: true, side: THREE.DoubleSide,
         shininess: 14, specular: 0x0d0d10,
-        transparent: seeThrough, opacity: encloses ? 0.12 : asContext ? 0.16 : 1,
+        transparent: seeThrough, opacity: encloses ? (targeted ? 0.3 : 0.12) : targeted ? 0.5 : asContext ? 0.16 : 1,
         depthWrite: !seeThrough
       }));
       if (!seeThrough) { surface.castShadow = true; surface.receiveShadow = true; }
@@ -7547,8 +7697,24 @@ async function renderScene() {
       var found = currentGroups();
       var grouped = found.sizes.reduce(function(n, v){ return n + v; }, 0);
       var largest = found.sizes[0] || 0;
+      var within = '<b>' + fmtGap(gap) + ' \u00b5m</b>';
+      if (explain.aspect === 'share') {
+        return '<b>' + grouped.toLocaleString() + '</b> of <b>' + found.total.toLocaleString() + '</b> ' + named
+          + ' (<b>' + fmtPct(grouped, found.total) + '</b>) are in a group when touching means within ' + within
+          + '<br><b>' + found.alone.toLocaleString() + '</b> touch nothing';
+      }
+      if (explain.aspect === 'reach' || explain.aspect === 'both' || explain.aspect === 'baseline') {
+        var reach = groupReach(), values = [];
+        reach.values.forEach(function(v){ if (v !== null) values.push(v); });
+        if (!values.length) return 'No group of ' + named + ' has a measured distance here.';
+        var at = live !== undefined && explain.__sliding ? live : (sceneState.threshold === null ? Math.max.apply(null, values) : sceneState.threshold);
+        var close = values.filter(function(v){ return v <= at; }).length;
+        return '<b>' + close.toLocaleString() + '</b> of <b>' + values.length.toLocaleString() + '</b> groups come within <b>'
+          + fmtValue(at) + ' \u00b5m</b><br>groups formed at ' + within + '; the nearest gets to <b>' + fmtValue(Math.min.apply(null, values))
+          + ' \u00b5m</b>';
+      }
       return '<b>' + grouped.toLocaleString() + '</b> of <b>' + found.total.toLocaleString()
-        + '</b> ' + named + ' touch another within <b>' + fmtGap(gap) + ' \u00b5m</b>, in <b>'
+        + '</b> ' + named + ' touch another within ' + within + ', in <b>'
         + found.sizes.length.toLocaleString() + '</b> group' + (found.sizes.length === 1 ? '' : 's')
         + (largest ? '<br>the largest holds <b>' + largest.toLocaleString() + '</b> ('
             + fmtPct(largest, found.total) + ')' : '');
@@ -7578,14 +7744,38 @@ async function renderScene() {
     var g = stripEl.getContext('2d');
     g.scale(ratio, ratio);
     g.clearRect(0, 0, width, height);
+    var aspect = explain.aspect;
+    if (aspect === 'share') {
+      // The two parts of the share, as one bar: in a group, and touching nothing.
+      var inGroup = found.sizes.reduce(function(n, v){ return n + v; }, 0);
+      var wide = found.total ? width * inGroup / found.total : 0;
+      g.fillStyle = litEntColour(subject); g.fillRect(0, 16, wide, 32);
+      g.fillStyle = '#586070'; g.fillRect(wide, 16, width - wide, 32);
+      return;
+    }
+    if (aspect === 'reach' || aspect === 'both' || aspect === 'baseline') {
+      var values = [];
+      groupReach().values.forEach(function(v){ if (v !== null) values.push(v); });
+      values.sort(function(x, y){ return x - y; });
+      values = values.slice(0, 120);
+      if (!values.length) return;
+      var top = values[values.length - 1] || 1, first = values[0];
+      var gapPx = values.length > 60 ? 0 : 1, each = Math.max(1.5, (width - gapPx * (values.length - 1)) / values.length);
+      values.forEach(function(v, i) {
+        var h = Math.max(3, (v / top) * (height - 4));
+        g.fillStyle = distRampHexAt((v - first) / ((top - first) || 1));
+        g.fillRect(i * (each + gapPx), height - h, each, h);
+      });
+      return;
+    }
     var sizes = found.sizes.slice(0, 90);
     if (!sizes.length) return;
-    var top = sizes[0], span = Math.log(top / 2) || 1, gap = sizes.length > 45 ? 1 : 2;
-    var each = Math.max(2, (width - gap * (sizes.length - 1)) / sizes.length);
+    var big = sizes[0], span = Math.log(big / 2) || 1, gap = sizes.length > 45 ? 1 : 2;
+    var each2 = Math.max(2, (width - gap * (sizes.length - 1)) / sizes.length);
     sizes.forEach(function(size, i) {
-      var h = Math.max(2, (Math.log(size) / Math.log(top)) * (height - 4));
-      g.fillStyle = viridisHexAt(top > 2 ? Math.log(size / 2) / span : 0.5);
-      g.fillRect(i * (each + gap), height - h, each, h);
+      var h = Math.max(2, (Math.log(size) / Math.log(big)) * (height - 4));
+      g.fillStyle = viridisHexAt(big > 2 ? Math.log(size / 2) / span : 0.5);
+      g.fillRect(i * (each2 + gap), height - h, each2, h);
     });
   }
 
@@ -7631,6 +7821,39 @@ async function renderScene() {
         explainEl.appendChild(pick);
       }
     }
+    if (explain.kind !== 'polarity') {
+      // What is drawn, in what: the cell's boundary, the structure being measured and - for a
+      // distance - the one it is measured to, in the colour that structure has everywhere.
+      var legend = document.createElement('div');
+      legend.className = 'explain-key';
+      var chip = function(colour, words, outline) {
+        return '<span><i class="sw" style="background:' + colour + (outline ? ';box-shadow:0 0 0 1px rgba(20,24,29,.3)' : '')
+          + '"></i>' + words + '</span>';
+      };
+      var parts = [];
+      if (explain.kind === 'distance' || explain.kind === 'both' || explain.kind === 'metric') {
+        parts.push('<span><i class="sw ramp ' + (explain.kind === 'metric' ? 'viridis' : 'lum')
+          + '"></i>' + escHtml(explain.entity) + (explain.kind === 'metric' ? ', by value' : ', by distance \u2013 bright is near, dim is far') + '</span>');
+      }
+      (explain.targets || []).forEach(function(t) {
+        parts.push(chip(litEntColour(t), escHtml(t) + ' \u2013 measured to, drawn see-through'));
+      });
+      if (explain.kind === 'group') {
+        var a2 = explain.aspect;
+        if (a2 === 'share') parts.push(chip(litEntColour(explain.entity), escHtml(explain.entity) + ' in a group'));
+        else if (a2 === 'size' || !a2) parts.push('<span><i class="sw ramp viridis"></i>groups, by size</span>');
+        else parts.push('<span><i class="sw ramp lum"></i>groups, by closest approach \u2013 bright is near</span>');
+        parts.push(chip('#586070', 'touches nothing'));
+      }
+      if (explain.kind === 'structure') parts.push(chip(litEntColour(explain.entity), escHtml(explain.entity)));
+      if (loaded && (explain.targets || []).indexOf(boundingMaskName()) < 0
+          && loaded.masks.concat(loaded.instances).some(function(i){ return i.entity === boundingMaskName(); })) {
+        parts.push(chip(litEntColour(boundingMaskName()), 'the ' + noun() + ' boundary', true));
+      }
+      parts.push('<span class="muted">faint: not part of this chart</span>');
+      legend.innerHTML = parts.join('');
+      explainEl.appendChild(legend);
+    }
     if (explain.kind === 'polarity' && loaded && loaded.frame) {
       var key = document.createElement('div');
       key.className = 'explain-key';
@@ -7638,18 +7861,17 @@ async function renderScene() {
         return '<span><i style="background:' + colour + '"></i>' + words + '</span>';
       };
       var aspect = explain.aspect;
-      key.innerHTML = swatch('#eef1f5', 'towards ' + escHtml(explain.ref) + ' (0°)')
+      key.innerHTML = swatch('#c9d6e6', 'towards ' + escHtml(explain.ref) + ' (0\u00b0)')
         + (aspect === 'angle'
-            ? swatch('#5aa2ff', 'the wedge of angles')
-              + swatch('#ffa940', 'average direction, length R')
+            ? swatch('#ffffff', 'the wedge of angles, and the average direction (length R)')
             : aspect === 'index'
-              ? swatch('#5aa2ff', 'one instance each')
-                + swatch('#ffa940', 'average, length R; the dot is V')
+              ? swatch(litEntColour(explain.structure), escHtml(explain.structure) + ', one dot each')
+                + swatch('#ffffff', 'the average (length R); the white dot is V')
               : (aspect === 'map' || aspect === 'cellmap')
                 ? polarSubjects(explain.ref).map(function(n){ return swatch(litEntColour(n), escHtml(n)); }).join('')
                   + swatch(litEntColour(explain.ref), escHtml(explain.ref) + ' (the reference)')
                   + '<span>\u25c6 one point per structure</span>'
-                : swatch('#5aa2ff', 'one instance each'));
+                : swatch(litEntColour(explain.structure), escHtml(explain.structure) + ', one dot each'));
       explainEl.appendChild(key);
       if (aspect === 'angle') {
         var binWidth = 180 / POLAR_ANGLE_BINS;
@@ -7694,7 +7916,11 @@ async function renderScene() {
     } else if (explain.kind === 'group' && summary.widestGap !== null) {
       var stripWrap = document.createElement('div');
       stripWrap.className = 'group-strip';
-      stripWrap.innerHTML = '<div class="group-strip-label">Every group, largest first (bar height: size, log scale)</div>';
+      stripWrap.innerHTML = '<div class="group-strip-label">' + (explain.aspect === 'share'
+        ? 'In a group (colour) and touching nothing (grey), as shares of every instance'
+        : explain.aspect === 'size' || !explain.aspect
+          ? 'Every group, largest first (bar height: size, log scale)'
+          : 'Every group, nearest first (bar height: closest approach)') + '</div>';
       stripEl = document.createElement('canvas');
       stripEl.style.width = '100%';
       stripWrap.appendChild(stripEl);
@@ -7710,6 +7936,23 @@ async function renderScene() {
         // After the viewer, not before: the charts' redraw is the slow half.
         setTimeout(function(){ setContactGap(v); }, 0);
       }));
+      if (explain.aspect === 'reach' || explain.aspect === 'both' || explain.aspect === 'baseline') {
+        var spread = [];
+        groupReach().values.forEach(function(v){ if (v !== null) spread.push(v); });
+        if (spread.length > 1) {
+          var low = Math.min.apply(null, spread), high = Math.max.apply(null, spread);
+          explainEl.appendChild(slider('Show groups that come within', {
+            min: low, max: high, step: (high - low) / 200 || 1,
+            value: sceneState.threshold === null ? high : sceneState.threshold,
+            format: function(v){ return fmtValue(v) + ' \u00b5m'; },
+            onInput: function(v){ explain.__sliding = true; writeExplain(v); }
+          }, async function(v) {
+            explain.__sliding = false;
+            sceneState.threshold = v >= high ? null : v;
+            await repaintWhile('Drawing\u2026');
+          }));
+        }
+      }
     } else if (explain.kind !== 'structure' && explain.kind !== 'polarity'
                && explain.kind !== 'group') {
       var values = subjectValues();
@@ -8780,7 +9023,7 @@ function pairPanels(host, opts) {
     row.appendChild(panel);
     // A pair of distances is for instances of one structure; a group's pair is for groups,
     // which the viewer draws as the groups themselves.
-    if (opts.noun === 'group' && opts.entity) explainButton(panel, groupSpec(opts.entity));
+    if (opts.noun === 'group' && opts.entity) explainButton(panel, groupSpec(opts.entity, 'both', [pair[0], pair[1]]));
     else if (opts.entity) explainButton(panel, bothSpec(opts.entity, pair[0], pair[1]));
     var plotEl = document.createElement('div');
     panel.appendChild(plotEl);
@@ -9814,7 +10057,7 @@ function renderGroupSizes(scope, entity, thr, named) {
       unit: 'instances', noun: 'group', width: 340, height: 268,
       showFacetTicks: !facets.many,
       help: 'How many instances chained together into one group at the current gap.',
-      explain: groupSpec(entity)
+      explain: groupSpec(entity, 'size')
     });
   } else {
     chartsEl.innerHTML = '<div class="text-muted small">No groups of 2+ at this gap.</div>';
@@ -9825,7 +10068,7 @@ function renderGroupSizes(scope, entity, thr, named) {
     title: '% of ' + entity + ' reaching another', unit: '%', noun: noun(),
     width: 340, height: 268, showFacetTicks: !facets.many,
     // A share is out of a hundred whether or not any object gets near either end.
-    range: [0, 104], explain: groupSpec(entity)
+    range: [0, 104], explain: groupSpec(entity, 'share')
   });
 
   var share = function(part, whole) {
@@ -9904,7 +10147,7 @@ function renderGroupReach(scope, entity, thr, named) {
       // instance's voxels", which is not what this panel measures.
       help: 'The nearest any member of the group gets to ' + dataName(distColLabel(col))
         + '. 0 means the group overlaps it somewhere.',
-      showFacetTicks: !facets.many, explain: groupSpec(entity)
+      showFacetTicks: !facets.many, explain: groupSpec(entity, 'reach', [col])
     });
   });
 
@@ -9987,7 +10230,7 @@ function renderGroupBaseline(scope, entity, thr, named) {
       series: series, title: entity + ' group to ' + distColLabel(col),
       unit: '% of same-size groups beaten',
       noun: 'group', showFacetTicks: !facets.many, range: [0, 104], reference: 50,
-      noSignificance: true, width: 300, explain: groupSpec(entity),
+      noSignificance: true, width: 300, explain: groupSpec(entity, 'baseline', [col]),
       footnote: footnote ? '<div class="fit-note">' + footnote + '</div>' : ''
     });
   });
