@@ -357,7 +357,7 @@ details.per-object > .per-object-body { padding-top: .5rem; }
 .explain-key .muted { color: var(--ink-3); font-style: italic; }
 .explain-key .sw { width: 12px; height: 12px; border-radius: 3px; }
 .explain-key .sw.ramp { width: 28px; }
-.explain-key .sw.lum { background: linear-gradient(90deg, #f5f5f5, #555); }
+.explain-key .sw.lum { background: linear-gradient(90deg, #eafaff, #4cc9ff, #3b6cf5); }
 .explain-key .sw.viridis { background: linear-gradient(90deg, #440154, #21908d, #fde725); }
 .explain-key i { box-shadow: 0 0 0 1px rgba(20, 24, 29, .25); display: inline-block; width: 16px; height: 3px; vertical-align: middle;
   margin-right: .3rem; border-radius: 2px; }
@@ -584,6 +584,95 @@ body { background-color: var(--paper);
 .group-strip-label { font-size: .72rem; color: var(--ink-3); margin-bottom: .25rem; }
 .group-strip canvas { display: block; width: 100%; border-radius: 8px; background: #0d1218; padding: 4px 6px; box-sizing: border-box; }
 
+/* ═══ The landing page: the microscope before anything is on the stage ═══ */
+.landing { position: relative; min-height: 100vh; overflow: hidden; color: #dfe6ee;
+  background: radial-gradient(1200px 700px at 50% -10%, #1b2a3d 0%, #0d1218 60%, #070a0e 100%); }
+.landing::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.07) 1px, transparent 0);
+  background-size: 26px 26px; mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 75%); }
+.landing-inner { position: relative; z-index: 2; max-width: 1080px; margin: 0 auto; padding: 4.5rem 1.5rem 4rem; }
+.landing-bg i { position: absolute; border-radius: 50%; filter: blur(46px); opacity: .5; z-index: 1;
+  animation: drift 22s ease-in-out infinite alternate; }
+.landing-bg i:nth-child(1) { width: 340px; height: 340px; left: -4%; top: 8%; background: #6a4dff; animation-duration: 26s; }
+.landing-bg i:nth-child(2) { width: 280px; height: 280px; right: 4%; top: 2%; background: #13b27a; animation-delay: -6s; }
+.landing-bg i:nth-child(3) { width: 220px; height: 220px; left: 38%; top: 38%; background: #e0407b; opacity: .28; animation-delay: -12s; }
+.landing-bg i:nth-child(4) { width: 300px; height: 300px; right: -6%; bottom: 6%; background: #e8b23a; opacity: .32; animation-delay: -3s; }
+.landing-bg i:nth-child(5) { width: 260px; height: 260px; left: 6%; bottom: -4%; background: #2f9ad6; opacity: .4; animation-delay: -9s; }
+.landing-bg i:nth-child(6) { width: 140px; height: 140px; left: 62%; top: 12%; background: #a6d94c; opacity: .3; animation-delay: -15s; }
+@keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(40px, -30px) scale(1.18); } }
+.landing .masthead { max-width: 44rem; margin: 0 auto 3rem; gap: 2rem; justify-content: center; }
+.landing .masthead-figure { width: 132px; filter: drop-shadow(0 0 28px rgba(47, 107, 255, .45)); }
+.landing .masthead-words h1 { color: #fff; font-size: 4.2rem; letter-spacing: -.035em; font-weight: 500; }
+.landing .masthead-words p { color: #9fb0c4; font-size: 1.18rem; }
+.feature-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 1.1rem; }
+.feature-chips span { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: #cfe0f5;
+  padding: .22rem .7rem; border: 1px solid rgba(160, 190, 230, .28); border-radius: 999px;
+  background: rgba(255, 255, 255, .04); backdrop-filter: blur(6px); }
+.glass { background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .14); border-radius: 18px;
+  padding: 1.5rem 1.5rem 1.4rem; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .08); height: 100%;
+  transition: border-color .25s, transform .25s; }
+.glass:hover { border-color: rgba(255, 255, 255, .26); }
+.glass-error { border-color: rgba(255, 110, 100, .6); }
+.landing .landing-head { color: #fff; font-family: var(--sans); font-size: .95rem; font-weight: 600; letter-spacing: .02em;
+  display: flex; align-items: center; gap: .6rem; margin-bottom: 1rem; }
+.step { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: linear-gradient(135deg, #2f6bff, #13b27a); color: #fff; font-size: .75rem; font-weight: 700; }
+.copy-btn { margin-left: auto; font: inherit; font-size: .7rem; color: #cfe0f5; background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: .1rem .7rem; cursor: pointer; transition: background .2s; }
+.copy-btn:hover { background: rgba(255,255,255,.16); }
+.landing .landing-code { background: rgba(3, 6, 10, .7); border: 1px solid rgba(255,255,255,.1); color: #d6e3f3;
+  border-radius: 12px; }
+.landing .landing-code code { color: #d6e3f3; }
+.landing .text-muted, .landing .small.text-muted { color: #8fa1b6 !important; }
+.landing code { background: rgba(255,255,255,.09); color: #e3eefc; }
+.landing a { color: #8cc1ff; }
+#drop-zone { border: 1.5px dashed rgba(160, 190, 230, .4); border-radius: 14px; background: rgba(255,255,255,.03);
+  color: #dfe6ee; padding: 2.2rem 1rem; text-align: center; transition: border-color .25s, background .25s, box-shadow .25s; }
+#drop-zone:hover, #drop-zone.drag, #drop-zone.over { border-color: #5aa2ff; background: rgba(90, 162, 255, .09);
+  box-shadow: 0 0 0 4px rgba(90, 162, 255, .12), 0 0 40px rgba(90, 162, 255, .18); }
+#drop-zone .file-info { color: #8fa1b6; display: block; margin-top: .5rem; }
+#drop-zone .fw-semibold, #drop-zone div { color: #eef3fa !important; font-family: var(--sans); }
+.landing-cards #landing-form { order: -1; }
+.landing-cards #landing-form, .landing-cards #landing-commands { display: flex; }
+.landing-cards .glass { flex: 1; }
+.drop-ring { width: 64px; height: 64px; margin: 0 auto .4rem; display: grid; place-items: center; font-size: 1.6rem;
+  color: #8cc1ff; border-radius: 50%; border: 1.5px solid rgba(140, 193, 255, .4);
+  animation: ring 3s ease-in-out infinite; }
+@keyframes ring { 50% { box-shadow: 0 0 0 10px rgba(140, 193, 255, .08); transform: translateY(-2px); } }
+.landing .form-control { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.18); color: #fff; border-radius: 999px; }
+.landing .form-control::placeholder { color: #70829a; }
+.landing .btn-outline-dark { color: #dfe6ee; border-color: rgba(255,255,255,.3); border-radius: 999px; }
+.landing .btn-outline-dark:hover { background: #fff; color: #0d1218; }
+.landing [style*="border-top:1px solid var(--rule)"] { border-top-color: rgba(255,255,255,.12) !important; }
+.loading-cell { position: relative; width: 84px; height: 84px; margin: 0 auto 1.4rem; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.35); animation: breathe-cell 2.2s ease-in-out infinite; }
+.loading-cell i { position: absolute; border-radius: 50%; animation: float-org 3.2s ease-in-out infinite; }
+.loading-cell i:nth-child(1) { width: 26px; height: 26px; left: 14px; top: 16px; background: #6a4dff; }
+.loading-cell i:nth-child(2) { width: 16px; height: 16px; right: 16px; top: 22px; background: #13b27a; animation-delay: -1s; }
+.loading-cell i:nth-child(3) { width: 12px; height: 12px; left: 38px; bottom: 14px; background: #e8b23a; animation-delay: -2s; }
+@keyframes breathe-cell { 50% { transform: scale(1.07); box-shadow: 0 0 36px rgba(90, 162, 255, .3); } }
+@keyframes float-org { 50% { transform: translate(5px, -6px); } }
+#loading-url, #loading-step { color: #8fa1b6 !important; }
+@media (prefers-reduced-motion: reduce) { .landing-bg i, .drop-ring, .loading-cell, .loading-cell i { animation: none; } }
+@media (max-width: 640px) { .landing .masthead-words h1 { font-size: 3rem; } .landing-inner { padding-top: 2.5rem; } }
+
+/* The wedge walk: a play button and the rose's own bar heights, the current wedge lit. */
+.wedge-rail { display: flex; align-items: stretch; gap: .6rem; margin: .5rem 0 .2rem; }
+.wedge-play { flex: 0 0 38px; border: 1px solid var(--rule-2); border-radius: 50%; width: 38px; height: 38px; align-self: center;
+  background: var(--dapi); color: #fff; font-size: .7rem; cursor: pointer; box-shadow: 0 4px 12px rgba(47, 107, 255, .25);
+  transition: transform .15s, box-shadow .15s; }
+.wedge-play:hover { transform: scale(1.06); }
+.wedge-bars { flex: 1; display: flex; align-items: flex-end; gap: 3px; height: 54px; padding: 4px 6px; background: #0d1218; border-radius: 10px; }
+.wedge-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; padding: 0; border: 0; background: none; cursor: pointer; }
+.wedge-bar i { display: block; width: 100%; border-radius: 3px 3px 0 0; background: rgba(255, 255, 255, .28);
+  transition: background .35s var(--ease), box-shadow .35s var(--ease); }
+.wedge-bar:hover i { background: rgba(255, 255, 255, .55); }
+.wedge-bar.on i { background: #fff; box-shadow: 0 0 12px rgba(255, 255, 255, .55); }
+.wedge-caption { font-size: .78rem; color: var(--ink-2); margin: .1rem 0 .4rem 48px; }
+.wedge-caption b { color: var(--ink); }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -654,7 +743,9 @@ body { background-color: var(--paper);
 </div>
 
 <!-- ── Landing ─────────────────────────────────────────────── -->
-<div id="landing" class="container py-5">
+<div id="landing" class="landing">
+  <div class="landing-bg" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="landing-inner">
 
   <!-- The masthead. It stays up while a report loads, so the page never goes blank. -->
   <div class="masthead">
@@ -663,15 +754,20 @@ body { background-color: var(--paper);
     <div class="masthead-words">
       <h1>Organella</h1>
       <p>measuring label relationships in 2D and 3D</p>
+      <div class="feature-chips">
+        <span>distributions</span><span>distances</span><span>contacts</span><span>polarity</span><span>3D</span>
+      </div>
     </div>
   </div>
 
-  <div class="row justify-content-center g-4">
+  <div class="row justify-content-center g-4 landing-cards">
 
     <!-- Left: how a report is made at all, since the page cannot make one. Right: opening
          the one you have. The loading and error panels take the place of the right column. -->
     <div class="col-md-6 col-lg-5" id="landing-commands">
-      <div class="landing-head">Make a report</div>
+     <div class="glass">
+      <div class="landing-head"><span class="step">2</span>Make a report
+        <button type="button" class="copy-btn" id="copy-cmd" title="Copy the commands">Copy</button></div>
       <pre class="landing-code"><code>pip install organella
 
 organella dry-run experiment/
@@ -685,12 +781,15 @@ organella process experiment/ \
         3D sections draw. Every flag is in the
         <a href="https://github.com/ida-mdc/organella#readme" target="_blank">README</a>.
       </p>
+     </div>
     </div>
 
     <div class="col-md-6 col-lg-5" id="landing-form">
-      <div class="landing-head">Open one</div>
+     <div class="glass">
+      <div class="landing-head"><span class="step">1</span>Open a report</div>
       <div id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <div class="mt-2 fw-semibold fs-6">Drop <code>report.parquet</code> here or click to browse</div>
+        <div class="drop-ring"><i class="bi bi-box-arrow-in-down"></i></div>
+        <div class="mt-2 fw-semibold fs-6">Drop <code>report.parquet</code> here, or click to browse</div>
         <span class="file-info"><i class="bi bi-shield-lock me-1"></i>Your data stays local, nothing is uploaded.</span>
       </div>
       <div style="border-top:1px solid var(--rule);margin-top:1.2rem;padding-top:1rem">
@@ -709,28 +808,33 @@ organella process experiment/ \
         &ldquo;upload&rdquo; a folder you hand it; that is its wording for reading the files,
         which happens here and goes nowhere.
       </p>
+     </div>
     </div>
 
 
     <div class="col-md-6 col-lg-5 d-none" id="landing-loading"
-         style="border:1px solid var(--rule-2);padding:3rem 2rem;text-align:center">
-      <div class="spinner-border mb-3" role="status"
-           style="width:2.5rem;height:2.5rem;border-width:2px;color:var(--ink);border-right-color:var(--rule)"></div>
-      <div style="font-weight:600;margin-bottom:.5rem">Loading report…</div>
+         style="text-align:center">
+     <div class="glass" style="padding:3rem 2rem">
+      <div class="loading-cell" role="status" aria-label="Loading"><i></i><i></i><i></i></div>
+      <div style="font-weight:600;margin-bottom:.5rem">Reading your report…</div>
       <div id="loading-url" style="font-size:.72rem;color:var(--ink-3);word-break:break-all"></div>
       <!-- What it is reading right now. A real report is a million rows and takes tens of
            seconds; without this the spinner is indistinguishable from a page that has hung. -->
       <div id="loading-step" style="font-size:.72rem;color:var(--ink-3);margin-top:.5rem"></div>
+     </div>
     </div>
 
     <div class="col-md-6 col-lg-5 d-none" id="landing-error"
-         style="border:1.5px solid var(--danger);padding:3rem 2rem;text-align:center">
+         style="text-align:center">
+     <div class="glass glass-error" style="padding:3rem 2rem">
       <div style="font-size:2rem;margin-bottom:.8rem;color:var(--danger)"><i class="bi bi-exclamation-triangle"></i></div>
       <div style="font-weight:700;color:var(--danger);margin-bottom:.6rem">Failed to load</div>
       <div id="landing-error-msg" style="font-size:.78rem;color:var(--ink-2);margin-bottom:1.5rem;word-break:break-word"></div>
       <button class="btn btn-sm btn-outline-dark" onclick="showLandingForm()">Try again</button>
+     </div>
     </div>
 
+  </div>
   </div>
 </div>
 
@@ -1145,14 +1249,37 @@ function objectPalette() {
   return _objPal;
 }
 var OBJECT_MASK_GREY = '#9a9a9a';
+// What a structure is called, to the colour it is usually shown in; first match wins.
+var ENT_HINTS = [[/nucle/i, '#9769dc'], [/mito/i, '#e15a4e'], [/golgi/i, '#d25d96'], [/granule|vesicle|insulin|secretory/i, '#a98700'],
+                 [/microtub|tubulin|filament|actin/i, '#71a428'], [/centri|basal/i, '#2ea37a'], [/cilium|mtoc|axoneme/i, '#d67523']];
+// Chosen and checked with the data-viz skill's validator in both modes (dark: the stage, light: the charts): lightness in the
+// band both share, neighbours separated for the common colour-vision deficiencies. The order is part of the palette.
+var ENT_CYCLE = ['#a98700', '#2ea37a', '#e15a4e', '#9769dc', '#71a428', '#d25d96', '#d67523'];
 // A structure's colour is the report's own if the run was given one (--colours lands it on
 // the entity rows), so a swatch here and a mesh in the 3D view are the same colour.
 function entPalette() {
   if (!_entPal) {
-    // Skipping the palette's first two colours: blue and orange are the two groups in every
-    // chart, and a structure in either would be read as a group.
+    // Curated, not generated: the names a cell is made of get the colour a microscopist expects
+    // of them where there is one, and the rest take the next from a list that is meant to sit
+    // together on a dark stage. No blue and no cyan anywhere in it - those are the distance ramp's
+    // - and none of the two group colours (blue, orange) of the charts.
     _entPal = {};
-    entityNames().forEach(function(name, i){ _entPal[name] = seriesColour(i + 2); });
+    var taken = {}, cycle = ENT_CYCLE.slice();
+    var names = entityNames();
+    names.forEach(function(name) {
+      for (var k = 0; k < ENT_HINTS.length; k++) {
+        if (ENT_HINTS[k][0].test(name) && !taken[ENT_HINTS[k][1]]) {
+          taken[ENT_HINTS[k][1]] = true; _entPal[name] = ENT_HINTS[k][1]; return;
+        }
+      }
+    });
+    var next = 0;
+    names.forEach(function(name) {
+      if (_entPal[name]) return;
+      while (next < cycle.length && taken[cycle[next]]) next++;
+      _entPal[name] = next < cycle.length ? cycle[next] : seriesColour(names.indexOf(name) + 2);
+      taken[_entPal[name]] = true;
+    });
     // The mask that bounds the object is the cell's own outline, not one structure among
     // others: a neutral grey, so the colours are left to what is inside it. A colour the
     // run was given for it still wins, below.
@@ -2304,6 +2431,17 @@ function showMakeAReport(show) {
   if (show) commands.classList.remove('d-none');
   else commands.classList.add('d-none');
 }
+
+/** The "Copy" on the commands card: the page cannot make a report, so what to run is the first thing to take away. */
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', function() {
+  var button = document.getElementById('copy-cmd');
+  if (!button) return;
+  button.addEventListener('click', function() {
+    var text = document.querySelector('#landing-commands code').innerText;
+    var done = function(){ button.textContent = 'Copied'; setTimeout(function(){ button.textContent = 'Copy'; }, 1400); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done); else done();
+  });
+});
 
 function showLandingForm() {
   showMakeAReport(true);
@@ -5291,15 +5429,10 @@ var _litCache = {};
  */
 function litColour(hex) {
   if (_litCache[hex]) return _litCache[hex];
-  var hsl = toHsl(hex);
-  var out;
-  if (hsl.s < 0.05) {
-    out = hslToHex(0, 0, Math.max(0.55, Math.min(0.85, hsl.l)));
-  } else {
-    var s = Math.min(1, Math.max(LIT_SATURATION, hsl.s * LIT_SATURATION_GAIN));
-    var l = LIT_LIGHTNESS + (hsl.l - 0.5) * LIT_LIGHTNESS_KEEP;
-    out = hslToHex(hsl.h, s, Math.max(0.52, Math.min(0.74, l)));
-  }
+  // The same colour the charts show, so a structure is one colour wherever it appears. Only a colour
+  // the run itself supplied that is too dark to be seen on the stage is lifted, keeping its hue.
+  var hsl = toHsl(hex), out = hex;
+  if (hsl.l < 0.42) out = hslToHex(hsl.h, hsl.s, 0.42);
   _litCache[hex] = out;
   return out;
 }
@@ -5321,20 +5454,26 @@ function fromLinear(channel) {
  * values - which is the whole point of showing the scale.
  */
 /**
- * The distance ramp: brightness only, near is bright and far is dim, with no hue at all.
- * A distance is always measured *to* a structure, and every structure is a hue; a ramp with
- * a hue in it eventually matches one of them and the picture says the wrong thing. Never
- * darker than a dark grey, so the far end is still on the page.
+ * The distance ramp: pale ice for near, through sky blue, to a royal blue for far - and no
+ * structure is ever blue or cyan (see ENT_HINTS), so a ramp colour can never be read as one.
+ * Every stop is bright enough to stand on the dark stage.
  */
-function distRampAt(t) {
-  var clamped = Math.max(0, Math.min(1, isFinite(t) ? t : 1));
-  var v = 0.97 - 0.72 * clamped;   // sRGB brightness
-  var linear = toLinear(v);
-  return [linear, linear, linear];
-}
+var DIST_STOPS = [[0, '#eafaff'], [0.45, '#4cc9ff'], [1, '#3b6cf5']];
 function distRampHexAt(t) {
-  var v = Math.round((0.97 - 0.72 * Math.max(0, Math.min(1, t))) * 255).toString(16).padStart(2, '0');
-  return '#' + v + v + v;
+  t = Math.max(0, Math.min(1, isFinite(t) ? t : 1));
+  for (var i = 1; i < DIST_STOPS.length; i++) {
+    if (t <= DIST_STOPS[i][0]) {
+      var a = toRgb(DIST_STOPS[i - 1][1]), b = toRgb(DIST_STOPS[i][1]);
+      var f = (t - DIST_STOPS[i - 1][0]) / (DIST_STOPS[i][0] - DIST_STOPS[i - 1][0]);
+      return '#' + [0, 1, 2].map(function(k) {
+        return Math.round((a[k] + (b[k] - a[k]) * f) * 255).toString(16).padStart(2, '0');
+      }).join('');
+    }
+  }
+  return DIST_STOPS[DIST_STOPS.length - 1][1];
+}
+function distRampAt(t) {
+  return toRgb(distRampHexAt(t)).map(toLinear);
 }
 
 function viridisHexAt(t) {
@@ -5931,7 +6070,7 @@ var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: n
                    explode: 0, gap: null, maxGap: null,
                    // The chart the viewer is explaining, if any (see pinToViewer), and the
                    // two things a reader can slide to see how the 3D feeds that chart.
-                   explain: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0,
+                   explain: null, wedgePaused: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0,
                    follow: true, followLabel: null };
 
 // ══════════════════════════════════════════════════════════════
@@ -6103,6 +6242,7 @@ function pinToViewer(spec, index) {
     if (keep) sceneState.objectId = keep.id;
     sceneState.maxGap = null;
   }
+  stopWedge();
   markPinned();
   // Let go of a chart and the viewer goes back to following the page.
   if (!sceneState.explain) { _followKey = null; setTimeout(followCheck, 0); }
@@ -6238,11 +6378,11 @@ function distanceSpec(entity, col) {
   spec.text = target
     ? 'Every ' + named + ' instance is shaded by how far '
       + (tip ? 'its nearest end' : 'it') + ' is from the nearest ' + dataName(target)
-      + ': bright is near, dim is far - brightness only, so no colour here is a structure\u2019s. '
+      + ': pale is near, deep blue is far; no structure is ever blue, so no colour here is one. '
       + dataName(target) + ' is drawn see-through in its own colour. Slide the distance to keep only'
       + ' the instances within it.'
     : 'Every ' + named + ' instance is shaded by how far it is from the nearest other '
-      + named + ': bright is near, dim is far. Slide the distance to keep only the instances within it.';
+      + named + ': pale is near, deep blue is far. Slide the distance to keep only the instances within it.';
   return spec;
 }
 
@@ -6258,7 +6398,7 @@ function bothSpec(entity, colA, colB) {
            title: entity + ' near ' + (a || colA) + ' and ' + (b || colB),
            text: 'Every ' + named + ' instance is shaded by the <b>larger</b> of its two distances - to '
              + dataName(a || colA) + ' and to ' + dataName(b || colB) + ' - which is the distance at which'
-             + ' it is close to both: bright is near both, dim is far from at least one. The two structures'
+             + ' it is close to both: pale is near both, deep blue is far from at least one. The two structures'
              + ' are drawn see-through in their own colours. Slide the distance to keep the instances within'
              + ' it of both.' };
 }
@@ -6286,8 +6426,8 @@ function groupSpec(entity, aspect, cols) {
     spec.valueLabel = 'Closest approach of the group to ' + (t || 'the structure') + ' (µm)';
     spec.title = entity + ' group to ' + (t || (cols && cols[0]) || 'a structure');
     spec.text = 'Each group of ' + named + ' is shaded by its closest approach to ' + dataName(t || 'the structure')
-      + ': the nearest any member gets. Bright is near, dim is far - brightness only, so no colour here is a'
-      + ' structure’s. ' + dataName(t || 'It') + ' is drawn see-through in its own colour; instances touching'
+      + ': the nearest any member gets. Pale is near, deep blue is far; no structure is ever blue, so no colour here is'
+      + ' one. ' + dataName(t || 'It') + ' is drawn see-through in its own colour; instances touching'
       + ' nothing are not groups and stay faint.'
       + (aspect === 'baseline'
           ? ' The chart scores each distance against groups of the same size that could have formed by chance, because'
@@ -6297,7 +6437,7 @@ function groupSpec(entity, aspect, cols) {
     spec.valueLabel = 'Closest approach to the further of ' + targets.join(' and ') + ' (µm)';
     spec.title = entity + ' groups near ' + targets.join(' and ');
     spec.text = 'Each group of ' + named + ' is shaded by the larger of its two closest approaches - to '
-      + targets.map(dataName).join(' and ') + ' - the distance at which the group reaches both. Bright is near both. The'
+      + targets.map(dataName).join(' and ') + ' - the distance at which the group reaches both. Pale is near both. The'
       + ' two structures are drawn see-through in their own colours.' + gap;
   } else {
     spec.title = entity + ' groups';
@@ -6355,6 +6495,8 @@ function polaritySpec(structure, ref, aspect, objectId, radius) {
 // ── the viewer follows the page, and says what it is doing ──────────────────
 
 var _followKey = null, _followTimer = null;
+var _wedgeTimer = null;
+function stopWedge() { if (_wedgeTimer) { clearTimeout(_wedgeTimer); _wedgeTimer = null; } }
 
 /** What the reader is looking at, as far as the viewer is concerned: a structure's charts. */
 function pageContext() {
@@ -7791,6 +7933,7 @@ async function renderScene() {
    * sliders keep their grip while the scene repaints behind them.
    */
   function buildExplain(summary) {
+    stopWedge();
     explainEl.replaceChildren();
     readoutEl = null;
     stripEl = null;
@@ -7833,7 +7976,7 @@ async function renderScene() {
       var parts = [];
       if (explain.kind === 'distance' || explain.kind === 'both' || explain.kind === 'metric') {
         parts.push('<span><i class="sw ramp ' + (explain.kind === 'metric' ? 'viridis' : 'lum')
-          + '"></i>' + escHtml(explain.entity) + (explain.kind === 'metric' ? ', by value' : ', by distance \u2013 bright is near, dim is far') + '</span>');
+          + '"></i>' + escHtml(explain.entity) + (explain.kind === 'metric' ? ', by value' : ', by distance \u2013 pale is near, blue is far') + '</span>');
       }
       (explain.targets || []).forEach(function(t) {
         parts.push(chip(litEntColour(t), escHtml(t) + ' \u2013 measured to, drawn see-through'));
@@ -7842,7 +7985,7 @@ async function renderScene() {
         var a2 = explain.aspect;
         if (a2 === 'share') parts.push(chip(litEntColour(explain.entity), escHtml(explain.entity) + ' in a group'));
         else if (a2 === 'size' || !a2) parts.push('<span><i class="sw ramp viridis"></i>groups, by size</span>');
-        else parts.push('<span><i class="sw ramp lum"></i>groups, by closest approach \u2013 bright is near</span>');
+        else parts.push('<span><i class="sw ramp lum"></i>groups, by closest approach \u2013 pale is near</span>');
         parts.push(chip('#586070', 'touches nothing'));
       }
       if (explain.kind === 'structure') parts.push(chip(litEntColour(explain.entity), escHtml(explain.entity)));
@@ -7874,21 +8017,81 @@ async function renderScene() {
                 : swatch(litEntColour(explain.structure), escHtml(explain.structure) + ', one dot each'));
       explainEl.appendChild(key);
       if (aspect === 'angle') {
+        // Not a slider: the wedges are a sequence the cell is walked through, so it plays by itself,
+        // and the strip below is the rose's own bar heights - press a bar to stop on that wedge.
         var binWidth = 180 / POLAR_ANGLE_BINS;
-        explainEl.appendChild(slider('Wedge', {
-          min: 0, max: POLAR_ANGLE_BINS - 1, step: 1, value: sceneState.wedge || 0,
-          format: function(v){ return Math.round(v * binWidth) + '°–' + Math.round((v + 1) * binWidth) + '°'; },
-          onInput: function(v) {
-            sceneState.wedge = v;
-            paintOverlay();
-            writeExplain(v);
-            syncRoseMarkers();
-          }
-        }, async function(v) {
-          sceneState.wedge = v;
-          await repaintWhile('Drawing…');
+        var rail = document.createElement('div');
+        rail.className = 'wedge-rail';
+        var play = document.createElement('button');
+        play.type = 'button';
+        play.className = 'wedge-play';
+        var bars = document.createElement('div');
+        bars.className = 'wedge-bars';
+        var shares = [], whole = loaded.frame.units.reduce(function(n, u){ return n + u.weight; }, 0) || 1;
+        for (var w = 0; w < POLAR_ANGLE_BINS; w++) shares.push(0);
+        loaded.frame.units.forEach(function(u){ shares[polarBinOf(u.angle)] += u.weight / whole; });
+        var tallest = Math.max.apply(null, shares) || 1;
+        var buttons = shares.map(function(share, i) {
+          var bar = document.createElement('button');
+          bar.type = 'button';
+          bar.className = 'wedge-bar';
+          bar.title = Math.round(i * binWidth) + '\u00b0\u2013' + Math.round((i + 1) * binWidth) + '\u00b0: '
+            + fmtPct(share, 1) + ' of the ' + explain.structure + ', by size';
+          bar.setAttribute('aria-label', bar.title);
+          var fill = document.createElement('i');
+          fill.style.height = Math.max(6, 100 * share / tallest) + '%';
+          bar.appendChild(fill);
+          bar.addEventListener('click', function() { pauseWedge(true); goToWedge(i); });
+          bars.appendChild(bar);
+          return bar;
+        });
+        var caption = document.createElement('div');
+        caption.className = 'wedge-caption';
+        var show = function() {
+          var w2 = sceneState.wedge || 0;
+          buttons.forEach(function(bar, i){ bar.classList.toggle('on', i === w2); });
+          caption.innerHTML = '<b>' + Math.round(w2 * binWidth) + '\u00b0\u2013' + Math.round((w2 + 1) * binWidth)
+            + '\u00b0</b> from the light arrow, <b>' + fmtPct(shares[w2], 1) + '</b> of the structure';
+          play.textContent = sceneState.wedgePaused ? '\u25b6' : '\u275a\u275a';
+          play.title = sceneState.wedgePaused ? 'Play: step through the wedges' : 'Pause';
+          play.setAttribute('aria-label', play.title);
+        };
+        var goToWedge = function(i) {
+          sceneState.wedge = i;
+          show();
+          paint();
+          writeExplain();
           syncRoseMarkers();
-        }));
+        };
+        var pauseWedge = function(on) { sceneState.wedgePaused = on; stopWedge(); if (!on) startWedge(); show(); };
+        // One step at a time: the next is scheduled when this one has finished, never on a clock that
+        // can run ahead of it. And if a step is slow - a machine that cannot draw the cell several times
+        // a second - the walk stops itself rather than freeze the page; the bars still work.
+        var startWedge = function() {
+          stopWedge();
+          if (sceneState.wedgePaused) return;
+          var step = function() {
+            _wedgeTimer = null;
+            if (!document.body.contains(rail)) return;
+            if (!document.hidden) {
+              var began = performance.now();
+              goToWedge(((sceneState.wedge || 0) + 1) % POLAR_ANGLE_BINS);
+              if (performance.now() - began > 1200) { sceneState.wedgePaused = true; show(); return; }
+            }
+            _wedgeTimer = setTimeout(step, 1400);
+          };
+          _wedgeTimer = setTimeout(step, 1400);
+        };
+        play.addEventListener('click', function(){ pauseWedge(!sceneState.wedgePaused); });
+        // Motion is the explanation here, but it is never forced on someone who has asked for less of it.
+        if (sceneState.wedgePaused === undefined || sceneState.wedgePaused === null) {
+          sceneState.wedgePaused = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
+        rail.append(play, bars);
+        explainEl.appendChild(rail);
+        explainEl.appendChild(caption);
+        show();
+        startWedge();
       } else if (aspect === 'index') {
         explainEl.appendChild(slider('Distances', {
           min: 0, max: 1, step: 0.01, value: sceneState.t,
