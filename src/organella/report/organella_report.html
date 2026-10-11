@@ -468,6 +468,111 @@ details.cc-source[open] > summary::before { content: "\25BE"; }
 details.cc-source p { margin: .3rem 0 0; line-height: 1.5; }
 details.cc-source code { font-size: .95em; }
 
+/* ── Life: small motions that say what is connected to what ──────────── */
+html { scroll-behavior: smooth; }
+.chart-cell { box-shadow: 0 0 0 rgba(20, 30, 40, 0);
+  transition: background .2s, border-color .2s, box-shadow .2s, transform .2s; }
+.chart-cell:hover { box-shadow: 0 6px 20px rgba(20, 30, 40, .07); border-color: var(--rule-2); }
+.chart-cell.has-cells-card, .has-cells .nsewdrag { cursor: pointer; }
+@keyframes flash-ring { 0% { box-shadow: 0 0 0 0 rgba(28, 92, 171, .55); }
+  100% { box-shadow: 0 0 0 14px rgba(28, 92, 171, 0); } }
+.chart-cell.flash, #s-3d.flash { animation: flash-ring .9s ease-out; }
+.diff-row { cursor: pointer; border-radius: 4px; transition: background .15s; }
+.diff-row:hover { background: #f3f7fc; }
+.diff-bar span { transition: width .4s ease; }
+.glance-card, .diff-block { transition: box-shadow .2s; }
+.glance-card:hover, .diff-block:hover { box-shadow: 0 6px 20px rgba(20, 30, 40, .06); }
+.main.docked .stage-holder { background: radial-gradient(ellipse at 50% 38%, #ffffff 0%, #f1efe8 100%); }
+.main.docked > #s-3d { background: linear-gradient(#f8f9fb, #f3f5f8); }
+#s-overview > .section-title { font-size: 2.2rem; letter-spacing: -.025em; }
+.card-metric .big { background: linear-gradient(120deg, var(--ink), var(--accent)); -webkit-background-clip: text;
+  background-clip: text; color: transparent; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }
+  .chart-cell.flash, #s-3d.flash { animation: none; } }
+
+/* ═══ The look: a fluorescence microscope ═══════════════════════════════
+   A warm paper page with a faint graticule behind it, and the cell on a dark stage where it
+   glows. Stain colours (DAPI blue, FITC green, a magenta) are the accents; everything else
+   stays quiet so the data is the brightest thing on the page. Last in the sheet, so it is
+   the one place to change the look. */
+:root {
+  --paper: #fcfbf7; --surface: #ffffff; --surface-2: #f2f0e9; --rule: #e8e5db; --rule-2: #d3cfc2;
+  --ink: #14181d; --ink-2: #3e4650; --ink-3: #6a727c;
+  --accent: #2563d4; --dapi: #2f6bff; --fitc: #13b27a; --stain: #e0407b;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --lift: 0 1px 2px rgba(30, 25, 10, .04), 0 8px 24px rgba(30, 25, 10, .06);
+}
+body { background-color: var(--paper);
+  background-image: radial-gradient(circle at 1px 1px, rgba(60, 50, 20, .09) 1px, transparent 0);
+  background-size: 22px 22px; }
+.topbar { background: rgba(252, 251, 247, .86); backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px); border-bottom-color: var(--rule); }
+.topbar .brand { letter-spacing: -.02em; }
+.subnav a { transition: color .2s var(--ease), border-color .2s var(--ease); }
+.subnav a.active { border-bottom-color: var(--fitc); }
+.main { background: transparent; }
+
+/* Sections: a big outlined numeral and a stain-coloured tick instead of a plain rule */
+.section { border-top: 0; position: relative; }
+.section + .section::before { content: ""; position: absolute; top: 0; left: 0; width: 56px; height: 3px;
+  border-radius: 3px; background: linear-gradient(90deg, var(--dapi), var(--fitc)); }
+.section-title::before { font-size: .72rem; letter-spacing: .2em; color: var(--ink-3); }
+.section-title { font-weight: 650; letter-spacing: -.025em; }
+.subsection-label { position: relative; }
+
+/* Cards: soft, a touch warm, lifting on hover */
+.chart-cell, .glance-card, .diff-block { background: rgba(255, 255, 255, .92); border-color: var(--rule);
+  border-radius: 14px; box-shadow: var(--lift); }
+.chart-cell { padding: .8rem .9rem .75rem; }
+.chart-cell:hover, .glance-card:hover, .diff-block:hover { border-color: var(--rule-2); transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(30, 25, 10, .05), 0 14px 32px rgba(30, 25, 10, .09); }
+.chart-cell.pinned { background: #f1f6ff; border-color: #9fbcf5; box-shadow: 0 0 0 3px rgba(47, 107, 255, .14), var(--lift); }
+.callout { border-radius: 10px; border-left-width: 3px; }
+.callout-warn { border-left-color: #d9962b; }
+.table-wrap { border-radius: 12px; border-color: var(--rule); }
+
+/* Controls */
+.form-select, .form-control { border-radius: 999px; border-color: var(--rule-2); background-color: #fff;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+.form-select:focus, .form-control:focus { border-color: var(--dapi); box-shadow: 0 0 0 3px rgba(47, 107, 255, .16); }
+.btn { border-radius: 999px; transition: all .2s var(--ease); }
+.pill, .pin-3d, .scene-chip, .glance-group, .explain-release, .dock-status button {
+  transition: background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease); }
+.pill.active { background: var(--ink); box-shadow: 0 4px 12px rgba(20, 24, 29, .22); }
+.pin-3d { background: rgba(255, 255, 255, .9); }
+.pin-3d:hover { box-shadow: 0 0 0 3px rgba(47, 107, 255, .14); }
+.chart-cell.pinned .pin-3d { background: var(--dapi); border-color: var(--dapi); }
+.form-range { accent-color: var(--dapi); }
+
+/* The stage: dark, with a vignette, like looking down an eyepiece */
+.main.docked > #s-3d { background: #fbfaf5; border-color: var(--rule); border-radius: 16px;
+  box-shadow: var(--lift); }
+.stage-holder, .main.docked .stage-holder { background: radial-gradient(ellipse at 50% 42%, #1a2431 0%, #0d1218 62%, #070a0e 100%);
+  border: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), inset 0 0 60px rgba(0, 0, 0, .55); }
+.stage-busy { background: rgba(8, 12, 17, .72); color: #cfd8e3; backdrop-filter: blur(3px); }
+.stage-busy::before { border-color: rgba(255, 255, 255, .2); border-top-color: var(--fitc); }
+.metric-scale .colour-ramp, .metric-scale .ramp-label { color: var(--ink-2); }
+.dock-status .dot.follow { background: var(--fitc); box-shadow: 0 0 0 3px rgba(19, 178, 122, .22); animation: breathe 2.4s ease-in-out infinite; }
+.dock-status .dot.pinned { background: var(--dapi); box-shadow: 0 0 0 3px rgba(47, 107, 255, .22); }
+@keyframes breathe { 50% { box-shadow: 0 0 0 6px rgba(19, 178, 122, 0); } }
+.explain-readout { background: #f1f6ff; border-left-color: var(--dapi); border-radius: 0 10px 10px 0; }
+.explain-readout b { color: var(--dapi); }
+.dock-tabs { border-bottom-color: var(--rule); }
+.dock-tab.active { border-bottom-color: var(--dapi); }
+.gallery-card { border-radius: 10px; background: radial-gradient(ellipse at 50% 42%, #1a2431, #0d1218 70%); }
+.gallery-card figcaption { background: #fff; }
+
+/* Numbers get the same glow as the data */
+.card-metric .big { background: linear-gradient(120deg, var(--ink) 20%, var(--dapi) 70%, var(--fitc)); -webkit-background-clip: text;
+  background-clip: text; color: transparent; }
+.glance-group { box-shadow: var(--lift); }
+.diff-bar { height: 8px; }
+
+/* Arrival: charts and sections settle in rather than appearing */
+@keyframes settle { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.chart-cell, .glance-card, .diff-block { animation: settle .45s var(--ease) both; }
+@media (prefers-reduced-motion: reduce) { .chart-cell, .glance-card, .diff-block { animation: none; } }
+
 /* ── Footer ──────────────────────────────────────────────────────── */
 .cs-footer { background: #1b2128; color: #a8b2bd; font-size: .8rem; margin-top: auto; }
 .cs-footer-inner { max-width: 1500px; margin: 0 auto; padding: 1.2rem 1.6rem;
@@ -2771,6 +2876,26 @@ function clampDescription(el) {
 }
 
 
+/** Bring up the chart of one measurement of one structure, scroll to it, and flash it. */
+function goToChart(ent, col) {
+  if (st.statsEntity !== ent) {
+    st.statsEntity = ent;
+    var sel = document.getElementById('stats-entity-select');
+    if (sel) sel.value = ent;
+    renderEntityStats();
+  }
+  var needle = '|' + ent + '|' + col + '|';
+  var button = [].find.call(document.querySelectorAll('.pin-3d'), function(b) {
+    return b.dataset.explain.indexOf(needle) >= 0 && /^(metric|distance)\|/.test(b.dataset.explain);
+  });
+  var cell = button && button.parentNode;
+  if (!cell) { document.getElementById('s-entities').scrollIntoView({ behavior: 'smooth' }); return; }
+  cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  cell.classList.remove('flash');
+  void cell.offsetWidth;
+  cell.classList.add('flash');
+}
+
 /**
  * Where the groups differ most, one structure at a time: for every measurement, how far apart
  * the two groups' cells are (Cliff's delta over one median per cell, from -1 to +1) as a bar
@@ -2799,7 +2924,7 @@ function renderDifferences() {
       if (!a || !b) return;
       var test = mannWhitney(a.units, b.units);
       if (!test || test.delta == null) return;
-      items.push({ col: col, test: test });
+      items.push({ col: col, test: test, ent: ent });
     });
     if (items.length) {
       items.sort(function(x, y){ return Math.abs(y.test.delta) - Math.abs(x.test.delta); });
@@ -2820,12 +2945,18 @@ function renderDifferences() {
     var unit = axisColUnit(item.col);
     var width = Math.min(50, Math.abs(t.delta) * 50);
     var bar = t.delta >= 0 ? 'left:50%;width:' + width + '%' : 'right:50%;width:' + width + '%';
-    return '<div class="diff-row" title="' + escHtml(labelFor(item.col) + ': ' + A + ' vs ' + B + ', '
+    return '<div class="diff-row" data-ent="' + escHtml(item.ent) + '" data-col="' + escHtml(item.col)
+      + '" role="button" tabindex="0" title="' + escHtml('Go to the chart. ' + labelFor(item.col) + ': ' + A + ' vs ' + B + ', '
         + formatP(t.p) + ', ' + t.n1 + ' vs ' + t.n2 + ' ' + noun(true)) + '">'
       + '<span class="diff-label">' + escHtml(diffLabel(item.col)) + '</span>'
       + '<span class="diff-bar"><span style="' + bar + ';background:' + groupColor(side) + '"></span></span>'
       + '<span class="diff-num">' + (t.delta >= 0 ? '+' : '−') + Math.abs(t.delta).toFixed(2)
       + ' · ' + escHtml(formatP(t.p).replace('p = ', 'p ')) + '</span></div>';
+  };
+  host.onclick = host.onkeydown = function(event) {
+    if (event.type === 'keydown' && event.key !== 'Enter') return;
+    var row = event.target.closest && event.target.closest('.diff-row');
+    if (row) goToChart(row.dataset.ent, row.dataset.col);
   };
   var head = '<div class="diff-axis"><span></span><span class="sides"><span>← ' + escHtml(B)
     + ' higher</span><span>' + escHtml(A) + ' higher →</span></span><span></span></div>';
@@ -2837,7 +2968,7 @@ function renderDifferences() {
           + (rest ? '<details class="per-object diff-more"><summary>Show the other '
               + (block.items.length - 6) + '</summary>' + rest + '</details>' : '') + '</div>';
       }).join('') + '</div>'
-    + '<p class="diff-note"><b>' + total + ' comparisons</b>, each between ' + escHtml(A) + ' and '
+    + '<p class="diff-note"><b>' + total + ' comparisons</b> (press a row to go to its chart), each between ' + escHtml(A) + ' and '
     + escHtml(B) + ' on one median per ' + escHtml(noun()) + ', uncorrected for there being so many: a'
     + ' map of where to look, not a list of findings. The bar is Cliff’s delta - the share of'
     + ' (' + escHtml(A) + ', ' + escHtml(B) + ') pairs in which ' + escHtml(A) + ' is higher, less the'
@@ -5148,11 +5279,11 @@ function litColour(hex) {
   var hsl = toHsl(hex);
   var out;
   if (hsl.s < 0.05) {
-    out = hslToHex(0, 0, Math.max(0.35, Math.min(0.8, hsl.l)));
+    out = hslToHex(0, 0, Math.max(0.55, Math.min(0.85, hsl.l)));
   } else {
     var s = Math.min(1, Math.max(LIT_SATURATION, hsl.s * LIT_SATURATION_GAIN));
     var l = LIT_LIGHTNESS + (hsl.l - 0.5) * LIT_LIGHTNESS_KEEP;
-    out = hslToHex(hsl.h, s, Math.max(0.3, Math.min(0.72, l)));
+    out = hslToHex(hsl.h, s, Math.max(0.52, Math.min(0.74, l)));
   }
   _litCache[hex] = out;
   return out;
@@ -5293,7 +5424,7 @@ function explodeOffset(polar, factor) {
 
 // The paper surface, and the light tuning it needs.
 var STAGE = {
-  background: 0xfaf8f4, ambient: 1.15, sky: 0xffffff, ground: 0x9c9caa, hemisphere: 0.84,
+  background: 0x0d1218, ambient: 0.95, sky: 0xffffff, ground: 0x9c9caa, hemisphere: 0.6,
   key: 2.15, fill: 0.34, rim: 0.28
 };
 // How far the key light stands off the camera. Fixed in the world it would leave whole sides
@@ -5305,7 +5436,7 @@ var LIGHT_OFFSET = (35 * Math.PI) / 180;
 /** A renderer, scene and camera for one canvas, plus the orbit interaction. */
 function makeStage(THREE, canvas, opts) {
   var shadows = !opts || opts.shadows !== false;
-  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, preserveDrawingBuffer: true });
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   // Self-shadowing is what makes a pile of blobs read as a pile: nothing else tells you which
   // granule is in front of which. It is one extra pass over the same merged geometry, so the
@@ -5333,7 +5464,9 @@ function makeStage(THREE, canvas, opts) {
   var rim = new THREE.DirectionalLight(0xffffff, STAGE.rim);
   rim.position.set(-0.6, 0.4, -1.6);
   scene.add(ambient, hemisphere, key, keyAt, fill, rim);
-  scene.background = new THREE.Color(STAGE.background);
+  // Transparent, so the stage's own vignette (CSS) is what the cell sits on; the fog is the
+  // stage's edge colour, which is what the far side of the cell fades into.
+  renderer.setClearColor(0x000000, 0);
 
   var placeKey = function() {
     if (!framed) return;
@@ -5391,7 +5524,14 @@ function makeStage(THREE, canvas, opts) {
     });
   };
 
+  var spinning = false, lastCost = 0;
   var apply = function() {
+    var began = performance.now();
+    var done = apply_();
+    lastCost = performance.now() - began;
+    return done;
+  };
+  var apply_ = function() {
     applyPose();
     var sinPhi = Math.sin(spherical.phi);
     camera.position.set(
@@ -5406,6 +5546,25 @@ function makeStage(THREE, canvas, opts) {
   var stage = {
     THREE: THREE, scene: scene, camera: camera, renderer: renderer,
     draw: apply, frameShadow: frameShadow,
+    /**
+     * Turn slowly while nobody is touching it, so a still cell reads as a solid and not a
+     * picture. Only where a frame is cheap: on a machine that takes a long time over each,
+     * a spinning scene is a frozen page.
+     */
+    spin: function(on) {
+      spinning = on;
+      if (!on || stage.spinLoop) return;
+      stage.spinLoop = true;
+      var tick = function() {
+        if (!spinning || !canvas.isConnected) { stage.spinLoop = false; return; }
+        if (!document.hidden && lastCost < 40 && !pose) {
+          spherical.theta += 0.0035;
+          apply();
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
     /** The camera's angles, read or set: how far round, and how far up from the pole. */
     view: function(to, andDraw) {
       if (to) {
@@ -5481,6 +5640,7 @@ function makeStage(THREE, canvas, opts) {
   var dragging = null;
   canvas.style.touchAction = 'none';
   canvas.addEventListener('pointerdown', function(event) {
+    spinning = false;
     dragging = { x: event.clientX, y: event.clientY, pan: event.button === 2 || event.shiftKey };
     canvas.setPointerCapture(event.pointerId);
   });
@@ -5809,6 +5969,21 @@ function markPinned() {
       current !== null && key === current && seen[key] === (sceneState.pinnedIndex || 0));
   });
   syncRoseMarkers();
+}
+
+/** Show one cell in the viewer, as a diamond in a chart was pressed. */
+function showCellInViewer(id) {
+  if (!hasGeometry() || !GEOMETRY.some(function(o){ return String(o.id) === String(id); })) return;
+  sceneState.objectId = GEOMETRY.find(function(o){ return String(o.id) === String(id); }).id;
+  if (sceneState.explain) sceneState.entities = new Set(explainEntities(sceneState.explain));
+  sceneState.maxGap = null;
+  var dock = document.getElementById('s-3d');
+  if (dock) {
+    dock.classList.remove('flash');
+    void dock.offsetWidth;
+    dock.classList.add('flash');
+  }
+  renderScene();
 }
 
 /** Which of the charts with this button's spec it is, in page order. */
@@ -6457,7 +6632,7 @@ function polarBinOf(angle) {
 function polarityOverlay(THREE, frame, o) {
   var group = new THREE.Group();
   var c = frame.centre, a = frame.axis, L = frame.reach * 1.1;
-  var BLUE = new THREE.Color('#1c5cab'), GREY = new THREE.Color('#9aa3ad');
+  var BLUE = new THREE.Color('#5aa2ff'), GREY = new THREE.Color('#6b7683');
   var vec = function(p){ return new THREE.Vector3(p[0], p[1], p[2]); };
   var line = function(points, colour, opacity, parent) {
     var geometry = new THREE.BufferGeometry().setFromPoints(points.map(vec));
@@ -6525,7 +6700,7 @@ function polarityOverlay(THREE, frame, o) {
     var dots = new THREE.BufferGeometry();
     dots.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
     var points = new THREE.Points(dots, new THREE.PointsMaterial({
-      color: new THREE.Color('#1c5cab'), size: 4, sizeAttenuation: false,
+      color: new THREE.Color('#5aa2ff'), size: 4, sizeAttenuation: false,
       transparent: true, opacity: 0.85, depthTest: false }));
     points.renderOrder = 6;
     group.add(points);
@@ -6575,7 +6750,7 @@ function polarityOverlay(THREE, frame, o) {
         && frame.depthReach != null ? frame.depthReach - frame.diamond.depth : frame.diamond.dist;
       polarMorphPoint(frame, layout, frame.diamond.n, frame.diamond.dist, dRadius, t, where, 0);
       var gem = new THREE.Mesh(new THREE.OctahedronGeometry(Math.max(frame.reach * 0.06, 1e-6)),
-        new THREE.MeshBasicMaterial({ color: 0xd9480f, depthTest: false }));
+        new THREE.MeshBasicMaterial({ color: 0xffa940, depthTest: false }));
       gem.position.set(where[0], where[1], where[2]);
       gem.renderOrder = 9;
       group.add(gem);
@@ -6600,27 +6775,27 @@ function polarityOverlay(THREE, frame, o) {
     made.traverse(function(node){ node.renderOrder = order; });
     return made;
   };
-  group.add(arrow(a, L, 0x12161b, 6, 0.1));
+  group.add(arrow(a, L, 0xeef1f5, 6, 0.1));
   if ((o.aspect === 'angle' || o.aspect === 'index') && frame.mean && frame.R > 0.01) {
-    group.add(arrow(frame.mean, frame.R * L, 0xd9480f, 7, 0.24));
+    group.add(arrow(frame.mean, frame.R * L, 0xffa940, 7, 0.24));
   }
   // V: how far that average reaches along the axis. Dropped to it from the arrow's tip.
   if (o.aspect === 'index' && frame.mean && frame.R > 0.01) {
     var tip = [c[0] + frame.mean[0] * frame.R * L, c[1] + frame.mean[1] * frame.R * L,
                c[2] + frame.mean[2] * frame.R * L];
     var foot = [c[0] + a[0] * frame.V * L, c[1] + a[1] * frame.V * L, c[2] + a[2] * frame.V * L];
-    line([tip, foot], 0xd9480f, 0.9);
-    var bar = line([c, foot], 0xd9480f, 1);
+    line([tip, foot], 0xffa940, 0.9);
+    var bar = line([c, foot], 0xffa940, 1);
     bar.material.linewidth = 2;
     var mark = new THREE.Mesh(new THREE.SphereGeometry(head * 0.45, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xd9480f, depthTest: false }));
+      new THREE.MeshBasicMaterial({ color: 0xffa940, depthTest: false }));
     mark.position.set(foot[0], foot[1], foot[2]);
     mark.renderOrder = 9;
     group.add(mark);
   }
 
   var dot = new THREE.Mesh(new THREE.SphereGeometry(head * 0.7, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0x12161b, depthTest: false }));
+    new THREE.MeshBasicMaterial({ color: 0xeef1f5, depthTest: false }));
   dot.position.copy(vec(c));
   dot.renderOrder = 8;
   group.add(dot);
@@ -7065,6 +7240,9 @@ async function renderScene() {
     applyMorph();
     stage.frameShadow();
     stage.draw();
+    // Still pictures spin gently; a chart being explained holds still, so what the slider
+    // does is the only thing that moves.
+    stage.spin(!explain);
     writeExplain();
   }
 
@@ -7186,15 +7364,15 @@ async function renderScene() {
         return '<span><i style="background:' + colour + '"></i>' + words + '</span>';
       };
       var aspect = explain.aspect;
-      key.innerHTML = swatch('#12161b', 'towards ' + escHtml(explain.ref) + ' (0°)')
+      key.innerHTML = swatch('#eef1f5', 'towards ' + escHtml(explain.ref) + ' (0°)')
         + (aspect === 'angle'
-            ? swatch('#1c5cab', 'the wedge of angles')
-              + swatch('#d9480f', 'average direction, length R')
+            ? swatch('#5aa2ff', 'the wedge of angles')
+              + swatch('#ffa940', 'average direction, length R')
             : aspect === 'index'
-              ? swatch('#1c5cab', 'one instance each')
-                + swatch('#d9480f', 'average, length R; the dot is V')
-              : swatch('#1c5cab', 'one instance each')
-                + (aspect === 'where' ? '' : swatch('#d9480f', 'the ' + noun() + '\u2019s average')));
+              ? swatch('#5aa2ff', 'one instance each')
+                + swatch('#ffa940', 'average, length R; the dot is V')
+              : swatch('#5aa2ff', 'one instance each')
+                + (aspect === 'where' ? '' : swatch('#ffa940', 'the ' + noun() + '\u2019s average')));
       explainEl.appendChild(key);
       if (aspect === 'angle') {
         var binWidth = 180 / POLAR_ANGLE_BINS;
@@ -8099,6 +8277,16 @@ function distributionPanel(host, opts) {
                          line:{ color:CS.ink3, width:1, dash:'dot' } });
   }
   drawPlot(plotEl, traces, layout, {responsive:true, displayModeBar:false});
+  // A diamond is a cell: press it and the viewer shows that cell.
+  if (dotsDrawn && plotEl.on) {
+    plotEl.on('plotly_click', function(event) {
+      var point = event.points && event.points[0];
+      if (point && point.data && point.data.xaxis === 'x2' && typeof point.text === 'string') {
+        showCellInViewer(point.text);
+      }
+    });
+    plotEl.classList.add('has-cells');
+  }
   // How many of what each box is made of, on the chart and not in a section's prose: a
   // reader looking at one panel should not have to scroll to learn what it is a picture of.
   el.appendChild(sizeLine(series, opts.noun, dotsDrawn));
