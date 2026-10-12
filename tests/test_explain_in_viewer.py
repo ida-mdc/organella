@@ -173,7 +173,7 @@ def test_the_scatter_puts_angle_across_and_distance_up(morph):
     span = morph["frame"]["plotReach"]
     for got, chart in zip(morph["layouts"]["cart"][-1], morph["chart"]):
         assert got["u"] == pytest.approx(chart["dist"], abs=1e-4)
-        assert got["a"] == pytest.approx(chart["cone"] / 180 * 2 * span - span, abs=1e-3)
+        assert got["a"] == pytest.approx(span - chart["cone"] / 180 * 2 * span, abs=1e-3)
         assert got["w"] == pytest.approx(0, abs=1e-4)
 
 

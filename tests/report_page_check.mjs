@@ -44,7 +44,7 @@ if (job.render) {
       classList: {
         add(name) { if (name === 'd-none') self._shown = false; },
         remove(name) { if (name === 'd-none') self._shown = true; },
-        contains: () => false,
+        contains: (name) => name === 'd-none' && self._shown === false,
         toggle() {},
       },
       dataset: {},
@@ -186,6 +186,9 @@ const out = {};
 if (job.render) {
   const commands = globalThis.document.getElementById('landing-commands');
   out.landing = { afterBoot: commands?._shown !== false };
+  // A failed first load leaves no report on screen; the render above has put one there, and
+  // "try again" over a report only closes the card floating over it.
+  globalThis.document.getElementById('main-content').classList.add('d-none');
   R.showLandingForm();
   out.landing.afterTryAgain = commands?._shown !== false;
 }
@@ -660,8 +663,8 @@ if (job.render) {
     shown: ['s-overview', 's-3d', 's-entities', 's-groups', 's-polarity', 's-structure']
       .filter((id) => globalThis.document.getElementById(id)?._shown !== false),
     // Every question heading and the sentence under it, so a section that had nothing to
-    // draw can be checked for saying why. Taken as the markup each node was given rather
-    // than by class: a block builds its headings by setting innerHTML in one go, so in this
+    // draw can be checked for saying why. Taken as the markup each node was given,
+    // not by class: a block builds its headings by setting innerHTML in one go, so in this
     // stub they are that string and not nodes of their own.
     prose: (() => {
       const out = [];
@@ -774,7 +777,7 @@ if (job.render) {
 
 // ── one query at a time, built by the page ────────────────────────────────────
 // `build` is a list of {fn, args}: a test that wants one exact query asks the page to
-// build it rather than writing the SQL out again beside it.
+// build it, so the SQL is not written out again beside it.
 if (job.build) {
   out.built = job.build.map(({ fn, args }) => {
     if (typeof R[fn] !== 'function') throw new Error(`the page has no ${fn}()`);
@@ -792,6 +795,13 @@ if (job.thumbBudget) {
 // ── the test behind the brackets ──────────────────────────────────────────────
 if (job.mannWhitney) {
   out.mannWhitney = job.mannWhitney.map(({ a, b }) => R.mannWhitney(a, b));
+}
+if (job.comparisons) {
+  out.comparisons = job.comparisons.map((series) => R.pairwiseSignificance(series).map((c) => ({
+    a: c.a, b: c.b, tested: c.test !== null, why: c.why,
+    label: c.test ? R.significanceLabel(c.test) : null })));
+  out.untested = job.comparisons.map((series) => R.untestedLines(R.pairwiseSignificance(series)));
+  out.rungs = job.comparisons.map((series) => R.bracketRungs(R.pairwiseSignificance(series)));
 }
 if (job.stars) out.stars = job.stars.map((p) => R.significanceStars(p));
 if (job.dimPairs) out.dimPairs = job.dimPairs.map((dims) => R.dimPairs(dims));
@@ -813,7 +823,7 @@ if (job.loadFailure !== undefined) {
     out.loadFailure = error.message;
   }
 }
-// What the report opens on. The faceting is settled against the batch rather than fixed,
+// What the report opens on. The faceting is settled against the batch and not fixed,
 // so it is read back the way a reader meets it: the state, the control, and whether the
 // control is offered at all. Needs `render`, since it is the DOM it settles.
 if (job.initFilters) {
@@ -870,7 +880,7 @@ if (job.baselineScore) {
 if (job.facetLabels) out.facetLabels = R.shortFacetLabels(job.facetLabels);
 
 // ── the fragments a test would otherwise mirror by hand ───────────────────────
-// Handed over rather than copied into the test, so a change here cannot leave a test
+// Handed over, not copied into the test, so a change here cannot leave a test
 // passing against SQL the page no longer builds.
 out.constants = {
   hasGeometry: R.HAS_GEOMETRY_SQL,

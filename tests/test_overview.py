@@ -57,8 +57,8 @@ def test_an_even_batch_has_nothing_to_warn_about():
 def test_a_structure_one_object_lacks_is_called_missing():
     summary = overview_of(batch(drop=[("object_b", "mito")]))
 
-    # The column stays, so the gap is visible in the row rather than the structure
-    # disappearing from the table altogether.
+    # The column stays, so the gap is visible in the row, and the structure does not
+    # vanish from the table altogether.
     assert "mito" in summary["structures"]
     assert summary["missing"] == [{"object": "object_b", "structures": ["mito"]}]
 
@@ -101,7 +101,7 @@ def test_mixing_2d_and_3d_objects_is_called_out():
                                 dims={"flat_c": 2}))
 
     # An area and a volume in one distribution is meaningless, and the section that exists
-    # to catch an unpoolable batch has to say so rather than charting one and dropping
+    # to catch an unpoolable batch has to say so and not chart one and dropping
     # the other.
     assert summary["mixedDims"] is True
     assert summary["dims"] == {"3": 2, "2": 1}
@@ -146,7 +146,7 @@ def test_a_gap_is_named_where_the_section_it_qualifies_is():
 
     notes = coverage_notes(rows)
 
-    assert "1 of 2" in notes["contacts"]
+    assert "Not every object has contacts" in notes["contacts"]
     assert notes["per-instance measurements"] == ""
 
 
@@ -163,7 +163,7 @@ def test_the_caveat_is_drawn_in_its_section_and_not_at_the_top():
     caveats = run_report_page(
         {"rows": rows, "structure": "mito", "render": True})["render"]["caveats"]
 
-    assert "1 of 2" in caveats["ct-coverage"]
+    assert "Not every object has contacts" in caveats["ct-coverage"]
     assert "have contacts" not in (caveats["overview-warnings"] or "")
     assert caveats["entity-coverage"] == ""
 

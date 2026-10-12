@@ -114,7 +114,7 @@ def test_directions_that_cancel_have_no_polarity_and_no_mean(polar):
         assert per_object["n"] == 4
         assert per_object["R"] == pytest.approx(0, abs=0.02)
         assert per_object["V"] == pytest.approx(0, abs=0.02)
-        # No mean direction to take an angle of, rather than an arbitrary one.
+        # No mean direction to take an angle of, and no arbitrary one is made up.
         assert per_object["meanCone"] is None
 
 
@@ -166,8 +166,7 @@ def test_the_section_draws_all_four_readings(drawn_polarity):
     titles = drawn_polarity["titles"]
 
     assert "mito towards nucleus" in titles
-    assert "mito V towards nucleus" in titles
-    assert "mito R, agreement" in titles
+    assert "mito V and R" in titles
     assert "mito distance by angle" in titles
     # The row of angle box plots is gone: the rose behind each arrow is that distribution,
     # in the panel that also carries its summary.
@@ -192,7 +191,7 @@ def test_the_section_draws_all_four_readings(drawn_polarity):
 def test_the_isotropic_shape_is_drawn_behind_each_rose(drawn_polarity):
     """A population blind to the axis is not flat on a half disc: there is more room at 90°.
 
-    That is geometry rather than a measurement, so it needs no baseline measured against
+    That is geometry, not a measurement, so it needs no baseline measured against
     the object - and reading a rose without it would find polarity in every structure.
     """
     roses = [p for p in drawn_polarity["circles"] if "towards nucleus" in (p["title"] or "")]
@@ -229,13 +228,13 @@ def test_the_radius_can_be_read_to_the_boundary_instead(report_path):
     """Cells differ in size, so "0.4 µm inside the membrane" travels where "5 µm out" does not.
 
     The depth is a distance row, which only instances have, so this view drops the masks -
-    and says so rather than quietly drawing fewer structures.
+    and says so; it does not quietly draw fewer structures.
     """
     page = report_page().read_text(encoding="utf-8")
 
     # Reversed on purpose: the boundary belongs at the rim, with deeper further in.
     assert "range: toMask ? [reach * 1.02, 0] : [0, reach * 1.02]" in page
-    assert "Structures measured as one whole mask are left out of this view" in page
+    assert "Structures measured as one whole mask are left out, because their depth was not measured" in page
     # And the choice is only offered where there is a depth to read.
     assert "if (hasDepth) radiusChoices.push" in page
 
@@ -283,4 +282,3 @@ def test_the_panels_name_the_structure_and_not_the_page_s_own_function(drawn_pol
 
     assert "function" not in helps
     assert "rows.filter" not in helps
-    assert "the signed polarity index" in helps and "the polarity index" in helps

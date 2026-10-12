@@ -56,12 +56,12 @@ def test_the_columns_a_deep_row_is_asked_for_are_columns_a_run_writes(report_pat
     """The page asks for deep rows by name; a rename in the writer would empty a section.
 
     95% of a real report is contacts and distances, and the page reads five columns of one
-    and nine of the other - so it names them rather than taking `SELECT *` and building a
+    and nine of the other - so it names them and does not take `SELECT *` and building a
     seventy-key object per row. Named columns can go stale: DuckDB is handed only the names
     the file has, so a renamed one is quietly left out and the section it fed goes empty.
     """
     deep = run_page({})["constants"]["deepColumns"]
-    # Off the cursor's description rather than a frame: the names are all this wants, and
+    # Off the cursor's description, not a frame: the names are all this wants, and
     # .df() would make pandas a dependency of the suite for one line.
     written = {column[0] for column in duckdb.connect().execute(
         f"SELECT * FROM read_parquet('{report_path}') LIMIT 0").description}
@@ -113,7 +113,7 @@ def test_every_distance_row_widens_onto_the_instance_it_was_measured_from(page_o
 
     They arrive one per instance x target, and every question here reads two targets of one
     instance at once ("close to the nucleus AND the membrane"). If the join misses, a panel
-    is silently empty rather than wrong.
+    is silently empty, not wrong.
     """
     con = duckdb.connect()
     expected = dict(con.execute(
@@ -343,7 +343,7 @@ def test_every_chart_names_the_structure_it_is_about(drawn):
 def test_every_metric_chart_carries_the_explanation_from_the_report(drawn):
     """The report says what each column means; the page shows it under the chart of it.
 
-    Read out of the footer rather than kept here, so there is one wording and it is the
+    Read out of the footer and not kept here, so there is one wording and it is the
     one in the file.
     """
     assert drawn["helps"], "no panel explained what it was showing"
@@ -393,10 +393,10 @@ def as_histograms(report_path):
 def test_brackets_are_drawn_between_groups(by_group):
     assert by_group["bracketedPanels"] > 0
     for bracket in by_group["brackets"]:
-        # Stars where they could be earned; the p itself where too few cells make them
-        # impossible, which is what the synthetic batch of two against two is.
+        # Stars where they could be earned; the p itself beside them where too few cells make
+        # them impossible, which is what the synthetic batch of two against two is.
         assert bracket["stars"] in ("*", "**", "***", "****", "ns") \
-            or bracket["stars"].startswith("p "), bracket["stars"]
+            or bracket["stars"].startswith("ns \u00b7 p "), bracket["stars"]
         assert "Mann-Whitney U" in bracket["detail"]
         assert "control vs treated" in bracket["detail"]
 
@@ -412,7 +412,7 @@ def test_one_object_per_box_leaves_nothing_to_test(drawn):
 
     It used to run anyway, on the instances inside each - which is a p-value between two
     cells' internal spreads, and reads as a result. No bracket is drawn now, and the reason
-    is said once beside the switch that asks for them rather than under every panel.
+    is said once beside the switch that asks for them, not under every panel.
     """
     assert drawn["bracketedPanels"] == 0
     assert drawn["brackets"] == []
@@ -473,7 +473,7 @@ def test_a_histogram_is_a_binned_shape_and_a_distribution_is_a_box(drawn, as_his
     assert "box" in drawn["traceTypes"]
     assert "scatter" in as_histograms["traceTypes"]
     # A panel whose every value is identical has no shape to bin, and falls back to the box
-    # rather than drawing nothing - so a box surviving the switch is expected, but not many.
+    # and so still draws something - so a box surviving the switch is expected, but not many.
     assert as_histograms["boxPanels"] < drawn["boxPanels"]
 
 
@@ -514,14 +514,13 @@ def test_a_histogram_of_one_value_has_no_shape_to_bin():
 # ── one panel per structure pair, side by side ──────────────────────────────
 
 
-def test_every_pair_of_structures_gets_a_panel_of_its_own(drawn):
-    """It was a lower-triangle subplot matrix, which is compact and unreadable: which pair a
-    panel was about had to be worked out from where it sat, and each was 148px wide with no
-    axis of its own."""
+def test_one_pair_of_structures_is_drawn_at_a_time(drawn):
+    """Fifteen panels and a note that the rest were left out put the choosing on the page's
+    side. The reader picks the pair they are asking about and gets one plot, drawn first for
+    the first pair."""
     titles = drawn["titles"]
     pairs = [t for t in titles if " + " in t]
-    assert pairs == ["pm + nucleus", "pm + nearest of the same kind",
-                     "nucleus + nearest of the same kind"]
+    assert pairs == ["pm + nucleus"]
 
 
 def test_the_panels_are_every_combination_and_no_repeats():
@@ -739,7 +738,7 @@ def test_one_objects_reference_is_the_one_the_run_measured(page_of, report_path)
 
     The run measured that median off a 4096-bin histogram of every voxel it had, which is
     finer than anything the page could recover from the 128 bins it ships - so for a single
-    object the page has to hand back the stored number rather than re-derive it.
+    object the page has to hand back the stored number and not re-derive it.
     """
     con = duckdb.connect()
     target = page_of["chance"]["target"]
@@ -755,7 +754,7 @@ def test_a_facet_of_several_objects_is_read_against_all_of_them_pooled(page_of):
     """A group's reference is its objects' distances together, not one of them.
 
     Weighted by how much object each brought: pooling the histograms is what does that,
-    and it is why the pooled median sits among the per-object ones rather than outside.
+    and it is why the pooled median sits among the per-object ones, not outside.
     """
     chance = page_of["chance"]
     medians = [v for v in chance["perObject"].values() if v is not None]
@@ -798,7 +797,7 @@ def test_the_per_voxel_panels_draw_the_chance_distribution_beside_the_measured_o
 
 
 def test_the_end_distances_widen_onto_the_instance_like_any_other(page_of):
-    """One column per target, and they are distances rather than shape metrics."""
+    """One column per target, and they are distances, not shape metrics."""
     ends = page_of["adapt"]["endDistCols"]
 
     assert ends == ["distance_to_nucleus_end_um", "distance_to_pm_end_um"]
@@ -897,8 +896,8 @@ def test_the_scale_is_shown_in_the_colours_it_labels(coloured):
     for hex_colour in ramp:
         assert len(hex_colour) == 7 and hex_colour.startswith("#")
         int(hex_colour[1:], 16)
-    # Viridis: dark blue-purple at the bottom, yellow at the top.
-    assert ramp[0] < ramp[-1]
+    # cool_r: magenta at the bottom, cyan at the top.
+    assert ramp[0] == "#ff00ff" and ramp[-1] == "#00ffff"
 
 
 # ── the landing, when the report is already on its way ──────────────────────
@@ -927,11 +926,11 @@ def test_how_to_make_a_report_is_shown_when_the_page_is_opened_bare(report_path)
 
 
 def test_every_test_on_the_page_counts_objects(by_group):
-    """Including the share curves, which carry their comparison as a note rather than a
+    """Including the share curves, which carry their comparison as a note, not a
     bracket - they were the one row still testing forty thousand instances.
     """
     notes = by_group["notes"]
 
-    assert notes, "the share curves should carry their comparison as text"
     for note in notes:
-        assert "objects)" in note or "cells)" in note, note
+        # A pair that could not be tested says so in place of its counts.
+        assert "objects)" in note or "cells)" in note or "not tested" in note, note

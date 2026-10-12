@@ -6,7 +6,7 @@ suite generated, at an unaligned offset, the way it arrives from Arrow. The seco
 SQL: geometry lives in a file beside the report, and every query has to work whether it is
 aimed at one object or at the whole cohort at once.
 
-Both come out of the page itself rather than being written out again here. A mirror can be
+Both come out of the page itself and are not written out again here. A mirror can be
 right while the page is wrong, which is how a query naming a column its own source did not
 expose once reached the browser.
 """
@@ -69,7 +69,7 @@ def files_in(geometry_dir, *objects) -> list:
 
 
 def build(fn: str, *args) -> str:
-    """One query, built by the page rather than written out again here."""
+    """One query, built by the page and not written out again here."""
     return run_report_page({"build": [{"fn": fn, "args": list(args)}]})["built"][0]
 
 
@@ -109,7 +109,7 @@ def test_a_skeleton_decodes_as_line_segments():
 
     decoded = decode(skeleton, per_index=2)
 
-    # Two indices per segment rather than three per face, and every one addresses a vertex.
+    # Two indices per segment, not three per face, and every one addresses a vertex.
     assert decoded["indices"] > 0
     assert decoded["maxIndex"] < decoded["vertices"]
 
@@ -195,7 +195,7 @@ def test_exploding_pushes_an_instance_out_the_way_it_actually_lies():
 def test_every_query_the_geometry_sections_build_runs(con, geometry_dir):
     """Every one of them, through DuckDB, against geometry a run would have written.
 
-    A binder error is a failing test rather than a message in somebody's browser console,
+    A binder error is a failing test, not a message in somebody's browser console,
     which is the reason these are built by the page and executed here.
     """
     statements = run_report_page({
@@ -251,7 +251,7 @@ def test_the_object_view_reads_only_the_structures_it_draws(con, geometry_dir):
 
     assert rows, "the sidecar should return this structure's instances"
     assert all(isinstance(row[4], (bytes, bytearray)) and len(row[4]) > 32 for row in rows)
-    # Biggest first, so what a reader sees first is the object rather than a corner of it.
+    # Biggest first, so what a reader sees first is the object, not a corner of it.
     volumes = [row[3] for row in rows]
     assert volumes == sorted(volumes, reverse=True)
 
@@ -353,7 +353,7 @@ def test_the_gallery_ranks_instances_across_every_object_in_scope(con, geometry_
     rows = con.execute(build("gallerySql", source, "mito", "sphericity", "highest", 4)).fetchall()
 
     # One query over both objects - a cohort's tail, not an object's, which is the whole
-    # reason the gallery reads a list of files rather than one.
+    # reason the gallery reads a list of files, not one.
     assert len(rows) == 4
     assert {r[0] for r in rows} == {"object_a", "object_b"}
     assert [r[2] for r in rows] == sorted([r[2] for r in rows], reverse=True)

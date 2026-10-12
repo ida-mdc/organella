@@ -135,3 +135,53 @@ def test_the_null_distribution_sums_to_every_arrangement():
         assert sum(table) == comb(n1 + n2, n1)
         # Symmetric about the middle: U and n1*n2 - U are the same statement.
         assert table == table[::-1]
+
+
+def compared(*groups, whole=False):
+    """What the page says about every pair of these groups, each a list of per-cell medians."""
+    series = [{"name": f"g{i}", "label": f"g{i}", "units": units, "values": units}
+              for i, units in enumerate(groups)]
+    out = run_report_page({"comparisons": [series]})
+    return out if whole else out["comparisons"][0]
+
+
+def test_every_pair_of_groups_gets_a_comparison():
+    pairs = compared([1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12])
+
+    assert [(c["a"], c["b"]) for c in pairs] == [(0, 1), (0, 2), (1, 2)]
+
+
+def test_a_group_of_one_cell_is_a_pair_that_says_so_instead_of_vanishing():
+    pairs = compared([1, 2, 3, 4], [5, 6, 7, 8], [9])
+
+    assert [c["tested"] for c in pairs] == [True, False, False]
+    assert all(c["label"] is None and c["why"].startswith("1 ") for c in pairs[1:])
+
+
+def test_the_p_is_always_in_the_label_whether_or_not_it_could_reach_significance():
+    """Four against three cannot go below 0.057, so its p was shown; a roomy pair's was not."""
+    pairs = compared([1, 2, 3, 4], [5, 6, 7], list(range(10, 30)))
+
+    labels = [c["label"] for c in pairs]
+    assert all(" \u00b7 p " in label for label in labels), labels
+    assert labels[0].startswith("ns") and labels[2].startswith("*")
+
+
+def test_the_pairs_that_could_not_be_tested_are_one_line_and_cost_one_rung():
+    out = compared([1, 2, 3, 4], [5, 6, 7, 8], [9], whole=True)
+
+    # Three pairs, one of them tested: a bracket for it, and a single line for the other two.
+    assert out["untested"][0][0].startswith("not tested")
+    assert "".join(out["untested"][0]).count("g2") == 1 and "g2 (1 " in " ".join(out["untested"][0])
+    assert out["rungs"][0] >= 2
+
+
+def test_nothing_untested_means_no_line_and_a_rung_per_bracket():
+    out = compared([1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], whole=True)
+
+    assert out["rungs"] == [3] and out["untested"] == [[]]
+
+
+def test_a_folder_of_cells_run_without_groups_has_nothing_to_compare():
+    """Eleven groups of one cell are no grouping: 55 'not tested' pairs is noise, not a finding."""
+    assert compared(*[[v] for v in range(11)]) == []
