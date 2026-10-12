@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import http.server
 import os
-import socket
 import sys
 import threading
 import urllib.parse
@@ -243,10 +242,3 @@ def serve(report: Path, port: int = 8052, open_browser: bool = True) -> str:
     finally:
         server.server_close()
     return url
-
-
-def free_port() -> int:
-    """A port the OS says is free, for a caller that does not care which."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])

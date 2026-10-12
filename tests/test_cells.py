@@ -146,7 +146,6 @@ zarr = pytest.importorskip("zarr")
 
 def _store(tmp_path: Path) -> Path:
     """A small N5 pyramid, s0 and a half-size s1, with two cells in it."""
-    from skimage.transform import resize
 
     a, b, membrane, outside, seed = _two_cells()
     body = (a | b)

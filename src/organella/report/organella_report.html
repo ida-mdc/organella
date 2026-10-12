@@ -664,6 +664,9 @@ body:has(#landing:not(.d-none):not(.landing-over)) { height: 100vh; overflow: hi
 /* Two sizes on the cards - a title and its detail - so loading and failing read as the cards beside them. */
 .landing .card-title { font-size: .95rem; font-weight: 600; letter-spacing: .02em; color: var(--ink); margin-bottom: .45rem; }
 .landing code { white-space: nowrap; }
+/* The commands keep their line breaks; a long line scrolls inside its box, not out of the card. */
+.landing pre code { white-space: pre; }
+.landing-cards > div, .landing-cards .glass { min-width: 0; }
 #drop-zone .fs-6 { font-size: .95rem !important; }
 .landing .card-detail { font-size: .8rem; line-height: 1.5; color: var(--ink-3); margin-top: .2rem; }
 .feature-chips { flex-basis: 100%; margin-top: .7rem; font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
@@ -1342,6 +1345,13 @@ function groupPalette() {
 function objectColor(c) { return (objectPalette()[c] || '#aaa'); }
 function entColor(e)    { return (entPalette()[e]    || '#aaa'); }
 function groupColor(g)  { return (groupPalette()[g]  || '#aaa'); }
+/** The objects whose geometry the filter leaves, so what is drawn is what the rest of the page is about. */
+function filteredGeometry() {
+  return GEOMETRY.filter(function(o) {
+    return !st.only || (plotGroupBy === 'group' ? o.group : o.id) === st.only;
+  });
+}
+
 function gColor(g) { return plotGroupBy === 'group' ? groupColor(g) : objectColor(g); }
 
 // ══════════════════════════════════════════════════════════════
@@ -2231,7 +2241,6 @@ var REPORT_URL = null;
 // What the run said the data is: credits, a citation, a licence. Shown above the first
 // section, and empty for a report whose run was not told.
 var REPORT_DESCRIPTION = '';
-var GEOM_SOURCE = '';  // how it arrived, for the note under the 3D sections
 
 /** Objects the report says have geometry, whether or not it has been handed over. */
 function objectsClaimingGeometry() {
@@ -2276,8 +2285,6 @@ async function useGeometryFiles(fileList, named) {
   GEOMETRY = owners.map(function(r) {
     return { id: String(r.id), group: groupOf[String(r.id)], path: String(r.filename) };
   }).sort(function(a, b){ return a.id.localeCompare(b.id); });
-  GEOM_SOURCE = files.length + (files.length === 1 ? ' geometry file' : ' geometry files')
-    + ' from the folder you chose';
   return GEOMETRY;
 }
 
@@ -2306,8 +2313,6 @@ async function useGeometryBase(base) {
       _duckdbModule.DuckDBDataProtocol.HTTP, true);
     GEOMETRY.push({ id: object.object_id, group: object.group_id, path: name });
   }
-  GEOM_SOURCE = GEOMETRY.length
-    + (GEOMETRY.length === 1 ? ' geometry file' : ' geometry files') + ' from ' + trimmed;
   return GEOMETRY;
 }
 
@@ -3150,7 +3155,6 @@ function renderDifferences() {
   });
   if (!blocks.length) return;
 
-  var signed = function(v){ return (v > 0 ? '+' : v < 0 ? '−' : '') + fmtValue(Math.abs(v)); };
   // A distance is to something, and "golgi" alone reads as the structure and not the measurement.
   var diffLabel = function(col) {
     if (col === 'distance_to_closest_same_type_um') return 'distance to its own kind';
@@ -4407,7 +4411,6 @@ function renderPolarity() {
   // appears as a single reading per object, with no shape.
   var relative = {}, kinds = {};
   var mask = boundingMaskName();
-  var depthCol = mask ? distColumnsFor(mask).min : null;
   /**
    * How deep inside the bounding mask this reading sits.
    *
@@ -5475,14 +5478,6 @@ function hslToHex(h, s, l) {
   return '#' + byte(r) + byte(g) + byte(b);
 }
 
-// How far up the chroma goes, and where the lightness lands. Tuned against the lighting
-// by measurement, not by choice: much past this a lit face clips towards white and takes the hue with
-// it, which is the failure the low ambient term exists to avoid in the first place.
-var LIT_SATURATION = 0.62;   // floor, so nothing arrives washed out
-var LIT_SATURATION_GAIN = 1.5;
-var LIT_LIGHTNESS = 0.55;    // where shading has room in both directions
-var LIT_LIGHTNESS_KEEP = 0.3;
-
 var _litCache = {};
 
 /**
@@ -6319,13 +6314,6 @@ function syncViewerGap(gap) {
     _sceneApi.setGap(gap);
   }
 }
-function setContactGap(gap) {
-  var slider = document.getElementById('ct-thr');
-  if (!slider) return;
-  slider.value = gap;
-  setText('ct-thr-val', fmtGap(+slider.value));
-  renderContacts();
-}
 
 
 /** A number for a readout: three figures, never an exponent for the sizes this page sees. */
@@ -6761,22 +6749,6 @@ function polarSubjects(ref) {
                        .map(function(r){ return r.entity_name; }))
     .filter(function(n){ return n !== ref && n !== bounding && labels.indexOf(n) < 0; });
   return labels.concat(masks);
-}
-
-/** The other cells of this cell's group, as the group plot has them: one point per structure. */
-function polarOthers(spec, currentId) {
-  if (spec.aspect !== 'map') return [];
-  var mine = OBJECTS.find(function(o){ return String(o.object_id) === String(currentId); });
-  var group = mine ? mine.group_id : null;
-  var out = [];
-  OBJECTS.forEach(function(o) {
-    if (String(o.object_id) === String(currentId) || (o.group_id || null) !== (group || null)) return;
-    polarSubjects(spec.ref).forEach(function(name) {
-      var point = polarCellPoint(o.object_id, spec.ref, name, spec.radius);
-      if (point) out.push(point);
-    });
-  });
-  return out;
 }
 
 /**
@@ -7245,9 +7217,7 @@ async function renderScene() {
 
   // Only the objects the filter leaves, so "the object in 3D" is one the rest of the page
   // is also about.
-  var objects = GEOMETRY.filter(function(o) {
-    return !st.only || (plotGroupBy === 'group' ? o.group : o.id) === st.only;
-  });
+  var objects = filteredGeometry();
   if (!objects.length) {
     geometryHint(holderWrap, 'the ' + noun() + ' is drawn here');
     return;
@@ -7483,16 +7453,6 @@ async function renderScene() {
     }
   }
 
-  /**
-   * Repaint with the busy overlay up. A repaint is one synchronous stretch, so the overlay
-   * has to be on screen before it starts: wait a frame, or it is only ever seen afterwards.
-   */
-  async function repaintWhile(text) {
-    var done = busy(holder, text);
-    await new Promise(function(resolve){ requestAnimationFrame(function(){ setTimeout(resolve, 0); }); });
-    try { paint(); } finally { done(); }
-  }
-
   /** Draw the polarity arrows and cone over the meshes. Cheap, so a slider can call it live. */
   function paintOverlay(andDraw) {
     var stage = _objectStage;
@@ -7504,7 +7464,7 @@ async function renderScene() {
       stage.overlay = polarityOverlay(stage.THREE, loaded.frame, {
         aspect: explain.aspect, wedge: sceneState.wedge || 0, t: sceneState.t,
         planar: PLANAR, radiusMode: explain.radius, colour: litEntColour(explain.structure),
-        colours: colours, refName: explain.ref, others: polarOthers(explain, current.id) });
+        colours: colours, refName: explain.ref });
       stage.scene.add(stage.overlay);
     }
     if (andDraw !== false) stage.draw();
@@ -8348,15 +8308,15 @@ function instanceMaterial(THREE, item) {
   }, item.skeleton ? { transparent: true, opacity: 0.35, depthWrite: false } : {}));
 }
 
-async function paintThumb(target, item, hex) {
-  var stage = await thumbStage();
+/** One instance into a stage: its shape in `hex`, and its skeleton over it in near-black. */
+function addInstance(stage, item, hex) {
   var THREE = stage.THREE;
-  stage.clear();
   var geometry = mergeInstances(THREE, [{ geometry: item.geometry, rgb: toLinearRgb(hex) }]);
-  if (!geometry) return;
-  stage.scene.add(item.flat
-    ? new THREE.LineSegments(geometry, instanceMaterial(THREE, item))
-    : new THREE.Mesh(geometry, instanceMaterial(THREE, item)));
+  if (geometry) {
+    stage.scene.add(item.flat
+      ? new THREE.LineSegments(geometry, instanceMaterial(THREE, item))
+      : new THREE.Mesh(geometry, instanceMaterial(THREE, item)));
+  }
   if (item.skeleton) {
     var lines = mergeInstances(THREE, [{ geometry: item.skeleton,
                                          rgb: [0.09, 0.08, 0.06].map(toLinear) }]);
@@ -8365,6 +8325,12 @@ async function paintThumb(target, item, hex) {
         new THREE.LineBasicMaterial({ vertexColors: true })));
     }
   }
+}
+
+async function paintThumb(target, item, hex) {
+  var stage = await thumbStage();
+  stage.clear();
+  addInstance(stage, item, hex);
   stage.fit();
   var context = target.getContext('2d');
   context.clearRect(0, 0, target.width, target.height);
@@ -8407,21 +8373,7 @@ async function openInstance(item, title) {
   }
   var stage = _modalStage;
   stage.clear();
-  var geometry = mergeInstances(THREE, [{ geometry: item.geometry,
-                                          rgb: toLinearRgb(item.hex) }]);
-  if (geometry) {
-    stage.scene.add(item.flat
-      ? new THREE.LineSegments(geometry, instanceMaterial(THREE, item))
-      : new THREE.Mesh(geometry, instanceMaterial(THREE, item)));
-  }
-  if (item.skeleton) {
-    var lines = mergeInstances(THREE, [{ geometry: item.skeleton,
-                                         rgb: [0.09, 0.08, 0.06].map(toLinear) }]);
-    if (lines) {
-      stage.scene.add(new THREE.LineSegments(lines,
-        new THREE.LineBasicMaterial({ vertexColors: true })));
-    }
-  }
+  addInstance(stage, item, item.hex);
   stage.resize(canvas.clientWidth, canvas.clientHeight);
   stage.fit();
 }
@@ -8534,9 +8486,7 @@ function renderGallery(container, entity, rowType, opts) {
   container.replaceChildren();
   var masks = rowType === 'file';
   var thing = masks ? 'mask' : 'instance';
-  var objects = GEOMETRY.filter(function(o) {
-    return !st.only || (plotGroupBy === 'group' ? o.group : o.id) === st.only;
-  });
+  var objects = filteredGeometry();
   if (!objects.length) {
     geometryHint(container, 'the ' + thing + 's are drawn here');
     return;
@@ -9362,8 +9312,6 @@ function renderEntityStats() {
 
   // Every chart says what its colours are and how much is behind each (see sizeLine), so the
   // block carries no legend of its own: a second one said the same thing without the counts.
-  var labelEnts = uniq(ENTS.filter(function(r){ return r.entity_kind === 'label'; })
-                           .map(function(r){ return r.entity_name; }));
   var presentLabels = uniq(instRows.map(function(r){ return r.entity_name; }));
   var presentMasks = uniq(entRows.filter(function(r){ return r.entity_kind === 'mask'; })
                                   .map(function(r){ return r.entity_name; }));
@@ -9509,58 +9457,6 @@ function renderEntityStats() {
       objectsOf[f.name] = uniq(f.rows.map(function(r){ return r.object_id; }));
       rowsOf[f.name] = f.rows;
     });
-    /**
-     * The dotted reference for one target, per facet, and the sentence that explains it.
-     *
-     * No panel asks for one at present: chance is drawn where it is drawn as a
-     * distribution, beside the per-voxel curves, and nowhere as a median collapsed to a
-     * line. Hand the result to a panel as `chanceBy` to put the line back.
-     *
-     * `allowExtent` says whether what is being read against it has extent. A whole
-     * instance does, and the reference has to allow for it (see extentGapUm); a skeleton
-     * tip does not - it is a point, like the samples the reference is made of - and
-     * correcting there would move the line for nothing.
-     */
-    var chanceFor = function(target, allowExtent) {
-      var by = {}, drawn = [], collapsed = [], measured = 0;
-      Object.keys(objectsOf).forEach(function(name) {
-        var stats = chanceStats(objectsOf[name], target);
-        if (!stats || stats.median == null || !isFinite(stats.median)) return;
-        // Null means there was nothing to measure the allowance from; zero is a
-        // measurement - two structures that overlap leave an instance's body average at
-        // its closest point - and the two must not read the same.
-        var gap = allowExtent ? extentGapUm(rowsOf[name], target) : null;
-        if (gap != null) measured++;
-        var at = stats.median - (gap == null ? 0 : gap);
-        var entry = { name: name, at: at, median: stats.median, gap: gap };
-        // An allowance larger than the distance itself leaves nothing to read against: a
-        // randomly placed instance of this size would already be touching. Better no line
-        // than one pinned at zero, which reads as a measurement.
-        if (at > 0) { by[name] = at; drawn.push(entry); } else collapsed.push(entry);
-      });
-      if (!drawn.length && !collapsed.length) return null;
-      var sentences = [];
-      if (drawn.length) {
-        // An allowance of zero is still an allowance - two structures that overlap leave
-        // one - but there is nothing to say about it.
-        var anyAllowance = allowExtent && drawn.some(function(x){ return x.gap > 0; });
-        // What the line is, not where it is: where it is, is the line. Printing the
-        // number as well said the same thing twice, once in a form that named no quantity.
-        sentences.push('Dotted: the distance half the ' + noun() + ' lies within of '
-          + dataName(target)
-          + (anyAllowance ? ', less what an instance this size spans.' : '.'));
-      }
-      collapsed.forEach(function(x) {
-        sentences.push('No line for ' + escHtml(facets.labelOf(x.name))
-          + ': what an instance this size spans is further than that distance.');
-      });
-      if (allowExtent && !measured) {
-        sentences.push('No extent allowance was measured: re-run with'
-          + ' <code>--distance-histograms</code> for it.');
-      }
-      return { by: by, note: sentences.join(' ') };
-    };
-
     // ── how far from other structures ─────────────────────────────────────────
     var dCols = distCols(rows);
     if (dCols.length) {
