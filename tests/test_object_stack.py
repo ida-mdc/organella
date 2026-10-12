@@ -1,7 +1,7 @@
 """The object the measurers are handed: what it exposes, and what it refuses.
 
 Every measurement here is cross-entity or whole-region, so "this is a whole object" is an
-invariant of the type rather than a check each measurer repeats. It used to be repeated,
+invariant of the type, not a check each measurer repeats. It used to be repeated,
 three times, in three slightly different spellings.
 """
 

@@ -72,8 +72,8 @@ def measure_object(folder: Path, group: str, excluded: Sequence[str] = (),
     """Read one object folder and measure it, whole. Never raises.
 
     ``config`` is what the run was asked for. It arrives as an argument because this
-    function is what a worker process is handed: the settings travel with the work rather
-    than being picked up out of the worker's surroundings.
+    function is what a worker process is handed: the settings travel with the work
+    and are never picked up out of the worker's surroundings.
     """
     started = time.perf_counter()
     cfg = config if config is not None else RunConfig()
@@ -185,7 +185,7 @@ def _measurers_of_whole_objects(excluded: Iterable[str], config: RunConfig) -> L
 # ── what the object is ────────────────────────────────────────────────────────
 
 def _what_the_object_is(folder: Path, stack: ObjectStack) -> Dict[str, Any]:
-    """Everything true of the object rather than of one measurement of it.
+    """Everything true of the object itself, not of one measurement of it.
 
     Both halves of that: what it holds and how big it is, and where it came from. Every row
     of this object repeats these, minus the few that describe the object as a whole (see

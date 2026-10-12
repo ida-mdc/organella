@@ -124,7 +124,7 @@ def test_nothing_is_skeletonised_unless_it_was_named():
 
     instances = InstanceMeasurer(RunConfig()).measure(record).tables["instance"]
 
-    # No skeleton, so no skeleton metrics - left unmeasured rather than filled with a zero.
+    # No skeleton, so no skeleton metrics - left unmeasured, not filled with a zero.
     assert all(length is None or math.isnan(length)
                for length in instances["instance_length_um"])
 

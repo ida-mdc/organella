@@ -93,8 +93,8 @@ def entity_name_from_body(body: str, shared: int) -> str | None:
     """The entity's own name: the body with the object's prefix taken off the front.
 
     ``shared`` is how much of the body the source name accounts for, from
-    :func:`shared_prefix_len`. Splitting there rather than at the last underscore keeps
-    names with underscores in them: ``s0011_rib_left_11`` is ``rib_left_11``, not ``11``,
+    :func:`shared_prefix_len`. Splitting there keeps
+    names with underscores in them, where the last underscore would not: ``s0011_rib_left_11`` is ``rib_left_11``, not ``11``,
     which would collide with ``rib_right_11``.
     """
     name = normalize_name(body[shared:])
@@ -151,7 +151,7 @@ MANIFEST_NAME = "source.json"
 
 
 def read_manifest(path: Path) -> Discovery:
-    """One object, described rather than stored. See :data:`MANIFEST_NAME` for the format.
+    """One object, described by a manifest and not stored. See :data:`MANIFEST_NAME` for the format.
 
         {
           "store": "s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.n5",
@@ -335,7 +335,7 @@ def inspect_object_dir(object_dir: Path, object_mask: str | None = None) -> Disc
         entities[key] = Entity(name=name, kind=kind, path=p)
 
     # Named by the file alone: no prefix to strip, and label-or-mask is read off the
-    # content when the pixels are loaded rather than guessed from the name.
+    # content when the pixels are loaded; the name is not used to guess it.
     for p in sub_entities:
         stem = image_stem(p)
         split = split_kind_suffix(stem)
@@ -381,7 +381,7 @@ def infer_voxel_size_um_from_source(source_path: Path, ndim: int = 3) -> Tuple[f
     """Sample size in µm along each spatial axis, in array order, from the file's own header.
 
     A 2D source has no Z spacing to read and none is invented: the returned tuple is
-    (y, x), and everything downstream measures areas rather than volumes because of it.
+    (y, x), and everything downstream measures areas, not volumes, because of it.
     """
     return read_voxel_size_um(source_path, ndim)
 

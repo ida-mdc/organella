@@ -1,8 +1,8 @@
 """Geometry for the 3D widgets and the Blender export: meshes, outlines, skeletons.
 
 It never enters the report table, which every stats query loads, but goes beside it as one
-``geometry.parquet`` per object. Parquet rather than a blob file keeps it queryable, so
-opening one structure costs its own few MB rather than the whole object's.
+``geometry.parquet`` per object. Parquet keeps it queryable where a blob file would not, so
+opening one structure costs its own few MB, not the whole object's.
 """
 
 from __future__ import annotations
@@ -447,7 +447,7 @@ NARROW_INDEX_LIMIT = 65536
 def index_dtype(n_verts: int) -> np.dtype:
     """The integer type this surface's indices are stored in.
 
-    Derived from the vertex count rather than recorded: a width flag would be a second
+    Derived from the vertex count, not recorded: a width flag would be a second
     source of truth for something the header already determines.
     """
     return np.dtype(np.uint16 if n_verts < NARROW_INDEX_LIMIT else np.uint32)
@@ -483,7 +483,7 @@ def _bbox_extent(binary: np.ndarray) -> float:
 # handed, so feeding it everything would hold every cropped mask in memory at the same time.
 _GEOMETRY_BATCH = 256
 
-# Above this an instance is meshed here rather than farmed out. Cost follows the padded
+# Above this an instance is meshed here, and not farmed out. Cost follows the padded
 # bounding box, not the voxel count - an organelle threading through the object has a box
 # spanning most of it, whose EDT and smoothed copy are gigabytes. One in the parent is
 # survivable; one per worker is how a 22-process pool nearly took a machine down.
@@ -524,7 +524,7 @@ def mesh_rows_for_object(
     """
     ndim = len(list(sample_size))
     planar = ndim == 2
-    # The origin every instance's polarity is measured from. Measured here rather than only
+    # The origin every instance's polarity is measured from. Measured here, not only
     # carried, so `mesh` on its own writes usable geometry too; a carried value wins and is
     # the same number.
     centre = (object_center_um(volumes[object_mask_name] > 0, sample_size)
@@ -753,7 +753,7 @@ def write_geometry_parquet(path: Path, rows: Sequence[Mapping[str, Any]]) -> Pat
         if name in header_counts:
             columns[name] = header_counts[name]
         elif name in _BLOB_FIELDS:
-            # NULL rather than an empty blob: "has geometry" is then a plain IS NOT NULL.
+            # NULL, never an empty blob: "has geometry" is then a plain IS NOT NULL.
             columns[name] = [(r.get(name) or None) for r in rows]
         elif name in _INT_FIELDS:
             columns[name] = [_maybe_int(r.get(name)) for r in rows]

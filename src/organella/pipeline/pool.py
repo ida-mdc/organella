@@ -40,8 +40,8 @@ def log_in_this_worker(level: Optional[int] = None) -> None:
     over when the pool starts the worker, which is what makes a long run say what it is
     doing. Lines from several workers interleave, so each names its object.
 
-    No level means the parent never configured one - a library caller rather than the CLI -
-    and this installs nothing rather than deciding for them.
+    No level means the parent never configured one - a library caller, not the CLI -
+    and this installs nothing and decides nothing for them.
     """
     if not level:
         return
@@ -56,7 +56,7 @@ def log_in_this_worker(level: Optional[int] = None) -> None:
 def _level_to_pass_on() -> Optional[int]:
     """The level the parent set for the package, or None if it never set one.
 
-    Read off the logger rather than out of the environment: the parent is the process that
+    Read off the logger, not out of the environment: the parent is the process that
     configured it, so it already knows. NOTSET is how "never configured" reads.
     """
     return logging.getLogger("organella").level or None

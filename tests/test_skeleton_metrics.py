@@ -1,8 +1,8 @@
 """Branches, length and tortuosity, read off a curve skeleton's graph.
 
 These are the three metrics a filament is judged by — they drive their own violins, and
-the gallery sorts by them — and all three come from the shape of the skeleton graph rather
-than from the voxels. So the graph is what the tests hand over: a stand-in skeleton with
+the gallery sorts by them — and all three come from the shape of the skeleton graph
+and not from the voxels. So the graph is what the tests hand over: a stand-in skeleton with
 the vertices and edges of a known topology, which pins the counting rules exactly
 (a straight strand is one branch, a Y is three, a closed loop is one) without depending on
 what kimimaro happens to skeletonise a small synthetic volume into.
@@ -109,7 +109,7 @@ def test_a_curved_branch_reports_its_arc_over_its_chord():
     # A quarter circle of radius 1: arc π/2 over chord √2, ~1.11. Smoothing pulls a real
     # skeleton's voxel staircase out before this is measured, and on a genuinely curved
     # path it barely moves the answer - which is the property that makes the number mean
-    # "bent", rather than "voxelised".
+    # "bent", not "voxelised".
     assert tortuosity == pytest.approx((np.pi / 2) / np.sqrt(2), abs=0.02)
 
 

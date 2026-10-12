@@ -111,7 +111,7 @@ def test_the_ellipsoid_is_far_smaller_than_the_mesh_it_replaces():
         assert len(row["surface"]) * 20 < len(forced_mesh[label]["surface"])
 
 
-# ── being told, rather than deciding ──────────────────────────────────────────
+# ── being told, with no deciding ──────────────────────────────────────────
 
 def test_naming_a_structure_overrides_what_its_shape_suggests():
     assert all(r["surface_kind"] == "mesh" for r in _instances({"blobs": "mesh"}))
@@ -234,7 +234,7 @@ def test_the_page_sweeps_a_real_tube_into_a_surface():
 
 def test_a_surface_and_a_centre_line_are_asked_for_together():
     """A mesh with its skeleton inside it is the alpha-cell case, and the two are separate
-    questions, so they combine rather than one implying the other."""
+    questions, so they combine and neither implies the other."""
     rows = _instances({"blobs": "mesh+skeleton"})
 
     assert all(r["surface_kind"] == "mesh" for r in rows)

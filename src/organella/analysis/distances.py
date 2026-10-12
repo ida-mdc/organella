@@ -1,7 +1,7 @@
 """Distance transforms, per-instance distances, and polarity.
 
 Each target's distance transform is computed once per object and sampled at every
-instance's voxels, which is why this is measured against the whole object rather than one
+instance's voxels, which is why this is measured against the whole object, not one
 entity at a time.
 """
 
@@ -109,8 +109,8 @@ def polarity_from_offset(offset: Sequence[float]) -> Dict[str, float]:
     """Direction (and distance) from the object centre to a point.
 
     3D: the unit vector (polar_nz/ny/nx) plus azimuth and elevation. 2D: the unit vector
-    (polar_ny/nx) plus polar_angle_deg. The other set is left out rather than zeroed: an
-    elevation of 0° would read as "equatorial" rather than "no third axis".
+    (polar_ny/nx) plus polar_angle_deg. The other set is left out, never zeroed: an
+    elevation of 0° would read as "equatorial" when the truth is "no third axis".
     """
     offsets = [float(v) for v in offset]
     dist_um = math.sqrt(sum(v * v for v in offsets))

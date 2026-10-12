@@ -186,7 +186,7 @@ def parse_voxel_size(raw: Optional[str],
                      flag: str = "--voxel-size-um") -> Optional[Tuple[float, ...]]:
     """Sample size in µm: 'z,y,x' for volumes, 'y,x' for planes.
 
-    A length that does not match the images is refused rather than padded or truncated,
+    A length that does not match the images is refused, never padded or truncated,
     which would rescale every measurement.
     """
     if raw is None or not raw.strip():

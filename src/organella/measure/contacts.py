@@ -8,8 +8,8 @@ pair becomes one row of its own (``row_type='contact'``, see
     FROM pp_all WHERE row_type = 'contact' AND contact_gap_um <= 0.1
 
 Both instances of a pair are of the *same* structure, and only label entities take part;
-:mod:`organella.analysis.gaps` says why. Rows rather than list columns on the object row, so
-the gap threshold is a WHERE rather than an unnest of every contact in the batch.
+:mod:`organella.analysis.gaps` says why. One row per contact, not list columns on the object row, so
+the gap threshold is a WHERE and needs no unnest of every contact in the batch.
 
 Skip it with ``organella process --no-contacts``, which is what a batch that only wants
 morphology should do: finding the pairs is minutes on a large object.
@@ -48,7 +48,7 @@ _DESCRIPTIONS: Dict[str, str] = {
     "contact_entity": "Structure both instances of this pair belong to; a pair is always within one structure.",
     "contact_label_a": "Label id of the first instance of the pair, the lower of the two.",
     "contact_label_b": "Label id of the second instance of the pair.",
-    "contact_gap_um": "Surface-to-surface gap of the pair in µm, measured in whole voxel steps, so instances sharing a face read one voxel step rather than zero.",
+    "contact_gap_um": "Surface-to-surface gap of the pair in µm, measured in whole voxel steps, so instances sharing a face read one voxel step.",
 }
 
 

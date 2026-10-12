@@ -24,7 +24,7 @@ def _measure(stack, config: RunConfig | None = None):
 
     The processor hands back columnar tables - one list per column, one element per row -
     which is the shape these assertions were always written against; what changed is that
-    those columns are now rows of the report rather than lists on the object row.
+    those columns are now rows of the report, not lists on the object row.
     """
     measured = InstanceMeasurer(config or RunConfig()).measure(stack)
     columns = {name: values for table in measured.tables.values()
@@ -282,7 +282,7 @@ def test_one_end_against_a_structure_and_one_away_from_it():
 def test_a_structure_with_no_skeleton_has_no_ends():
     """Skeletons are opt-in, and without them the columns are not written at all.
 
-    Not written rather than written null: there are five distance rows per instance, and a
+    Not written, as opposed to written null: there are five distance rows per instance, and a
     column no instance could fill is a column of nulls the length of the report.
     """
     mito = _blocks((1, (2, 2, 2), (3, 3, 3)))

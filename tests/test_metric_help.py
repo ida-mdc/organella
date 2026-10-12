@@ -63,7 +63,7 @@ def test_the_footer_survives_a_recolour(report_path, tmp_path):
 # ── what the run says the data is ────────────────────────────────────────────
 
 def test_a_report_nobody_described_says_nothing(report_path):
-    """None rather than an empty string, so a caller can ask `if description_of(...)`."""
+    """None, not an empty string, so a caller can ask `if description_of(...)`."""
     _, footer = report_io.read(report_path)
 
     assert report_io.description_of(footer) is None

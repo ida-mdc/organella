@@ -2,7 +2,7 @@
 
 Meshing and contact gaps have the same shape: thousands of independent pieces of work on
 small crops of one object. The batch pool does not cover it, being sized by what an object
-costs in memory rather than by cores, so on large objects most of the machine sits idle
+costs in memory, not by cores, so on large objects most of the machine sits idle
 while one instance at a time is measured.
 
 Both share the same two hazards, which is why this is one class and not two:
@@ -27,7 +27,7 @@ from typing import Callable, Iterator, List, Optional, Sequence, TypeVar
 logger = logging.getLogger(__name__)
 
 # Tasks timed to decide whether a pool is worth it. Small, because this runs here
-# rather than in the pool: it is the price of finding out.
+# and not in the pool: it is the price of finding out.
 _SAMPLE = 24
 
 # Per-worker allowance. Meshing one instance holds an EDT, a smoothed copy and the
@@ -96,7 +96,7 @@ class WorkPool:
     Below `min_seconds` it never opens one, and a wrong guess costs the one batch it
     measured.
 
-    `what` names the work in the warning a broken pool logs. It falls back rather than
+    `what` names the work in the warning a broken pool logs. It falls back, never
     raising: serial is slow, not wrong, where losing an object's geometry to a dead pool is
     the worse outcome.
     """

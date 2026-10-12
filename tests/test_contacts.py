@@ -127,7 +127,7 @@ def test_the_two_pools_share_the_machine_between_them(monkeypatch):
 
     The object pool is sized by memory, so on objects of tens of gigabytes it is one at a
     time and the rest of the machine is free - which is why each object's own work is
-    given a share rather than a single core. An explicit setting is left alone.
+    given a share, not a single core. An explicit setting is left alone.
     """
     from organella.config import RunConfig
     from organella.pipeline.batch import _plan_the_two_pools

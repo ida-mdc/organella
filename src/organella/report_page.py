@@ -28,7 +28,7 @@ from typing import Any, Optional, Tuple
 PAGE_FILENAME = "organella_report.html"
 
 # Where the served geometry root is mounted. ``organella mesh -o geometry/`` can put it
-# outside the report's own folder, so it gets a mount rather than being assumed a sibling.
+# outside the report's own folder, so it gets a mount and is not assumed a sibling.
 GEOMETRY_MOUNT = "__geometry"
 
 
@@ -41,7 +41,7 @@ def report_page() -> Path:
 
 
 def geometry_root(report: Path) -> Optional[Path]:
-    """The folder holding this report's geometry, read off the report rather than guessed.
+    """The folder holding this report's geometry, read off the report, never guessed.
 
     ``mesh_geometry_file`` is ``<root>/<object_id>/geometry.parquet``, so the root is two
     levels up from any of them. Taken from the report because ``--mesh-dir`` can put it
@@ -187,7 +187,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         ``Last-Modified`` alone invites heuristic caching. View a batch, mesh it again, view
         it again, and the browser can answer for some objects out of the copy it kept:
         DuckDB then gets a glob written by two versions of the writer and refuses it
-        ("schema mismatch in glob"), which reads as broken geometry rather than a stale
+        ("schema mismatch in glob"), which reads as broken geometry and not as a stale
         cache. Everything here is local and re-read in milliseconds.
         """
         self.send_header("Cache-Control", "no-store")
@@ -212,7 +212,7 @@ def make_server(report: Path, port: int = 8052) -> _Server:
     """The server :func:`serve` runs, bound and ready but not yet answering.
 
     Separate from serve() so a caller can hold it and stop it again - and so it can be
-    given port 0 and asked which port it got, rather than finding a free one and hoping it
+    given port 0 and asked which port it got, which beats finding a free one and hoping it
     is still free by the time anything binds it.
     """
     report = report.resolve()

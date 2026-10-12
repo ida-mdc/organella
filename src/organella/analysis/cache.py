@@ -49,7 +49,7 @@ class _PerObjectCache:
             )
             if not same_object:
                 # A different object, or the same name over different data: drop the
-                # previous entry rather than answering from it.
+                # previous entry; nothing is answered from it.
                 self._object_id, self._by_entity = object_id, {}
                 try:
                     self._owner = weakref.ref(owner)

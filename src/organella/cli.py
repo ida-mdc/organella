@@ -129,7 +129,7 @@ def _printable_output() -> None:
     """Let a command finish saying what it was saying, whatever the console can encode.
 
     Python encodes stdout with the console's own encoding, which on Windows is the active
-    code page rather than UTF-8. Every measurement here is in µm and the report talks about
+    code page, not UTF-8. Every measurement here is in µm and the report talks about
     µm³, so output carries characters a legacy code page may not have - and the default is
     to raise, which ended `dry-run` in a UnicodeEncodeError on the line it was using to
     report what was wrong with a batch.

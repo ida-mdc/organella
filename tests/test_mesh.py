@@ -1,7 +1,7 @@
 """Mesh and skeleton geometry, and the two ways of producing it.
 
 The payload format is a contract with the viewer's 3D widgets and geometry_to_blender.py,
-so the tests decode it the way those do rather than trusting the encoder.
+so the tests decode it the way those do, and do not trust the encoder.
 """
 
 import struct
@@ -37,7 +37,7 @@ def decode_payload(raw: bytes, per_index: int = 3):
     """Mirror of decodePayload in the report page and geometry_to_blender.py.
 
     The index width is not recorded: it follows from the vertex count, so every reader
-    works it out from the header rather than trusting a second source of truth.
+    works it out from the header and trusts no second source of truth.
     """
     n_verts, n_indices = struct.unpack_from("<II", raw, 0)
     params = np.frombuffer(raw, dtype="<f4", count=6, offset=8)
@@ -173,7 +173,7 @@ def test_smoothing_is_the_same_blur_in_every_direction():
     anisotropic = decode_payload(generate_mesh(sphere, (0, 0, 0), VOXEL, step_size=1))[0]
 
     # The sphere spans 5 times as much in z at VOXEL, and its z extent has to follow the
-    # sampling rather than the blur.
+    # sampling, not the blur.
     span = lambda verts, axis: float(verts[:, axis].max() - verts[:, axis].min())
     z_ratio = span(anisotropic, 2) / span(isotropic, 2)
     assert 4.5 < z_ratio < 5.5, z_ratio
@@ -243,7 +243,7 @@ def test_geometry_parquet_carries_the_payloads_as_blobs(tmp_path):
     meshed = table.filter(pl.col("surface").is_not_null())
     verts, faces = decode_payload(meshed["surface"][0])
     assert len(verts) and faces.max() < len(verts)
-    # Nothing to draw is NULL rather than an empty blob, so "has geometry" is one predicate.
+    # Nothing to draw is NULL, not an empty blob, so "has geometry" is one predicate.
     assert table.filter(pl.col("row_type") == "contact")["surface"].null_count() > 0
 
 
@@ -282,7 +282,7 @@ def test_nothing_is_written_until_a_destination_is_configured():
     volumes, kinds = _object_volumes()
 
     # The column is still declared, so a report written with the writer enabled but no
-    # destination has it as null rather than missing.
+    # destination has it as null, not missing.
     measured = GeometryWriter(RunConfig()).measure(_record(volumes, kinds))
     assert measured.columns == {"mesh_geometry_file": None}
 

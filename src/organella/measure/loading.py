@@ -81,7 +81,7 @@ def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
 def _stack_narrowest(volumes: Dict[str, np.ndarray], keys: List[str], object_id: str) -> np.ndarray:
     """Stack the entities along C, converting one at a time and freeing as we go.
 
-    Written channel by channel into a preallocated array rather than via np.stack, so the
+    Written channel by channel into a preallocated array and not via np.stack, so the
     source volumes and the stack are never both fully in memory.
     """
     dtype = _label_dtype(volumes, object_id)
@@ -101,7 +101,7 @@ def _config_voxel_size(configured: Tuple[float, ...], ndim: int, object_dir: Pat
     """The configured sample size, checked against the data's dimensionality.
 
     ``--voxel-size-um`` takes ``z,y,x`` for volumes, ``y,x`` for planes. A mismatch is
-    refused rather than padded or truncated, which would rescale every measurement.
+    refused; padding or truncating it would rescale every measurement.
     """
     if len(configured) == ndim:
         return tuple(float(v) for v in configured)
@@ -281,7 +281,7 @@ def is_object_dir(path: Path) -> bool:
     into as usual.
 
     Blind to which mask bounds the object, so a missing --object-mask is an error at load
-    time rather than a folder skipped without a word.
+    time, and no folder is skipped without a word.
     """
     if not path.is_dir():
         return False

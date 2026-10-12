@@ -150,7 +150,7 @@ def test_the_page_pluralises_a_structure_name_the_same_way():
     That is the case that turns up - a structure called `granules` is already plural. It
     also leaves `nucleus` alone, which is wrong as English and better than "nucleuss";
     a run that cares says `--object-noun nucleus/nuclei`, and a structure name comes from
-    the segmentation rather than from here.
+    the segmentation, not from here.
     """
     got = run_report_page({"pluralise": ["granules", "mito", "er", "nucleus"]})["pluralise"]
 

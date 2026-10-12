@@ -6,8 +6,8 @@
     table.py     rows into the one table a report is written from
     batch.py     analyse(): the batch, from those four
 
-Objects are measured one whole object at a time, which is why this exists rather than
-a pipeline that chunks: that would split a record which outgrows a memory budget, and
+Objects are measured one whole object at a time, which is why this exists and
+a pipeline that chunks does not: that would split a record which outgrows a memory budget, and
 every measurement here is cross-entity or whole-region, so a chunk holding two of five
 entities can answer almost nothing.
 

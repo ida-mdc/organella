@@ -63,7 +63,7 @@ def choose_surface(
     def known(value: Optional[float]) -> bool:
         return value is not None and not (isinstance(value, float) and math.isnan(value))
 
-    # No reading at all rather than 0, which would read as "not elongated" - the one thing
+    # No reading at all, not 0, which would read as "not elongated" - the one thing
     # such an instance is certainly not (see ASPECT_FLOOR).
     if known(aspect) and aspect < ASPECT_FLOOR:
         aspect = None

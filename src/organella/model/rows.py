@@ -1,6 +1,6 @@
 """What kinds of row a report holds.
 
-An object is measured at four depths, and each gets its own rows rather than being folded
+An object is measured at four depths, and each gets its own rows and none is folded
 into the row above it:
 
     obs_level=0  row_type='object'                          one row per object folder
@@ -10,10 +10,10 @@ into the row above it:
                  row_type='baseline'                        one row per structure measured
                                                             to, for the whole region
 
-Rows rather than list columns on the object row: the viewer materialises ``obs_level=0`` in
+Rows, not list columns on the object row: the viewer materialises ``obs_level=0`` in
 memory (``pp_data``) and leaves the rest a lazy view over the parquet (``pp_all``), so an
 edge list up there was loaded in full for every report whatever widget was open. As rows they
-are read column-pruned when a widget asks, and queried in plain SQL rather than several
+are read column-pruned when a widget asks, and queried in plain SQL, with no need for several
 ``unnest()`` calls that have to stay row-aligned.
 
 Columns keep their prefixes (``instance_*``, ``distance_*``, ``contact_*``, ``baseline_*``) to
@@ -34,7 +34,7 @@ ENTITY_ROW = "entity"
 INSTANCE_ROW = "instance"
 DISTANCE_ROW = "distance"
 CONTACT_ROW = "contact"
-# What a distance is read against: the same distances over the whole region rather than over
+# What a distance is read against: the same distances over the whole region, not over
 # one structure's instances, so "closer than anywhere" can be told from "close".
 BASELINE_ROW = "baseline"
 

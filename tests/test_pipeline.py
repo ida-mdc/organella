@@ -194,7 +194,7 @@ def test_voxel_size_lands_in_the_standard_pixel_size_columns(table):
     assert objects["voxel_size_source"].unique().to_list() == ["tiff-metadata"]
 
 
-# ── surviving a worker that is killed rather than raising ────────────────────
+# ── surviving a worker that is killed instead of raising ────────────────────
 #
 # The OOM killer sends SIGKILL, so the worker reports nothing and the pool breaks. What must
 # not happen is what did happen on a real 7-object run: every finished object thrown away
@@ -405,7 +405,7 @@ def test_a_worker_takes_the_level_the_parent_set(monkeypatch):
         assert package.propagate is False
 
         # And what the pool passes on is what the parent set, read off the logger the
-        # parent configured rather than out of its surroundings.
+        # parent configured, not out of its surroundings.
         assert pool._level_to_pass_on() == logging.INFO
         package.setLevel(logging.NOTSET)
         assert pool._level_to_pass_on() is None

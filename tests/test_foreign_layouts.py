@@ -239,7 +239,7 @@ def test_naming_the_entity_to_split_resolves_it(tmp_path):
     assert "organs" not in record.meta["channel_names"]
 
 
-# ── an object described by a manifest rather than stored as files ─────────────
+# ── an object described by a manifest, not stored as files ─────────────
 
 zarr = pytest.importorskip("zarr")
 

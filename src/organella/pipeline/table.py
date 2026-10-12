@@ -24,7 +24,7 @@ from organella.model import DEEP_OBS_LEVEL, ROW_TYPE, ObjectMeasurement
 _LEADING_COLUMNS = ("obs_level", ROW_TYPE, "object_id", "imported_path_short",
                     "entity_name", "entity_kind", "spatial_dims")
 
-# Declared rather than inferred, so a column no instance of one object could fill still
+# Declared, never inferred, so a column no instance of one object could fill still
 # arrives as the number it is - inferred it would be untyped nulls, which then mismatch
 # another object's real values.
 _DTYPES: Dict[Any, pl.DataType] = {
@@ -68,7 +68,7 @@ def stacked(frames: Sequence[pl.DataFrame]) -> pl.DataFrame:
     """Frames of different shapes as one, keeping every column any of them has.
 
     diagonal_relaxed, so a column only one row kind fills comes through as nulls, and one
-    typed in a frame and empty in another is widened rather than refused.
+    typed in a frame and empty in another is widened and not refused.
     """
     if not frames:
         return pl.DataFrame()

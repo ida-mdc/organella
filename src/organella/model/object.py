@@ -4,10 +4,10 @@ An object is a folder of volumes that have to be measured together - a distance 
 another entity, a contact is *between* two of them - so it is read once into a single array
 with the entities stacked along ``C``, and every measurement works off that one array.
 
-The only type the measuring code speaks, and a named thing rather than a generic record
-with dimension inference and a metadata dict, which would hide what an object has.
+The only type the measuring code speaks, and a named thing, where a generic record
+with dimension inference and a metadata dict would hide what an object has.
 Everything it knows is a named accessor, and the fragment rule - an object is measured
-whole - is checked once on construction rather than at the top of every measurer.
+whole - is checked once on construction, not at the top of every measurer.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ class ObjectStack:
 
     ``meta`` is what was found out while reading the object, in the shape the report's
     object row takes: entity names and kinds, the files, the voxel size, the object mask's
-    centroid. Passed straight through rather than re-derived, so it stays a mapping.
+    centroid. Passed straight through without being re-derived, so it stays a mapping.
     """
 
     data: np.ndarray
@@ -67,7 +67,7 @@ class ObjectStack:
         """Refuse a fragment of an object, wherever it came from.
 
         Measurements are cross-entity and whole-region, so two of five entities or a slab
-        of the region answers wrongly rather than partially. Checked here so the rule has
+        of the region answers wrongly, never partially. Checked here so the rule has
         one home instead of a spelling per measurer.
         """
         c_axis = self.dim_order.index("C")
@@ -152,7 +152,7 @@ class EntityVolume:
     """One entity of one object: its own volume, and what the object knows about it.
 
     A per-entity measurement sees only this, and still needs the voxel size and the object
-    centre it is placed against, so it carries the stack rather than copies.
+    centre it is placed against, so it carries the stack and no copies.
     """
 
     stack: ObjectStack

@@ -95,7 +95,7 @@ def region_metrics(binary: np.ndarray, sample_size: Sequence[float]) -> Dict[str
 SKELETON_DUST_VOXELS = 2
 
 # TEASAR parameters, distances in µm. scale/const set branch-pruning aggressiveness; soma
-# handling is off, since it targets neurons rather than organelles.
+# handling is off, since it targets neurons, not organelles.
 _TEASAR_PARAMS = {
     "scale": 1.5,
     "const": 0.05,
@@ -134,7 +134,7 @@ def _planar_skeleton(binary: np.ndarray, pixel_size_yx: Sequence[float]) -> "_Po
     """One instance's medial axis in a plane, as a graph in µm.
 
     ``skeletonize`` gives a one-pixel-wide set; edges join every 8-connected pair, so a
-    diagonal step costs √2 pixels rather than 2.
+    diagonal step costs √2 pixels, not 2.
     """
     from skimage.morphology import skeletonize
 
@@ -203,7 +203,7 @@ def compute_curve_skeletons(
 
     One instance at a time, in its own bounding box, the way the planar path works:
     kimimaro will take a whole label volume, but the connected components and the distance
-    field it builds before tracing anything are then sized by the volume rather than by the
+    field it builds before tracing anything are then sized by the volume, not by the
     instances in it. On a 197-megavoxel entity that is 2.7 GB to skeletonise 162
     mitochondria against 0.2 GB a box at a time, and 2.9 GB against nothing measurable for
     8254 granules. The boxes are also the faster way round wherever an instance is worth
@@ -252,13 +252,13 @@ def _instance_skeleton(
         fix_borders=True,
         progress=False,
         parallel=1,
-        # The crop is ours and nothing else reads it, so kimimaro may work in it rather
-        # than take the Fortran-ordered copy of its own it would otherwise make.
+        # The crop is ours and nothing else reads it, so kimimaro may work in it
+        # and skip the Fortran-ordered copy of its own it would otherwise make.
         in_place=True,
     ).get(label_id)
     if skeleton is None:
         return None
-    # Back into the volume's frame in *voxels*, before the anisotropy rather than after it.
+    # Back into the volume's frame in *voxels*, before the anisotropy, not after it.
     # A traced vertex is the centre of a voxel, so dividing the anisotropy back out says
     # which voxel, exactly, and the µm coordinate that comes back out is bit for bit the
     # one the whole volume would have produced.
@@ -367,7 +367,7 @@ def skeleton_endpoints_um(sk) -> np.ndarray:
     different question from the distance any part of the instance sits at - a microtubule
     can run past a structure all along its length and end nowhere near it.
 
-    A closed loop has no tips and comes back empty rather than as an arbitrary vertex, and
+    A closed loop has no tips and comes back empty, never as an arbitrary vertex, and
     so does anything with no edges: one vertex is not an end of anything.
     """
     verts = np.asarray(getattr(sk, "vertices", np.zeros((0, 3))), dtype=np.float64)

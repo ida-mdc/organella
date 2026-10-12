@@ -7092,17 +7092,6 @@ function polarityOverlay(THREE, frame, o) {
       }
     });
 
-    // The rest of the group, as the plot shows them: one faint diamond per cell and
-    // structure, in the plane of this cell's own axis, arriving as the instances gather.
-    if (collapses && kT > 0 && o.others && o.radiusMode !== 'membrane') {
-      o.others.forEach(function(point) {
-        var theta = point.cone * Math.PI / 180;
-        var where = at(point.r * Math.cos(theta), point.r * Math.sin(theta));
-        diamondAt(where, '#' + new THREE.Color(colourOf(point.name)).getHexString(),
-                  gemSize * 0.75, 0.55 * kT, false, 8);
-      });
-    }
-
     // Axis labels, on the plot itself: the plane has to say what its directions are.
     var label = function(text, x, y, colour, width) {
       textAt(text, at(x, y), colour, width, Math.min(1, sT * 1.5));

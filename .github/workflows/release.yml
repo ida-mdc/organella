@@ -39,7 +39,7 @@ jobs:
           echo "releasing $built"
 
       # A release should not be the first place a failure turns up, so the suite runs here
-      # too rather than trusting that CI ran on this commit.
+      # too, and does not trust that CI ran on this commit.
       - name: Test
         run: |
           uv venv --python 3.12 .venv
@@ -76,6 +76,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       # `always`, so a misconfigured publisher fails loudly instead of quietly asking for a
-      # password. --check-url lets a re-run skip what is already uploaded rather than error.
+      # password. --check-url lets a re-run skip what is already uploaded without an error.
       - name: Publish
         run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/organella/

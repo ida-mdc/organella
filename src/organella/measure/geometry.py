@@ -141,7 +141,7 @@ class GeometryWriter:
         )
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)
         _record_settings(path.parent, fingerprint)
-        # Counted by kind rather than lumped together: at 42 nm most instances of a whole
+        # Counted by kind, each kind on its own: at 42 nm most instances of a whole
         # HeLa cell are a voxel or two, too small to mesh and too collapsed for an
         # ellipsoid, and one total hides that.
         drawable = "outline" if stack.spatial_dims == 2 else "surface"

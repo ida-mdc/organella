@@ -2,11 +2,11 @@
 
 Only between instances of the *same* structure, and only for label entities: two
 mitochondria touching is a mitochondrial network, where a mitochondrion touching the nucleus
-is a *distance to the nucleus*, which the distance rows carry. A mask is one whole structure
-rather than a set of instances, so it has no pairs of its own either.
+is a *distance to the nucleus*, which the distance rows carry. A mask is one whole structure,
+not a set of instances, so it has no pairs of its own either.
 
 That also makes this cheap: each structure is measured in its own combined volume, so the
-work is per structure rather than over every pair of them at once.
+work is per structure and never spans every pair of them at once.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def pairwise_instance_gaps(
     """Gaps between instances of one structure, up to ``max_gap_um`` µm.
 
     The gap is the smallest distance from one instance's voxels to the other's, in whole
-    voxel steps: instances sharing a face read one step rather than zero, and n empty voxels
+    voxel steps: instances sharing a face read one step, not zero, and n empty voxels
     between them read n+1. So the smallest reportable gap depends on direction - in
     0.1×0.02×0.02 µm data, touching along Z reads 0.1 µm and along X 0.02 µm.
 
@@ -72,7 +72,7 @@ def _gaps_within(
     windows, so this stays affordable with thousands of instances.
 
     The windows are what makes this the longest serial stretch of a large object, and they
-    are also why it is threaded *inside* each transform rather than across them: edt holds
+    are also why it is threaded *inside* each transform and not across them: edt holds
     the GIL, so a thread pool over the instances buys nothing (measured: 0.96x on four
     threads) where edt's own threads buy 4.8x on the same window.
     """

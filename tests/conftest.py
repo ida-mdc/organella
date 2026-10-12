@@ -97,7 +97,7 @@ def table(report_path) -> pl.DataFrame:
 
 @pytest.fixture(scope="session")
 def report_path_2d(tmp_path_factory) -> Path:
-    """The same batch shape as report_path, in a plane rather than a volume."""
+    """The same batch shape as report_path, in a plane, not a volume."""
     root = make_dataset_2d(tmp_path_factory.mktemp("flat_objects"))
     return _run(root, root.parent / "report_2d.parquet")
 

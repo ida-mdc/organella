@@ -22,7 +22,7 @@ merely as close as anything would be:
     SELECT object_id, baseline_target, baseline_median_um, baseline_hist_counts
     FROM pp_all WHERE row_type = 'baseline'
 
-Rows rather than list columns on the object row: the viewer materialises object rows in
+One row per instance, not list columns on the object row: the viewer materialises object rows in
 memory, so lists meant loading an object's whole instance table whatever was asked.
 
 Instances come from label entities. A whole-structure mask has none; its morphology is on
@@ -76,16 +76,16 @@ logger = logging.getLogger(__name__)
 
 DISTANCE_HISTOGRAM_BINS = 20
 
-# The chance distribution is one row per target rather than one per instance, so it can
+# The chance distribution is one row per target, not one per instance, so it can
 # afford a finer grid than the per-instance histograms: 128 bins over the object is ~1% of
-# the range per bin, which is what makes it drawable as a curve rather than a staircase.
+# the range per bin, which is what makes it drawable as a curve, not a staircase.
 BASELINE_HISTOGRAM_BINS = 128
-# Binned this finely first, so the median comes off the counts rather than off a sort of
+# Binned this finely first, so the median comes off the counts and needs no sort of
 # every voxel in the object - 300 million of them on a real cell - and is still exact to a
 # few nanometres. Summed down to the stored bins afterwards.
 _BASELINE_FINE_BINS = 4096
 # How much of the object a chance pass holds at once. The transform is already the largest
-# array in the process, so this walks it rather than gathering it: 8 million voxels is
+# array in the process, so this walks it and never gathers it: 8 million voxels is
 # 32 MB of float32 per slab whatever the object's size.
 _BASELINE_SLAB_VOXELS = 8_000_000
 
@@ -132,7 +132,7 @@ _DISTANCE_COLUMNS: Dict[str, Any] = {
     "distance_hist_counts": str,
 }
 
-# The same pair, read at the instance's skeleton tips rather than over all of it. Only
+# The same pair, read at the instance's skeleton tips only, not over all of it. Only
 # filled for a structure that was skeletonised, so the columns are added to the rows only
 # when something in the object has tips at all.
 _END_COLUMNS: Dict[str, Any] = {
@@ -162,7 +162,7 @@ _DESCRIPTIONS: Dict[str, str] = {
     "instance_label": "Label id of this instance within its structure.",
     "instance_volume_um3": "Volume of this instance in µm³.",
     "instance_surface_area_um2": "Surface area of this instance in µm², by ITK's Crofton estimator: right on a smooth surface, and about 10% short on a flat axis-aligned face.",
-    "instance_sphericity": "Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect sphere and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across. Flat or faceted shapes read well below: a cube 0.92, a thin slab or a square rod about 0.6.",
+    "instance_sphericity": "Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect sphere and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across.",
     "instance_area_um2": "Area of this instance in µm².",
     "instance_perimeter_um": "Perimeter of this instance in µm, by ITK's Crofton estimator: right on a smooth outline, and short on a straight axis-aligned edge.",
     "instance_circularity": "Perimeter of the equal-area disc divided by the measured perimeter. 1 is a perfect disc; a few percent above it is the boundary estimator coming in short on a very small instance, and an elongated or ragged outline reads below.",
@@ -187,13 +187,13 @@ _DESCRIPTIONS: Dict[str, str] = {
     "distance_hist_min_um": "Lower bound of the histogram range, shared by every instance of this structure measured to this target.",
     "distance_hist_max_um": "Upper bound of the histogram range, shared by every instance of this structure measured to this target.",
     "distance_hist_counts": "Per-instance voxel counts over the histogram range, as a JSON array of fixed-width bins.",
-    "distance_end_min_um": "Smallest distance in µm from one of this instance's skeleton tips to the target structure: how close its *end* gets, where distance_um is how close any part of it gets. A filament can run past a structure along its whole length and end nowhere near it, which is the difference these two columns are for. Null for a structure with no curve skeleton (--skeletons), and for an instance whose skeleton is a closed loop and so has no tips.",
+    "distance_end_min_um": "Smallest distance in µm from one of this instance's skeleton tips to the target structure: how close its *end* gets, where distance_um is how close any part of it gets. Null for a structure with no curve skeleton (--skeletons), and for an instance whose skeleton is a closed loop and so has no tips.",
     "distance_end_max_um": "Largest distance in µm from one of this instance's skeleton tips to the target structure: the tip that sits furthest from it. With the usual two tips, the pair says whether one end is against the structure while the other is not.",
     "baseline_target": "Structure the chance distribution on this row is measured to. One row per structure measured to, for the object as a whole.",
     "baseline_excluded": "Structures left out of the region, from --baseline-exclude, comma separated. The target itself is always out of it, since its distance to itself is zero. Null where nothing else was excluded.",
     "baseline_voxels": "How many samples of the object the chance distribution was taken over.",
     "baseline_mean_um": "Mean distance in µm to this structure over every sample of the region: how far from it a point of the object sits on average.",
-    "baseline_median_um": "Median distance in µm to this structure over the region - the distance half the object is closer than. This is the number a measured distance is read against: a structure whose instances sit at 0.3 µm from the membrane where half the object is within 0.9 µm is closer to it than the object's shape alone would put them; one at 0.9 µm is exactly as close as anything would be. Taken from a 4096-bin histogram rather than a sort of every sample, so it is exact to about a thousandth of the range.",
+    "baseline_median_um": "Median distance in µm to this structure over the region - the distance half the object is closer than. This is the number a measured distance is read against: a structure whose instances sit at 0.3 µm from the membrane where half the object is within 0.9 µm is closer to it than the object's shape alone would put them; one at 0.9 µm is exactly as close as anything would be. Taken from a fine histogram of the samples, so it is exact to a small fraction of the range.",
     "baseline_hist_min_um": "Lower bound of the chance histogram's range.",
     "baseline_hist_max_um": "Upper bound of the chance histogram's range.",
     "baseline_hist_counts": "Sample counts over that range, as a JSON array of fixed-width bins: the shape of the chance distribution, to draw a measured distribution against.",
@@ -217,7 +217,7 @@ _POLARITY_COLUMNS = tuple(dict.fromkeys(POLARITY_3D + POLARITY_2D))
 def null_if_not_finite(value: Any) -> Any:
     """NaN and infinity become NULL, because that is how a table says "not measured".
 
-    Left as NaN, an aggregate over the column raises rather than skipping it, and
+    Left as NaN, an aggregate over the column raises and does not skip it, and
     min/max/quantiles come back nan.
     """
     if isinstance(value, float) and not math.isfinite(value):
@@ -245,7 +245,7 @@ def _nulled(table: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
     """One columnar table with every non-finite value turned into a NULL.
 
     Every column keeps its length, so the rows stay aligned, and its declared type, so a
-    column no instance could fill is still typed rather than untyped nulls.
+    column no instance could fill is still typed and never a column of untyped nulls.
     """
     return {name: [null_if_not_finite(v) for v in values] for name, values in table.items()}
 
@@ -433,8 +433,8 @@ class InstanceMeasurer:
         without this there is nothing comparable to say about where it sits.
         """
         cfg = self._config
-        # Only the columns that get filled: the histogram ones are dropped from the report
-        # rather than written as a column of nulls per distance row.
+        # Only the columns that get filled: the histogram ones are dropped from the report,
+        # so no column of nulls is written per distance row.
         columns = list(_DISTANCE_COLUMNS) if cfg.distance_histograms else [
             "distance_entity", "distance_label", "distance_target", "distance_um",
         ]
@@ -510,7 +510,7 @@ class InstanceMeasurer:
 
         Only the structures that were skeletonised have tips, and the skeletons are the
         ones the morphology pass already computed: the cache is keyed on the object and the
-        array, so this is a lookup rather than a second TEASAR run.
+        array, so this is a lookup and no second TEASAR run.
         """
         cfg = self._config
         out: Dict[str, "_ForegroundIndex"] = {}
@@ -595,7 +595,7 @@ def _centre_depths(
     The centroid of the structure, rounded to the sample it falls in. A structure whose
     centroid falls outside itself - a horseshoe, a shell - still has a centre, and the depth
     of that centre is what this is; where it falls outside the *object* the transform reads
-    zero, which is the honest answer rather than an extrapolation.
+    zero, which is the honest answer and not an extrapolation.
     """
     out: Dict[str, float] = {}
     shape = np.asarray(depth.shape)
@@ -625,8 +625,8 @@ def _end_distances(
 class _ReferenceRegion:
     """Everywhere in the object a distance is read against.
 
-    The chance distribution: the same distance transform, over the object itself rather
-    than over one structure's instances. Without it a distance has no scale - granules
+    The chance distribution: the same distance transform, over the object itself,
+    not over one structure's instances. Without it a distance has no scale - granules
     100 nm from the membrane are against it in a cell where half the volume is 1 µm away,
     and unremarkable in one where half of it is 80 nm away - and the difference is the
     object's shape, not anything about the granules.
@@ -669,7 +669,7 @@ class _ReferenceRegion:
     def _slabs(self, transform: np.ndarray):
         """The region's distances, a slab of the object at a time.
 
-        Walked rather than gathered: ``transform[region]`` on a whole cell is another
+        Walked slab by slab: ``transform[region]`` on a whole cell is another
         gigabyte beside the transform itself, for a histogram that needs one pass.
         """
         for start in range(0, transform.shape[0], self.slab_rows):
@@ -741,7 +741,7 @@ def _median_from_counts(counts: np.ndarray, lo: float, width: float) -> float:
 def _distance_stats(values: np.ndarray, index: _ForegroundIndex) -> Dict[str, Any]:
     """Mean and a binned distribution per instance, from the gathered values.
 
-    The histogram range is shared across the entity/target pair rather than fitted per
+    The histogram range is shared across the entity/target pair and not fitted per
     instance: shared bins are what makes two distributions comparable.
     """
     counts_per_instance = np.diff(np.append(index.starts, len(values)))
@@ -750,7 +750,7 @@ def _distance_stats(values: np.ndarray, index: _ForegroundIndex) -> Dict[str, An
     lo, hi = float(values.min()), float(values.max())
     if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
         hi = lo + 1.0
-    # One bincount over (instance, bin) pairs rather than a histogram per instance.
+    # One bincount over (instance, bin) pairs in place of a histogram per instance.
     bins = np.clip(
         ((values - lo) / (hi - lo) * DISTANCE_HISTOGRAM_BINS).astype(np.int64),
         0, DISTANCE_HISTOGRAM_BINS - 1,

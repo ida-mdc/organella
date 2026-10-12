@@ -297,7 +297,7 @@ def test_the_pages_queries_find_2d_geometry(tmp_path, page_sql):
 
     con = duckdb.connect()
     source = f"read_parquet(['{path}'])"
-    # The page's own fragments, handed over rather than copied: a mirror can be right
+    # The page's own fragments, handed over, not copied: a mirror can be right
     # while the page is wrong.
     has_geometry = page_sql["hasGeometry"]
     size = page_sql["geometrySize"]

@@ -2,7 +2,7 @@
 
 A distance on its own says nothing. Granules 300 nm from the membrane are against it in a
 cell where half the volume is a micrometre away and unremarkable in one where half of it is
-within 200 nm, and what differs is the cell's shape rather than anything about the granules.
+within 200 nm, and what differs is the cell's shape, with nothing about the granules involved.
 So every target gets one extra row - the distribution of its distance over the object - and
 these tests pin what that region is and what comes off it.
 """
@@ -119,7 +119,7 @@ def test_the_mean_and_median_are_the_regions_own():
     assert row["baseline_voxels"] == len(values)
     # The mean is summed over the region, so it is exact.
     assert row["baseline_mean_um"] == pytest.approx(float(values.mean()), rel=1e-6)
-    # The median comes off a 4096-bin histogram rather than a sort of every sample: near
+    # The median comes off a 4096-bin histogram, with no sort of every sample: near
     # enough that no reader would read it differently, and that is what is promised.
     bin_width = (row["baseline_hist_max_um"] - row["baseline_hist_min_um"]) / 4096
     assert row["baseline_median_um"] == pytest.approx(float(np.median(values)),

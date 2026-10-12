@@ -2,7 +2,7 @@
 
 This project's own data is TIFFs, but the rest of the field publishes NIfTI, NRRD and
 MetaImage. Those are one ``SimpleITK.ReadImage`` away and SimpleITK is already a dependency,
-so the loader reads them rather than asking for a conversion pass that would rewrite
+so the loader reads them directly, with no conversion pass that would rewrite
 gigabytes to change nothing but the container.
 
 Every reader returns ``(Z, Y, X)`` for a volume and ``(Y, X)`` for a plane, the order the
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class ArrayRef:
     """One array inside a chunked store, and the window of it to read.
 
-    An object described by a manifest is made of these rather than of files. The window is
+    An object described by a manifest is made of these, not of files. The window is
     the point: a chunked array is read block by block, so a 512³ window of a 122-gigavoxel
     OpenOrganelle array is 8 of its 1248 chunks - which is why a whole cell never has to be
     downloaded to measure part of it at full resolution.
@@ -62,7 +62,7 @@ def open_store(store: str):
     """The store at this URL, opened once per process.
 
     N5 and Zarr, local or over S3, from the ``remote`` extra - so a missing one is a
-    message saying to install it rather than a traceback.
+    message saying to install it, not a traceback.
     """
     try:
         import zarr
@@ -84,7 +84,7 @@ def open_store(store: str):
     if store.startswith("s3://"):
         # Without credentials, as the N5 branch does: s3fs otherwise asks botocore for an
         # identity nobody reading a public dataset has, and fails as "nothing found at
-        # path ''", which points at the path rather than at the credentials.
+        # path ''", which points at the path and not at the credentials.
         return zarr.open(store, mode="r", storage_options={"anon": True})
     return zarr.open(store, mode="r")
 
@@ -136,7 +136,7 @@ def is_tiff(path: Path) -> bool:
 def _itk_dtype(pixel_id: int) -> np.dtype:
     """numpy dtype for a SimpleITK pixel id, without reading the pixels.
 
-    Spelled out rather than taken from the private ``sitk.extra``, which is the one part
+    Spelled out here, not taken from the private ``sitk.extra``, which is the one part
     of the ``dry-run`` header path a SimpleITK release could quietly move.
     """
     import SimpleITK as sitk
@@ -221,7 +221,7 @@ def _tiff_voxel_size_um(source_path: Path, ndim: int) -> Tuple[float, ...]:
     """Sample size in µm along each spatial axis, in array order, from TIFF metadata.
 
     A 2D source has no Z spacing to read and none is invented: the returned tuple is
-    (y, x), and everything downstream measures areas rather than volumes because of it.
+    (y, x), and everything downstream measures areas, not volumes, because of it.
     """
     with tifffile.TiffFile(source_path) as tf:
         page = tf.pages[0]

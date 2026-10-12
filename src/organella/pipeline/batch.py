@@ -2,7 +2,7 @@
 
 The steps, in the order :func:`analyse` takes them:
 
-    how wide to run             pool.worker_count, from memory rather than cores
+    how wide to run             pool.worker_count, from memory, not cores
     what is already measured    parts.PartsCache, for --resume
     measure the rest            pool.measure_every_object -> objects.measure_object
     assemble                    table.one_table
@@ -45,8 +45,8 @@ def analyse(
     """Measure every object folder and return the rows plus whatever failed.
 
     ``config`` is what the run was asked for, and it travels with the work: each object is
-    measured in a worker process, and what that worker is told is an argument rather than
-    something it goes looking for.
+    measured in a worker process, and what that worker is told is an argument and
+    not something it goes looking for.
     """
     started = time.perf_counter()
     cfg = config if config is not None else RunConfig()
@@ -98,7 +98,7 @@ def _plan_the_two_pools(requested: Optional[int], n_objects: int, peak_gb: float
     count returned, and the per-object budgets go back on the config the workers are handed.
     """
     n_workers = worker_count(requested, n_objects, peak_gb)
-    # This pool is sized by memory rather than cores, so on big objects most of the machine
+    # This pool is sized by memory, not cores, so on big objects most of the machine
     # would sit idle; each object gets the share left over. An explicit --mesh-workers is
     # left alone, which is what a non-zero setting already on the config means.
     share = max(1, (os.cpu_count() or 1) // n_workers)

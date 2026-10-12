@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmptyReport(RuntimeError):
-    """Raised rather than writing a report with no rows: see :func:`write`."""
+    """Raised when a report would have no rows, and none is written: see :func:`write`."""
 
 
 PRIVACY_SUMMARY = [

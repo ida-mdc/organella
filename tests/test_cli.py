@@ -411,7 +411,7 @@ def test_a_report_with_geometry_is_opened_with_its_geometry_attached(report_path
 
 
 def test_the_geometry_root_is_read_off_the_report(tmp_path):
-    """--mesh-dir can put it anywhere, so where it went is read rather than guessed."""
+    """--mesh-dir can put it anywhere, so where it went is read, never guessed."""
     import polars as pl
 
     from organella import report_page as page_mod

@@ -64,8 +64,8 @@ def test_instances_that_touch_nothing_are_still_counted():
 
     found = clusters_of(rows, object_id="object_a")
 
-    # Every instance is seeded, so an instance with no contact is a group of one rather
-    # than missing. That is what lets "share of instances in contact" be a real fraction.
+    # Every instance is seeded, so an instance with no contact is a group of one,
+    # never missing. That is what lets "share of instances in contact" be a real fraction.
     assert found["instances"] == 2
     # A lone instance is not a group, so there are none of two or more.
     assert found["sizes"] == []

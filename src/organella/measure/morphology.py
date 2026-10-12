@@ -61,13 +61,13 @@ _DESCRIPTIONS: Dict[str, str] = {
     "entity_name":              "Name of the structure this row measures, as the segmentation called it.",
     "entity_colour":            "Colour this structure is drawn in, as #rrggbb, from the settings file given to --colours (or `organella colours` afterwards). Null where the file did not name it, and the report falls back to its own palette.",
     "entity_kind":              "'mask' where the structure was segmented as one whole thing, 'label' where it was segmented into separate instances.",
-    "instance_count":           "How many separate instances of this structure the object holds. Null for a whole-structure mask, which is one thing rather than many; on the object row, summed over the structures that have instances.",
-    "total_volume_um3":         "How much of this structure there is altogether, in µm³: every instance added together, or the whole thing where it was segmented as one rather than into instances.",
-    "volume_um3":               "Volume of the whole structure in µm³, where it was segmented as one thing rather than into instances.",
+    "instance_count":           "How many separate instances of this structure the object holds. Null for a whole-structure mask, which is one thing; on the object row, summed over the structures that have instances.",
+    "total_volume_um3":         "How much of this structure there is altogether, in µm³: every instance added together, or the whole thing where it was segmented as one.",
+    "volume_um3":               "Volume of the whole structure in µm³, where it was segmented as one thing.",
     "surface_area_um2":         "Surface area of the whole structure in µm², by ITK's Crofton estimator: right on a smooth surface, and about 10% short on a flat axis-aligned face.",
-    "sphericity":               "Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect sphere and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across. Flat or faceted shapes read well below: a cube 0.92, a thin slab or a square rod about 0.6.",
-    "total_area_um2":           "How much of this structure there is altogether, in µm²: every instance added together, or the whole thing where it was segmented as one rather than into instances.",
-    "area_um2":                 "Area of the whole structure in µm², where it was segmented as one thing rather than into instances.",
+    "sphericity":               "Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect sphere and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across.",
+    "total_area_um2":           "How much of this structure there is altogether, in µm²: every instance added together, or the whole thing where it was segmented as one.",
+    "area_um2":                 "Area of the whole structure in µm², where it was segmented as one thing.",
     "perimeter_um":             "Perimeter of the whole structure in µm, by ITK's Crofton estimator: right on a smooth outline, and short on a straight axis-aligned edge.",
     "circularity":              "Perimeter of the equal-area disc divided by the measured perimeter. 1 is a perfect disc; a few percent above it is the boundary estimator coming in short on a very small instance, and an elongated or ragged outline reads below.",
     "aspect_ratio_major_minor": "Longest principal axis ÷ shortest, for the whole structure. 1 is a sphere, or a disc in a plane; higher is more elongated, flatter, or both.",
@@ -166,8 +166,8 @@ class MorphologyMeasurer:
         """How an entity column reaches the object row, if it does at all.
 
         Counts and totals sum; a shape does not - an object's "sphericity" is not the
-        sphericity of its entities, so that column is left null on the object row rather
-        than filled with the value of whichever entity happened to be alone.
+        sphericity of its entities, so that column is left null on the object row
+        and is never filled with the value of whichever entity happened to be alone.
         """
         if name in _SUMMED:
             return _make_sum(name)
