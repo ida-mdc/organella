@@ -225,7 +225,7 @@ class RunConfig:
     mesh_target_reduction: float = 0.8
     mesh_level: Optional[float] = None
     mesh_workers: int = 0
-    mesh_max_vertices: int = 200_000
+    mesh_max_vertices: int = 0
     mesh_surface_method: str = "marching-cubes"
     reuse_geometry: bool = False
 

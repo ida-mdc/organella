@@ -90,8 +90,8 @@ def _mesh_flags(fn):
                           "surface-nets creates less staircase noise, no fewer vertices, and "
                           "can be slower."),
         click.option("--mesh-max-vertices", type=int, default=None, metavar="N",
-                     help="Most vertices any one surface keeps; 0 lifts the cap "
-                          "(default: 200000)."),
+                     help="Most vertices any one surface keeps (default: 0, no cap). A cap "
+                          "falls hardest on a large connected network such as the ER."),
         click.option("--mesh-workers", type=int, default=None, metavar="N",
                      help="Processes meshing instances of one object (default: the cores "
                           "the object pool is not using)."),
@@ -475,6 +475,130 @@ def dry_run(object_dir: Path, object_mask: str | None) -> None:
     if problems:
         click.echo(f"{problems} problem(s) found.")
         raise SystemExit(1)
+
+
+@cli.command()
+@click.argument("store")
+@click.argument("out_dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--source", required=True, metavar="ARRAY",
+              help="The image array, without a scale level, e.g. em/fibsem-uint16.")
+@click.option("--entity", "entities", multiple=True, required=True, metavar="NAME=ARRAY",
+              help="A structure to measure in every cell, e.g. mito=labels/mito_seg "
+                   "(repeatable). Arrays are given without a scale level.")
+@click.option("--instances", default=None, metavar="NAMES",
+              help="Entities that are sets of instances, comma separated. Said once here, they "
+                   "are labels in every cell: left to be read off each cell's pixels, a "
+                   "structure with a single instance in one cell is a mask there and a label "
+                   "in the next, and the group splits it in two. A binary array named here "
+                   "becomes one instance per connected component.")
+@click.option("--masks", "mask_names", default=None, metavar="NAMES",
+              help="Entities that are one region each, comma separated; the same reason.")
+@click.option("--membrane", required=True, metavar="ARRAY",
+              help="The plasma membrane, e.g. labels/pm_seg. A thin surface is enough; it "
+                   "need not be closed.")
+@click.option("--seed", required=True, metavar="ARRAY",
+              help="One blob per cell, e.g. labels/nucleus_seg.")
+@click.option("--outside", default=None, metavar="ARRAY",
+              help="The space around the cells, e.g. labels/ecs_seg. Optional.")
+@click.option("--scale", required=True, metavar="LEVEL",
+              help="The scale level every cell is measured at, e.g. s3.")
+@click.option("--mask-scale", default=None, metavar="LEVEL",
+              help="A coarser level to derive the cells at (default: --scale). The whole "
+                   "volume is read at this level, so it is the one that has to fit in memory; "
+                   "each mask is then carried up to --scale.")
+@click.option("--name", "object_name", default="cell", show_default=True,
+              help="What the derived mask is called.")
+@click.option("--min-seed-um3", type=float, default=40.0, show_default=True,
+              help="Smallest seed that counts as a cell, in µm³.")
+@click.option("--max-membrane-um", type=float, default=0.0, show_default=True,
+              help="Nothing further than this from a membrane is part of a cell. Off by "
+                   "default: it clips the middle of a cell the volume cuts off.")
+@click.option("--prefix", default="cell", show_default=True,
+              help="Folder names are <prefix>_01, <prefix>_02, ... - give each volume its own "
+                   "when several share one group, so no two objects have the same name.")
+@click.option("--wall-voxels", type=int, default=3, show_default=True,
+              help="How far the membrane is thickened, in voxels at --mask-scale, so a gap in "
+                   "the predicted surface does not let a cell run out into the background.")
+@click.option("--drop-edge", is_flag=True,
+              help="Leave out cells the volume cuts off. They are kept, and marked in their "
+                   "manifest, by default.")
+def cells(
+    store: str, out_dir: Path, source: str, entities: Tuple[str, ...], instances: str | None,
+    mask_names: str | None, membrane: str,
+    seed: str, outside: str | None, scale: str, mask_scale: str | None, object_name: str,
+    min_seed_um3: float, max_membrane_um: float, prefix: str, wall_voxels: int,
+    drop_edge: bool,
+) -> None:
+    """Cut the cells of a chunked volume apart, one object folder each.
+
+    STORE is an N5 or Zarr store, local or on S3 (needs the 'remote' extra). Nothing is
+    downloaded here beyond the three label arrays at --mask-scale; each cell's folder holds
+    a manifest and its mask, and 'process' reads the pixels it needs from the store itself.
+
+    The mask is derived, not published: the membrane and the extracellular space bound it,
+    a nucleus seeds it, and touching cells are cut apart by a watershed. See
+    organella.measure.cells.
+    """
+    from organella.measure import cells as cut
+    from organella.measure.readers import ArrayRef, read_header, read_voxel_size_um, read_volume
+
+    named: dict[str, str] = {}
+    for item in entities:
+        key, sep, array = item.partition("=")
+        if not sep or not key.strip() or not array.strip():
+            raise click.ClickException(f"--entity needs NAME=ARRAY, got {item!r}")
+        named[key.strip()] = array.strip().strip("/")
+    kinds: dict[str, str] = {}
+    for given, kind in ((instances, "label"), (mask_names, "mask")):
+        for name in (n.strip() for n in (given or "").split(",") if n.strip()):
+            if name not in named:
+                raise click.ClickException(f"--{'instances' if kind == 'label' else 'masks'} "
+                                           f"names '{name}', which is not one of the --entity names")
+            if kinds.setdefault(name, kind) != kind:
+                raise click.ClickException(f"'{name}' is named as both instances and a mask")
+    declared = {name: ({"array": array, "kind": kinds[name]} if name in kinds else array)
+                for name, array in named.items()}
+
+    coarse = mask_scale or scale
+
+    def ref(array: str, level: str) -> ArrayRef:
+        return ArrayRef(store=store, path=f"{array.strip('/')}/{level}", label=array)
+
+    try:
+        coarse_um = read_voxel_size_um(ref(seed, coarse))
+        work_um = read_voxel_size_um(ref(source, scale))
+        work_shape, _ = read_header(ref(source, scale))
+        click.echo(f"reading {membrane}, {seed}" + (f", {outside}" if outside else "")
+                   + f" at {coarse} ({coarse_um[1] * 1000:.0f} nm)")
+        labels = cut.derive_cell_labels(
+            read_volume(ref(membrane, coarse)),
+            read_volume(ref(outside, coarse)) if outside else None,
+            read_volume(ref(seed, coarse)),
+            coarse_um,
+            min_seed_um3=min_seed_um3,
+            wall_voxels=wall_voxels,
+            max_membrane_um=max_membrane_um or None,
+        )
+    except (FileNotFoundError, ValueError, ImportError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    found = cut.cells_at_scale(labels, coarse_um, work_um, work_shape, drop_edge=drop_edge)
+    if not found:
+        raise click.ClickException(
+            f"No cell found: no {seed} blob of at least {min_seed_um3:g} µm³ with a wall "
+            "around it. Lower --min-seed-um3, or check the three arrays are the same crop.")
+    derived = {"membrane": membrane, "outside": outside, "seed": seed,
+               "mask_scale": coarse, "min_seed_um3": min_seed_um3, "wall_voxels": wall_voxels,
+               "max_membrane_um": max_membrane_um or None,
+               "method": "organella.measure.cells.derive_cell_labels"}
+    for cell in found:
+        folder = cut.write_cell_folder(
+            out_dir / f"{prefix}_{cell.number:02d}", cell, store=store, scale=scale,
+            source=source.strip("/"), entities=declared, object_name=object_name,
+            derived_from=derived)
+        click.echo(f"{folder.name}: {cell.volume_um3:8.0f} µm³  window {cut.box_string(cell.window)}"
+                   + (f"  cut off at {cell.touches_edge}" if cell.touches_edge else "  whole"))
+    click.echo(f"{len(found)} cell(s) -> {out_dir}")
 
 
 @cli.command()

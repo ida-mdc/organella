@@ -13,6 +13,7 @@ lets a single measurer answer a cross-entity question - a distance, a contact.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Tuple
@@ -32,6 +33,7 @@ from organella.measure.discovery import (
     infer_voxel_size_um_from_source,
     inspect_object_dir,
     load_volume,
+    label_declared_instances,
     promote_multicomponent_masks,
 )
 from organella.measure.readers import read_header, voxel_size_source as _voxel_size_source
@@ -129,8 +131,7 @@ def resolve_auto_kinds(
         else:
             values = np.unique(volumes[key])
             kind = "label" if values[values != 0].size > 1 else "mask"
-        entities[key] = Entity(name=entity.name, kind=kind, path=entity.path,
-                               ref=entity.ref)
+        entities[key] = replace(entity, kind=kind)
         logger.info("organella: '%s' read as a %s entity", entity.name, kind)
 
 
@@ -361,6 +362,7 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
                 if key != object_mask_key:
                     volumes[key] = clip_to_object_mask(volumes[key], inside)
         volumes = crop_to_object_bbox(volumes, object_mask_key)
+    label_declared_instances(volumes, dataset.entities)
     if cfg.auto_label_masks:
         promote_multicomponent_masks(volumes, dataset.entities, object_mask_key)
 

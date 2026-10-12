@@ -79,6 +79,14 @@ _BLOB_FIELDS = {"surface", "skeleton", "outline"}
 
 GEOMETRY_FILENAME = "geometry.parquet"
 
+# How hard fast_simplification may collapse an edge (0 to 10; its own default is 7). On a thin,
+# convoluted network - ER sheets one to three voxels thick - 7 cracked the sheets into shards
+# at the 80% reduction every mesh gets, and 3 kept them whole for 10% more triangles (86,178
+# faces against 78,624 on one 110-voxel block of macrophage ER). Lower than that stops thinning:
+# 1 kept 377,000 of 393,000. Only the fraction uses it: a vertex budget has to be reached, and
+# 3 gave 675 vertices for a budget of 500.
+DECIMATION_AGGRESSION = 3
+
 
 @dataclass(frozen=True)
 class MeshOptions:
@@ -99,10 +107,12 @@ class MeshOptions:
     contact_max_um: Optional[float] = 0.5
     # Processes to mesh instances with. 0 = work it out from the cores left over.
     mesh_workers: int = 0
-    # Most vertices any one surface may keep; 0 lifts the cap. A fixed decimation fraction
-    # bounds nothing: at 0.5 one ER sheet was still 2.87 million vertices and 86 MB, two
-    # thirds of that object's entire geometry, next to 57 for a vesicle.
-    max_vertices: int = 200_000
+    # Most vertices any one surface may keep; 0, the default, means no cap. A cap is a size
+    # budget, and it lands hardest on exactly the structures that need the vertices: a
+    # connected ER network of 164 µm³ holds millions, and squeezing it to 200,000 left a
+    # field of shards. A fixed decimation fraction is the proportionate way to thin a mesh;
+    # --mesh-max-vertices is there for someone who needs the files small.
+    max_vertices: int = 0
     # Marching cubes by default, on the measurements: on one ER sheet the two methods came
     # out 0.16% apart on vertex count (5,584,555 against 5,575,347), not the "far fewer" a
     # dual method promises, because a surface has about as many crossing cells as edges.
@@ -318,7 +328,8 @@ def generate_mesh(
         ]).astype(np.float32)
         if target_reduction > 0 and len(faces) > 100:
             verts_xyz, faces_s = fast_simplification.simplify(
-                verts_xyz, faces.astype(int), target_reduction=target_reduction, verbose=False,
+                verts_xyz, faces.astype(int), target_reduction=target_reduction,
+                agg=DECIMATION_AGGRESSION, verbose=False,
             )
             verts_xyz = verts_xyz.astype(np.float32)
             faces = faces_s

@@ -177,6 +177,37 @@ full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'
 }
 ```
 
+**Cells cut out of a published volume.** Most public segmentations ship no filled cell: the
+plasma membrane is a thin surface, cut open wherever the volume ends, and the space around the
+cells is a separate class. `organella cells` derives one mask per cell from those and writes an
+object folder for each, so a volume with several cells becomes a group. Each folder is a
+`source.json` plus that cell's mask (a few kB); the pixels stay in the store and are read when
+`process` runs, so nothing large is downloaded or kept.
+
+```sh
+organella cells s3://janelia-cosem-datasets/jrc_jurkat-1/jrc_jurkat-1.n5 groups/jurkat \
+    --prefix jurkat --source em/fibsem-uint16 \
+    --membrane labels/pm_seg --outside labels/ecs_seg --seed labels/nucleus_seg \
+    --scale s3 --mask-scale s4 \
+    --entity mito=labels/mito_seg --entity er=labels/er_seg --entity nucleus=labels/nucleus_seg \
+    --instances mito,er,nucleus
+organella process groups/jurkat -o jurkat.parquet --object-noun cell --skeletons mito --with-mesh
+```
+
+`examples/jurkat.sh` runs this for all eight structures of that dataset, start to finish.
+
+A nucleus (of at least `--min-seed-um3`) seeds each cell. The membrane, thickened by
+`--wall-voxels`, and the extracellular space are walls; each cell is what its nucleus can reach
+without crossing one, and cells that touch with no membrane between them are cut apart by a
+watershed. The edge of the volume is only the end of the array, so a cell it cuts off is still
+filled - and is marked `touches_volume_edge` in its manifest, because its volume is then a
+lower bound (`--drop-edge` leaves such cells out). The cells are derived, not published, and the
+manifest records how. `--mask-scale` is the level the three label arrays are read at (they must
+fit in memory); `--scale` is the level the cells are measured at, and may be finer.
+
+Check a derived mask by laying it over the image, not by how many organelles fall inside it: a
+mask covering the whole volume passes that test.
+
 ## Output
 
 ```text
@@ -201,6 +232,7 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 
 | |                                                                                       |
 | --- |---------------------------------------------------------------------------------------|
+| `organella cells STORE OUTDIR` | Cut the cells of a chunked volume apart, one object folder each. |
 | `organella dry-run DIR` | What would be analysed, reading image headers only.                                   |
 | `organella process DIR -o REPORT` | Analyse a batch, write the report.                                                    |
 | `organella mesh DIR -o OUTDIR` | Process geometry only, for a report you already have.                                 |
@@ -248,7 +280,7 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--with-mesh` | Write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`.                                                                                                                                                                                     |
 | `--geometry-as NAME=KIND,...` | How a structure's surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`. Decided from the measured shape when unnamed - a round instance becomes a 60-byte ellipsoid. No measurement changes; the surface is only for visualization in the report. |
-| `--mesh-max-vertices N` | Max number of vertices per surface; 0 lifts the cap. Default 200000.                                                                                                                                                                                                    |
+| `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap.                                                                                                                                                                                                    |
 | `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing.                                                                                                                                                                                                |
 | `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2.                                                                                                                                                                                                              |
 | `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces.                                                                                                                                                                                                                |

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -36,6 +36,9 @@ class Entity:
     # Set instead of reading ``path`` when the object is described by a manifest: the
     # entity is a window onto an array in a chunked store, not a file on disk.
     ref: "ArrayRef | None" = None
+    # True when a manifest stated the kind, so that it is not read off this object's content:
+    # one object's single lyso would otherwise be a mask where its neighbour's are labels.
+    declared: bool = False
 
     @property
     def source(self) -> "Path | ArrayRef":
@@ -156,11 +159,22 @@ def read_manifest(path: Path) -> Discovery:
           "crop": "3456:3968,256:768,5504:6016",
           "source": "em/fibsem-uint16",
           "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" },
-          "voxel_size_um": [0.00524, 0.004, 0.004]      # optional; else from the store
+          "voxel_size_um": [0.00524, 0.004, 0.004],     # optional; else from the store
+          "masks": { "cell": "cell_mask.tif" },         # optional; files beside the manifest
+          "object_mask": "cell"                         # optional; what --object-mask defaults to
         }
 
-    Every entity arrives as ``auto``: an array says nothing about whether it holds one
-    structure or many, so the kind is read off its content with the pixels.
+    Every entity arrives as ``auto`` unless it says otherwise: an array says nothing about
+    whether it holds one structure or many, so the kind is read off its content with the
+    pixels. In a group that is wrong - the same structure is a mask in the one cell that has
+    a single lyso and labels in the rest - so an entity can be written
+    ``{"array": "labels/lyso_seg", "kind": "label"}``. A declared label is a set of
+    instances: a binary array is split into its connected components inside the object.
+
+    A ``masks`` file is a mask by declaration and is read whole, so it has to be the size of
+    the window it sits in. That is how a cell cut out of a larger volume (``organella cells``)
+    carries its own boundary beside the manifest that says where it came from. ``object_mask``
+    is the name ``--object-mask`` falls back to; naming one on the command line overrides it.
     """
     from organella.measure.readers import ArrayRef, parse_box
 
@@ -189,19 +203,35 @@ def read_manifest(path: Path) -> Discovery:
         return ArrayRef(store=store, path=full, box=box, label=label)
 
     entities: Dict[str, Entity] = {}
-    for raw_name, array_path in entities_named.items():
+    for raw_name, spec in entities_named.items():
         name = normalize_name(str(raw_name))
         if not name:
             continue
-        entities[f"auto:{name}"] = Entity(name=name, kind="auto", path=path,
-                                          ref=ref(array_path, name))
+        array_path, kind = (spec.get("array"), spec.get("kind")) if isinstance(spec, dict) else (spec, None)
+        if not array_path or kind not in (None, "label", "mask"):
+            return Discovery(None, {}, None, [], [],
+                             [f"{path.name}: entity '{name}' needs an array, and a kind of "
+                              "'label' or 'mask' if it has one"])
+        entities[f"{kind or 'auto'}:{name}"] = Entity(
+            name=name, kind=kind or "auto", path=path, ref=ref(array_path, name),
+            declared=kind is not None)
+
+    for raw_name, relative in (manifest.get("masks") or {}).items():
+        name = normalize_name(str(raw_name))
+        file = path.parent / str(relative)
+        if not name:
+            continue
+        if not file.is_file():
+            return Discovery(None, {}, None, [], [],
+                             [f"{path.name}: mask '{name}' names {relative}, which is not there"])
+        entities[f"mask:{name}"] = Entity(name=name, kind="mask", path=file)
 
     voxel = manifest.get("voxel_size_um")
     voxel_size = tuple(float(v) for v in voxel) if voxel else None
     return Discovery(
         source=ref(manifest["source"], path.parent.name),
         entities=entities,
-        object_mask_name=None,
+        object_mask_name=normalize_name(str(manifest.get("object_mask") or "")) or None,
         unparsed=[],
         rejected=[],
         errors=[],
@@ -235,7 +265,9 @@ def inspect_object_dir(object_dir: Path, object_mask: str | None = None) -> Disc
     manifest = object_dir / MANIFEST_NAME
     if manifest.is_file():
         found = read_manifest(manifest)
-        name, mask_error = choose_object_mask(found.entities, object_mask)
+        # The manifest's own object_mask is the fallback: a folder that says what bounds it
+        # is not guessing, and a name given on the command line still wins.
+        name, mask_error = choose_object_mask(found.entities, object_mask or found.object_mask_name)
         if mask_error:
             found.errors.append(mask_error)
         found.object_mask_name = name
@@ -406,7 +438,27 @@ def promote_multicomponent_masks(
             continue
 
         volumes[key] = labeled.astype(np.int32)
-        entities[key] = Entity(name=entity.name, kind="label", path=entity.path,
-                               ref=entity.ref)
+        entities[key] = replace(entity, kind="label")
         logger.info("organella: auto-label '%s': %d components -> label entity",
                     entity.name, n)
+
+
+def label_declared_instances(volumes: Dict[str, np.ndarray], entities: Dict[str, Entity]) -> None:
+    """Split a binary entity that a manifest declared as labels into its components, in place.
+
+    Called on the object as it will be measured, after it is clipped to its boundary, so the
+    components are the ones inside it. An array that already carries several ids is left as
+    it is: its ids are the instances.
+    """
+    any_volume = next(iter(volumes.values()), None)
+    ndim = 3 if any_volume is None else any_volume.ndim
+    connected = np.ones((3,) * ndim, dtype=np.uint8)
+    for key, entity in entities.items():
+        if not (entity.declared and entity.kind == "label") or key not in volumes:
+            continue
+        vol = volumes[key]
+        if int(vol.max()) > 1 or not vol.any():
+            continue
+        labelled, n = nd_label(vol > 0, structure=connected)
+        volumes[key] = labelled.astype(np.int32)
+        logger.info("organella: '%s' declared as labels: %d components", entity.name, n)
