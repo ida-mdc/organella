@@ -282,3 +282,34 @@ def test_the_panels_name_the_structure_and_not_the_page_s_own_function(drawn_pol
 
     assert "function" not in helps
     assert "rows.filter" not in helps
+
+
+def _unit(*v):
+    norm = math.sqrt(sum(x * x for x in v))
+    return [x / norm for x in v]
+
+
+def test_the_circle_diamond_is_in_the_middle_of_the_dots_it_is_drawn_among():
+    """Project first, then average: that is what the eye finds the middle of.
+
+    The axis is x and the plot's plane is x-y. Three directions sit in the plane, at 0° and
+    ±60°-ish, and one points mostly along z: it projects to a short vector at 80°, so the 3D
+    mean barely feels it, but its dot is drawn out at 80° like any other.
+    """
+    units = [_unit(1, 0, 0), _unit(1, 1, 0), _unit(1, -1, 0), _unit(0.1, 0.6, 5)]
+    centre = run_page({"centre": {"units": units, "axis": [1, 0, 0],
+                                  "weights": [1, 1, 1, 1]}})["centre"]
+    angles = centre["dots"]
+    # The circular mean of the drawn angles, worked out here from the dots themselves.
+    x = sum(math.cos(math.radians(a)) for a in angles)
+    y = sum(math.sin(math.radians(a)) for a in angles)
+    assert centre["circular"] == pytest.approx(math.degrees(math.atan2(y, x)), abs=1e-6)
+    # And it is not where the 3D mean, projected, would have put it.
+    assert abs(centre["circular"] - centre["viaMean"]) > 3
+
+
+def test_where_the_dots_all_lie_in_the_plane_the_two_means_agree():
+    units = [_unit(1, 0, 0), _unit(1, 1, 0), _unit(1, 2, 0)]
+    centre = run_page({"centre": {"units": units, "axis": [1, 0, 0]}})["centre"]
+    # A circular mean of directions that are all in the plane is the mean direction.
+    assert centre["circular"] == pytest.approx(centre["viaMean"], abs=1e-6)

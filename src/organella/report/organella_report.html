@@ -3010,6 +3010,33 @@ function polarAngleDeg(unit, frame) {
   return Math.atan2(polDot(unit, frame.u), polDot(unit, frame.a)) * 180 / Math.PI;
 }
 
+/**
+ * Where the dots of a circle plot are centred, in degrees: the weighted circular mean of the
+ * angles they are drawn at.
+ *
+ * The plot shows each direction by the angle of its projection into the plane, and the
+ * middle of those is what a diamond should mark. Averaging the 3D directions first and
+ * projecting after is a different number: a direction that points mostly out of the plane
+ * projects to something short, so it barely moves the 3D mean and yet is drawn as far round
+ * the circle as any other. Null when the angles cancel and there is no middle.
+ */
+function polarCentreAngleDeg(units, frame, weights) {
+  var x = 0, y = 0;
+  units.forEach(function(unit, i) {
+    var angle = Math.atan2(polDot(unit, frame.u), polDot(unit, frame.a));
+    var w = weights && weights.length === units.length ? weights[i] : 1;
+    x += w * Math.cos(angle);
+    y += w * Math.sin(angle);
+  });
+  return Math.hypot(x, y) > 1e-9 ? Math.atan2(y, x) * 180 / Math.PI : null;
+}
+
+/** The circle plot's diamond angle, falling back on the 3D mean where the angles cancel. */
+function centreAngle(units, frame, weights, mean) {
+  var angle = polarCentreAngleDeg(units, frame, weights);
+  return angle === null ? polarAngleDeg(mean, frame) : angle;
+}
+
 /** Angle in degrees between a direction and the reference axis: 0 towards, 180 away. */
 function polarConeDeg(unit, axis) {
   return Math.acos(Math.max(-1, Math.min(1, polDot(unit, axis)))) * 180 / Math.PI;
@@ -4798,7 +4825,7 @@ function renderPolarity() {
       if (!found || !found.mean) return;
       traces.push({ type: 'scatterpolar', mode: 'markers', showlegend: false,
         r: [weightedQuantile(rows.map(radiusOf), sizes, 0.5)],
-        theta: [polarAngleDeg(found.mean, frame)],
+        theta: [centreAngle(rows.map(function(r){ return r.unit; }), frame, sizes, found.mean)],
         marker: { symbol: 'diamond', size: 11, color: entColor(name),
                   line: { color: '#fff', width: 1.5 } },
         hovertemplate: 'centre of ' + name + ': %{r:.2f} µm '
@@ -6703,7 +6730,11 @@ function polarityFrame(items, objectId, ref, structure, radiusMode, extra) {
     var diamond = null;
     if (found && found.mean) {
       var withDepth = units.filter(function(u){ return u.depth !== null; });
+      // The circle plot puts the diamond in the middle of the angles its dots are drawn at.
+      var cx = 0, cy = 0;
+      units.forEach(function(u, i) { cx += sizes[i] * Math.cos(u.theta); cy += sizes[i] * Math.sin(u.theta); });
       diamond = { n: found.mean,
+                  theta: Math.hypot(cx, cy) > 1e-9 ? Math.atan2(cy, cx) : null,
                   dist: weightedQuantile(units.map(function(u){ return u.dist; }), sizes, 0.5),
                   depth: withDepth.length
                     ? weightedQuantile(withDepth.map(function(u){ return u.depth; }),
@@ -6798,9 +6829,11 @@ function polarPlotRadius(frame, unit, radiusMode) {
  * which is the part the plot leaves out. `circle` is the full circle: the instance's angle
  * once projected onto that plane, at its distance. `cart` is the scatter of angle against
  * distance, angle across and distance up. The last two go there in a straight line.
+ * `centreTheta`, where given, is the angle a diamond takes in `circle` in place of its
+ * direction's own: the middle of its dots.
  * Writes x, y, z into `out` at `at`.
  */
-function polarMorphPoint(frame, layout, n, dist, radius, t, out, at) {
+function polarMorphPoint(frame, layout, n, dist, radius, t, out, at, centreTheta) {
   var c = frame.centre, a = frame.axis, u = frame.u, w = frame.w;
   var na = polDot(n, a), nu = polDot(n, u), nw = polDot(n, w);
   var k;
@@ -6828,7 +6861,7 @@ function polarMorphPoint(frame, layout, n, dist, radius, t, out, at) {
     along = span - (coneAngle / Math.PI) * 2 * span;
     up = radius;
   } else {
-    var theta = Math.atan2(nu, na);
+    var theta = centreTheta != null ? centreTheta : Math.atan2(nu, na);
     along = radius * Math.cos(theta);
     up = radius * Math.sin(theta);
   }
@@ -7031,7 +7064,7 @@ function polarityOverlay(THREE, frame, o) {
       if (g.diamond) {
         target = new Float32Array(3);
         polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond), 1,
-                        target, 0);
+                        target, 0, g.diamond.theta);
       }
       var coords = new Float32Array(g.units.length * 3);
       g.units.forEach(function(unit, i) {
@@ -7058,7 +7091,7 @@ function polarityOverlay(THREE, frame, o) {
       if (g.diamond && (layout === 'half' || layout === 'circle') && sT > 0.02) {
         var where = new Float32Array(3);
         polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond),
-                        sT, where, 0);
+                        sT, where, 0, g.diamond.theta);
         diamondAt(where, '#' + new THREE.Color(tint).getHexString(),
                   gemSize * (0.8 + 0.7 * Math.max(sT, kT)), Math.min(1, sT * 3), true, 9);
       }
@@ -10405,6 +10438,7 @@ if (typeof globalThis !== 'undefined') {
     boundingMaskName: boundingMaskName,
     polarUnit: polarUnit, polarOffset: polarOffset, polarReferences: polarReferences,
     polarFrame: polarFrame, polarAngleDeg: polarAngleDeg, polarConeDeg: polarConeDeg,
+    polarCentreAngleDeg: polarCentreAngleDeg,
     polarityIndices: polarityIndices,
     setPolarReference: function(name){ st.polarRef = name; },
     chanceRows: chanceRows, chanceStats: chanceStats, chanceCurve: chanceCurve,

@@ -327,6 +327,20 @@ if (job.rows) {
   }
 }
 
+// ── where a circle plot's diamond sits ───────────────────────────────────────
+if (job.centre) {
+  const c = job.centre;
+  const frame = R.polarFrame(c.axis);
+  const mean = R.polarityIndices(c.units, c.axis, c.weights).mean;
+  out.centre = {
+    // The middle of the angles the dots are drawn at.
+    circular: R.polarCentreAngleDeg(c.units, frame, c.weights),
+    // What averaging in 3D and projecting after gives, for comparison.
+    viaMean: mean && R.polarAngleDeg(mean, frame),
+    dots: c.units.map((u) => R.polarAngleDeg(u, frame)),
+  };
+}
+
 // ── polarity, read against one structure ─────────────────────────────────────
 if (job.rows && job.polarity) {
   const reference = job.polarity.reference;
