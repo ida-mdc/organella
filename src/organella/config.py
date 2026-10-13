@@ -12,7 +12,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Mapping, Optional, Tuple
+
+if TYPE_CHECKING:
+    from organella.analysis.shapes import SkeletonParams
 
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -241,7 +244,7 @@ class RunConfig:
         "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
     )
 
-    def skeleton_params(self) -> "SkeletonParams":
+    def skeleton_params(self) -> SkeletonParams:
         """The three --skeleton-* settings as the one value the tracer takes."""
         from organella.analysis.shapes import SkeletonParams
 
