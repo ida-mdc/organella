@@ -20,10 +20,10 @@ granules, microtubules, centrioles and axoneme.
 
 ## Screenshots from the reports
 
-|                                                                                                                                                                                                                                                                                                                           |                                                                                                                                                                                                                                                                                                                                                                                                        |
-|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [![The 3D view of a cell drawn from its geometry](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)<br>**The object in 3D,** if processing was executed with `--with-mesh`.                                      | [![Composition per object and boxes per group](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)<br>**Composition, and groups compared.** A systematic overview to assess missing labels and detailled plots for overall and individual shape and relationship metrics. |
-| [![The instance gallery](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)<br>**A gallery visualizing indivual label instances, sortable by any metric that was calculated. Inspectable skeletons. | [![Voxel-distance histograms](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)<br>**A structure's voxels binned by how far each one is from another structure.                   |
+|  |  |
+| --- | --- |
+| [![The 3D view of a cell](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-3d.png)<br>**The object in 3D**, with `--with-mesh`. | [![Composition per object and boxes per group](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-distributions.png)<br>**Composition, and groups compared**, with plots for shape and relationship metrics. |
+| [![The instance gallery](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-instances.png)<br>**A gallery of individual instances**, sortable by any metric, with inspectable skeletons. | [![Voxel-distance histograms](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)](https://raw.githubusercontent.com/ida-mdc/organella/main/docs/report-voxel-distances.png)<br>**A structure's voxels binned by distance** to another structure. |
 
 ## Workflow
 
@@ -54,22 +54,24 @@ organella view report.parquet
 
 Most important processing arguments:
 
-| |                                                                                                                                    |
-| --- |------------------------------------------------------------------------------------------------------------------------------------|
+|  |  |
+| --- | --- |
 | `--object-mask pm` | The mask that bounds each object. It decides the origin of every distance and polarity, and everything inside it is clipped to it. |
-| `-p control -p treated` | Subdirectories to import as groups. That grouping becomes the default comparison in every chart.                                   |
-| `--voxel-size-um 0.1,0.02,0.02` | The resolution of the image / volume. `z,y,x` for a volume,  `y,x` for a 2D image.                                                 |
-| `--skeletons mito,ER` | Calculates and measures the skeletons for these structures.                                                                        |
-| `--entities mito,ER` | Limit measures to these structures.                                                                                                |
-| `--with-mesh` | Calculate the geometry of each structure to visualize it in 3D, exported to `<output>_meshes/`.                                    |
+| `-p control -p treated` | Subdirectories to import as groups. That grouping becomes the default comparison in every chart. |
+| `--voxel-size-um 0.1,0.02,0.02` | The resolution of the image / volume. `z,y,x` for a volume,  `y,x` for a 2D image. |
+| `--skeletons mito,ER` | Calculates and measures the skeletons for these structures. |
+| `--entities mito,ER` | Limit measures to these structures. |
+| `--with-mesh` | Calculate the geometry of each structure to visualize it in 3D, exported to `<output>_meshes/`. |
 
 Every argument is listed under [Parameters of `process`](#parameters-of-process).
 
-**Check the input first.** `dry-run` reads image headers only - no analysis, no output - 
-and prints per object the label and mask entities
-found (`*` marks the object mask), which entities are
-missing in which objects, and a suggested `--max-workers`. Exit code is `1` if any object
-cannot be analysed. Example output:
+**Check the input first.** `dry-run` reads image headers only and prints, per object:
+
+- the label and mask entities found (`*` marks the object mask),
+- which entities are missing in which objects,
+- a suggested `--max-workers`.
+
+It exits with `1` if any object cannot be analysed.
 
 ```text
 control/cell_b
@@ -84,57 +86,32 @@ control/cell_b
 
 ## Reading the report
 
-`organella view report.parquet` serves the report, its geometry and the page locally and opens it. 
+Two ways to open a report:
 
-Alternatively, open **<https://ida-mdc.github.io/organella/>** and drop
-`report.parquet` on it: the page parses the parquet in the browser, so nothing is uploaded and
-no server runs. **The 3D sections need the geometry too**. Press **Add geometry** and pick either the `report_meshes` folder or the
-`geometry.parquet` files themselves. The `organelle view` command attaches them for you and you don't need to do anything else there.
+- `organella view report.parquet` serves the report, its geometry and the page, and opens it.
+- Drop `report.parquet` on <https://ida-mdc.github.io/organella/>. Nothing is uploaded. For the 3D sections press
+  **Add geometry** and pick the `report_meshes` folder (or the `geometry.parquet` files).
 
-With geometry loaded, the 3D viewer moves to a column beside the charts and stays in view as
-they scroll. Every chart has a **Show in 3D** button that draws what it is about on one
-object: the instances coloured by the measurement a chart plots, contact groups at the gap of the slider, or the axis and cone an
-angle is measured against. Each comes with a slider that ties the picture to the chart: the
-distance, the contact gap (the chart's own slider, which moves with it), the wedge of the polarity
-rose, or - for the polarity plots - a slider that turns the cell into the chart, so the
-instances are seen being swung, projected and laid flat into the points the plot is made of. Press the button again, or **Back to the whole cell**, to let go.
+The report page has six sections: Overview, Looking at a single cell (3D), Structure by structure, Groups of one
+structure (contacts), Polarity, and The files behind it.
 
-The viewer has a second tab, **Instances**: the gallery of individual shapes (the highest,
-lowest or a random sample of any metric, one structure at a time), opened from the button under
-a structure's charts. On a wide screen the viewer takes the extra width.
+- **Show as** switches the charts between boxes and histograms. **Significance** adds Mann-Whitney brackets.
+- Boxes are every instance of a group. Diamonds are one cell's median, and only those enter a p-value.
+- Each chart has a **3D** button that shows what it measures on one cell, and a *Where this comes from* fold.
+- The **Instances** tab is a gallery of individual shapes, sortable by any metric.
 
-Anything measured once per cell is shown as the average of each group, with the cell-by-cell view
-one click away (**Show every cell on its own**): the structure shares, the polarity plots (one
-diamond per cell, one plot per group, with the full circle of each cell folded away), the contact
-numbers and the file list.
+**Colours.** All values use matplotlib's `cool_r` (magenta = low or near, cyan = high or far). The structure a distance
+is measured to is always amber. Contact groups are shown one at a time with play, back and next.
 
-The page opens on an **At a glance** header: the groups and their sizes, what the batch's size allows
-a test to say (four cells against three cannot go below p = 0.057, so charts show the p and the size of the
-difference instead of stars), where the groups differ most, how to read the report and which rows
-each section is made of. A section nav under the top bar follows you down the page. The viewer follows
-the structure you are reading, says what it is showing, and each chart has a fold saying where it comes from.
-Boxes are every instance of a group; the diamonds are one cell's median, which is what a comparison uses.
+**Distances against chance.** The per-voxel distance panels show how close every point of the object is to a structure,
+as the reference for the instances. `--baseline-exclude` leaves a structure (i.e. nucleus) out of that region.
 
-In the page, **Show as** switches every panel between boxes and histograms, and
-**Significance** adds Mann-Whitney brackets to the facets. To calculate the p-value, only one averaged value per cell is taken into account to preserve the comparison of independent measurements.  
+**Polarity** is measured from the object mask's centroid, towards a structure you pick: that direction is 0°.
 
-**Every distance panel is drawn against chance.** Relationship measurements in bounded regions like cells
-depend heavily on the shape of the boundary. Therefore, any distance plot includes a dotted line representing how close
-all pixels in the object boundary are to the specific structure. `--baseline-exclude` decides
-which label should be left out of that region (i.e. nucleus).
-
-**Polarity is relative to a structure.** Every polarity column is
-measured from the object mask's own centroid, which is the right origin but points wherever
-the volume happened to be oriented - so an azimuth means nothing from one object to the next.
-Pick a structure in *Polarity* and the direction from the centre to
-its centre becomes 0°. The section reports the angle per instance, the two collective measures per
-object - **R**, how tightly a structure's directions agree, and **V**, the same strength signed
-by whether it leans towards the reference (+1) or away from it (-1) - the angle against the
-distance from the centre, and one circular map per object. R and V are
-[Polarity-JaM](https://www.polarityjam.com)'s polarity indices ([Giese et al., *Nat Commun*
-2025](https://doi.org/10.1038/s41467-025-56643-x)). The circular maps are one per
-object on purpose: the axis fixes 0°, but nothing in the data fixes the rotation *about* that
-axis, so which side of the circle a structure falls on is arbitrary.
+- **R** is how tightly a structure's directions agree. **V** is R signed by leaning towards (+1) or away from (-1) the
+  reference. Both come from [Polarity-JaM](https://www.polarityjam.com)
+  ([Giese et al., *Nat Commun* 2025](https://doi.org/10.1038/s41467-025-56643-x)) and are drawn in one plot.
+- The circular maps are one per object: nothing in the data fixes the rotation about the axis.
 
 ## Your input
 
@@ -154,18 +131,13 @@ An object folder can sit on its own, in a flat batch (`cells/cell_a/`, `cells/ce
 a grouped batch (`experiment/control/cell_a/`, `experiment/treated/cell_b/`), where the group
 folder is what `-p` imports.
 
-**Other formats.** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read through SimpleITK.
-Their headers carry a reliable voxel size, which TIFF often does not; spacing is read as
-millimetres, the convention every reader of these files uses.
- 
-**Entities in a subfolder** named by nothing but the structure - a `segmentations/`, `masks/`
-or `labels/` folder beside the source image. There is no prefix to strip, and label-or-mask
-is read off the folder name instead of the file name.
- 
-**A remote store, read as a crop.** A folder holding one `source.json` and no images names a
-chunked store (N5 or Zarr, local or on S3), the arrays in it, and the window to read. A 512³
-crop of OpenOrganelle's 122-gigavoxel HeLa cell is 0.64% of it, in under five seconds, at
-full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'`.
+**More ways in**
+
+- **Other formats:** NIfTI (`.nii`, `.nii.gz`), NRRD and MetaImage are read through SimpleITK. Spacing is read as mm.
+- **Entities in a subfolder:** a `segmentations/`, `masks/` or `labels/` folder beside the source image. The folder name
+  says label or mask, and there is no prefix to strip.
+- **A remote store, read as a crop:** a folder with one `source.json` and no images names an N5 or Zarr store (local or
+  S3), its arrays and the window to read. Needs `pip install 'organella[remote]'`.
 
 ```json
 {
@@ -177,12 +149,10 @@ full 4 nm resolution. Needs the `remote` extra: `pip install 'organella[remote]'
 }
 ```
 
-**Cells cut out of a published volume.** Most public segmentations ship no filled cell: the
-plasma membrane is a thin surface, cut open wherever the volume ends, and the space around the
-cells is a separate class. `organella cells` derives one mask per cell from those and writes an
-object folder for each, so a volume with several cells becomes a group. Each folder is a
-`source.json` plus that cell's mask (a few kB); the pixels stay in the store and are read when
-`process` runs, so nothing large is downloaded or kept.
+**Cells cut out of a published volume**
+
+Public segmentations rarely ship a filled cell. `organella cells` derives one mask per cell and writes one object folder
+each, so a volume with several cells becomes a group. Pixels stay in the store and are read by `process`.
 
 ```sh
 organella cells s3://janelia-cosem-datasets/jrc_jurkat-1/jrc_jurkat-1.n5 groups/jurkat \
@@ -194,19 +164,14 @@ organella cells s3://janelia-cosem-datasets/jrc_jurkat-1/jrc_jurkat-1.n5 groups/
 organella process groups/jurkat -o jurkat.parquet --object-noun cell --skeletons mito --with-mesh
 ```
 
-`examples/jurkat.sh` runs this for all eight structures of that dataset, start to finish.
+`examples/jurkat.sh` runs all eight structures of that dataset.
 
-A nucleus (of at least `--min-seed-um3`) seeds each cell. The membrane, thickened by
-`--wall-voxels`, and the extracellular space are walls; each cell is what its nucleus can reach
-without crossing one, and cells that touch with no membrane between them are cut apart by a
-watershed. The edge of the volume is only the end of the array, so a cell it cuts off is still
-filled - and is marked `touches_volume_edge` in its manifest, because its volume is then a
-lower bound (`--drop-edge` leaves such cells out). The cells are derived, not published, and the
-manifest records how. `--mask-scale` is the level the three label arrays are read at (they must
-fit in memory); `--scale` is the level the cells are measured at, and may be finer.
-
-Check a derived mask by laying it over the image, not by how many organelles fall inside it: a
-mask covering the whole volume passes that test.
+- A nucleus (at least `--min-seed-um3`) seeds each cell. The membrane (thickened by `--wall-voxels`) and the
+  extracellular space are walls. Touching cells are cut apart by a watershed.
+- A cell the volume cuts off is marked `touches_volume_edge`: its volume is a lower bound. `--drop-edge` leaves it out.
+- `--mask-scale` is the level the label arrays are read at (they must fit in memory). `--scale` is the level cells are
+  measured at.
+- The masks are derived, not published; check one by overlaying it on the image.
 
 ## Output
 
@@ -230,15 +195,15 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 
 ## Commands
 
-| |                                                                                       |
-| --- |---------------------------------------------------------------------------------------|
+|  |  |
+| --- | --- |
 | `organella cells STORE OUTDIR` | Cut the cells of a chunked volume apart, one object folder each. |
-| `organella dry-run DIR` | What would be analysed, reading image headers only.                                   |
-| `organella process DIR -o REPORT` | Analyse a batch, write the report.                                                    |
-| `organella mesh DIR -o OUTDIR` | Process geometry only, for a report you already have.                                 |
-| `organella view REPORT` | Serve the report, its geometry and the page, and open it.                             |
-| `organella page` | Print the path of the standalone page.                                                |
-| `organella colours REPORT PALETTE` | Recolour a report.                                                                    |
+| `organella dry-run DIR` | What would be analysed, reading image headers only. |
+| `organella process DIR -o REPORT` | Analyse a batch, write the report. |
+| `organella mesh DIR -o OUTDIR` | Process geometry only, for a report you already have. |
+| `organella view REPORT` | Serve the report, its geometry and the page, and open it. `--port N` (default 8052), `--no-browser`. |
+| `organella page` | Print the path of the standalone page. |
+| `organella colours REPORT PALETTE` | Recolour a report. |
 | `organella describe REPORT TEXT` | Add a description to an existing report. This will be shown at the top of the report. |
 
 
@@ -246,71 +211,66 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 
 **Input**
 
-| |                                                                                                                                                 |
-| --- |-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `-o, --output FILE` | Where to write the report. Required.                                                                                                            |
-| `-p, --paths TEXT` | Subdirectory to import as its own group, repeatable. Becomes the default grouping in every chart.                                               |
-| `--object-mask NAME` | The mask that bounds each object. Other labels and masks are clipped to stay within this mask. It decides the origin of polarity.               |
-| `--description TEXT` | What this data is and who it credits. The report page shows it above the first section.                                                         |
-| `--object-noun WORD` | What one measured thing is called in the report, e.g. `cell`, or `nucleus/nuclei` for an irregular plural. Presentation only.                   |
-| `--voxel-size-um Z,Y,X` | Voxel size in µm; `y,x` for a plane. Inferred from the source metadata when omitted.                                                            |
-| `--entities NAMES` | Measure only these, plus the object mask.                                                                                                       |
+|  |  |
+| --- | --- |
+| `-o, --output FILE` | Where to write the report. Required. |
+| `-p, --paths TEXT` | Subdirectory to import as its own group, repeatable. Becomes the default grouping in every chart. |
+| `--object-mask NAME` | The mask that bounds each object. Other labels and masks are clipped to stay within this mask. It decides the origin of polarity. |
+| `--description TEXT` | What this data is and who it credits. The report page shows it above the first section. |
+| `--object-noun WORD` | What one measured thing is called in the report, e.g. `cell`, or `nucleus/nuclei` for an irregular plural. Presentation only. |
+| `--voxel-size-um Z,Y,X` | Voxel size in µm; `y,x` for a plane. Inferred from the source metadata when omitted. |
+| `--entities NAMES` | Measure only these, plus the object mask. |
 | `--label-map FILE` | JSON of `{"1": "liver"}`, splitting one volume whose ids each mean a different structure into an entity per id. Only named ids become entities. |
-| `--label-map-entity NAME` | Which entity `--label-map` splits. Needed only when a folder has more than one label entity.                                                    |
-| `--auto-label-masks` | Automatically convert masks (binary datasets) with several connected components to label entities.                                             |
+| `--label-map-entity NAME` | Which entity `--label-map` splits. Needed only when a folder has more than one label entity. |
+| `--auto-label-masks` | Automatically convert masks (binary datasets) with several connected components to label entities. |
 
 **What gets measured**
 
-| |                                                                                                                                                                                                                                      |
-| --- |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--no-clip` | Measure outside the object mask too. Clipped to it by default.                                                                                                                                                                       |
-| `--no-instances` | Entity-level morphology only: no per-instance rows.                                                                                                                                                                                  |
-| `--no-contacts` | Skip the calculation of contacts between entities.                                                                                                                                                                                   |
-| `--contact-max-um T` | Largest gap between two instances of one structure that still counts as a contact. Default 0.5                                                                                                                                       |
-| `--skeletons NAMES` | Structures to skeletonise, for branches, length and tortuosity. Opt-in: it is the most expensive thing in a run.                                                                                                                     |
-| `--max-skeleton-voxels N` | skip skeletons for instances above this voxel count. Default 500000                                                                                                                                                                  |
+|  |  |
+| --- | --- |
+| `--no-clip` | Measure outside the object mask too. Clipped to it by default. |
+| `--no-instances` | Entity-level morphology only: no per-instance rows. |
+| `--no-contacts` | Skip the calculation of contacts between entities. |
+| `--contact-max-um T` | Largest gap between two instances of one structure that still counts as a contact. Default 0.5 |
+| `--skeletons NAMES` | Structures to skeletonise, for branches, length and tortuosity. Opt-in: it is the most expensive thing in a run. |
+| `--max-skeleton-voxels N` | skip skeletons for instances above this voxel count. Default 500000 |
 | `--skeleton-scale R` | reach around a traced path, in local radii. Default 3 |
 | `--skeleton-const-voxels N` | extra reach, in voxels of the coarsest axis. Default 6 |
 | `--skeleton-prune R` | cut terminal branches shorter than R radii; 0 keeps all. Default 2 |
-| `--polarity-spread` | Measure each instance's angular spread on the polarity sphere.                                                                                                                                                                       |
-| `--distance-histograms` | Measure per-instance distance distributions, not just the minimum.                                                                                                                                                                   |
-| `--baseline-exclude NAMES` | Structures to leave out of the region every distance is read against. Each structure gets a chance distribution - its distance from everywhere in the object. Name the structures an instance could never sit inside, e.g. `nucleus. |
-| `--colours FILE` | also `--colors`. JSON of `{"mito": "#d62728"}`. Lands in the report, so every chart draws that structure the same. Unnamed structures keep the built-in palette.                                                                     |
+| `--polarity-spread` | Measure each instance's angular spread on the polarity sphere. |
+| `--distance-histograms` | Measure per-instance distance distributions, not just the minimum. |
+| `--baseline-exclude NAMES` | Structures left out of the region every distance is read against, e.g. `nucleus`: ones an instance can never sit inside. |
+| `--colours FILE` | also `--colors`. JSON of `{"mito": "#d62728"}`. Lands in the report, so every chart draws that structure the same. Unnamed structures keep the built-in palette. |
 
 **Geometry**, all of it only with `--with-mesh`:
 
-| |                                                                                                                                                                                                                                                                         |
-| --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--with-mesh` | Write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`.                                                                                                                                                                                     |
-| `--geometry-as NAME=KIND,...` | How a structure's surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`. Decided from the measured shape when unnamed - a round instance becomes a 60-byte ellipsoid. No measurement changes; the surface is only for visualization in the report. |
-| `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap.                                                                                                                                                                                                    |
-| `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing.                                                                                                                                                                                                |
-| `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2.                                                                                                                                                                                                              |
-| `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces.                                                                                                                                                                                                                |
-| `--mesh-level L` | Iso-surface level on the signed distance field. Default 0.                                                                                                                                                                                                              |
-| `--mesh-surface-method` | `marching-cubes` or `surface-nets`. The dual method has less staircase noise, no fewer vertices, and is slower.                                                                                                                                                         |
-| `--mesh-workers N` | Processes used for meshing. Default: the cores the object pool is not using.                                                                                                                                                                                            |
-| `--reuse-geometry` | Keep any `geometry.parquet` an object already has.                                                                                                                                                |
+|  |  |
+| --- | --- |
+| `--with-mesh` | Write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`, or to `--mesh-dir DIR`. |
+| `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
+| `--mesh-dir DIR` | Where the geometry goes. Default `<output>_meshes`. |
+| `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap. |
+| `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing. |
+| `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2. |
+| `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces. |
+| `--mesh-level L` | Iso-surface level on the signed distance field. Default 0. |
+| `--mesh-surface-method` | `marching-cubes` or `surface-nets`. The dual method has less staircase noise, no fewer vertices, and is slower. |
+| `--mesh-workers N` | Processes used for meshing. Default: the cores the object pool is not using. |
+| `--reuse-geometry` | Keep any `geometry.parquet` an object already has. |
 
 **The run**
 
-| |                                                                                                                                                         |
-| --- |---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--max-workers N` | Worker processes. Default: worked out from memory.                                                                                                      |
-| `--num-threads N` | Kimimaro worker count. Default 1, because objects already run in parallel.                                                                              |
+|  |  |
+| --- | --- |
+| `--max-workers N` | Worker processes. Default: worked out from memory. |
+| `--num-threads N` | Accepted so existing commands keep running; nothing reads it. |
 | `--resume` | Skip objects an interrupted run already measured. Each object's rows go to `<output>_parts/` as it finishes and are removed once the report is written. |
 
 ## Sharing a report
 
-The geometry stays a folder of one file per object, so it travels with
-the report in one of two shapes:
-
-- Share `report.parquet` and its `report_meshes/` folder, and the reader runs
-  `organella view report.parquet`.
-- Upload the two together, unchanged, and open the page with `?data=<url of the parquet>`.
-  The geometry is located next to the parquet as `<name>_meshes/`, so there is nothing else
-  to pass.
-
+- Share `report.parquet` with its `report_meshes/` folder; the reader runs `organella view report.parquet`.
+- Or upload both unchanged and open the page with `?data=<url of the parquet>`. The geometry is found next to it as
+  `<name>_meshes/`.
 
 ## Development
 
