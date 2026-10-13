@@ -1,4 +1,26 @@
-#!/usr/bin/env python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10,<3.12"
+# dependencies = [
+#     "numpy==1.26.4",
+#     "empanada-napari==1.2.4",
+#     "empanada-dl==0.1.7",
+#     "scikit-image==0.22.0",
+#     "scipy==1.11.4",
+#     "tifffile",
+#     "zarr==2.17.1",
+#     "numcodecs==0.13.1",
+#     "s3fs",
+#     "pyyaml",
+#     "tqdm",
+#     "requests",
+# ]
+#
+# [tool.uv]
+# # What it was run with, against the pins of the two empanada packages: empanada-dl wants numpy 1.22,
+# # which breaks scikit-image, and empanada-napari wants opencv >= 4.11, which it does not need.
+# override-dependencies = ["numpy==1.26.4", "opencv-python==4.7.0.72", "opencv-python-headless==4.7.0.72"]
+# ///
 """Mitochondria instances of the seven beta cells, from the raw OpenOrganelle volumes, with empanada's MitoNet.
 
 The published beta-cell mitochondria are a binary mask at 16 nm. This segments the raw 8 nm data
@@ -6,12 +28,12 @@ behind them into one label per mitochondrion with MitoNet (empanada), cell by ce
 result in the 16 nm grid and orientation of the published masks, so it replaces the mask in an
 ordinary `organella process` run.
 
-    python examples/betacells_mito.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--tile 512]
+    uv run examples/betacells_mito.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--tile 512]
 
+uv builds the environment from the dependencies above on the first run; there is nothing to install.
 DATA_DIR is the betacells folder with `{low,high}/<cell>/<cell>_*.tif` (the published masks); where each
 cell sits in its OpenOrganelle volume is in `examples/betacells_locations.json`. The raw data is read from
-S3 on demand. Needs: empanada-napari (which brings torch), numpy<2, scipy, scikit-image, tifffile, zarr<3,
-s3fs. Tiles of 512 x 512 voxels fit in 4 GB; with a larger GPU use --tile 1024 or more.
+S3 on demand. Tiles of 512 x 512 voxels fit in 4 GB; with a larger GPU use --tile 1024 or more.
 
 Per cell, in OUT_DIR/<group>/<cell>/ (an `organella`-readable folder: the cell's other files are linked in):
   <cell>_mitochondria_labels.tif       one label per mitochondrion, 16 nm, the published masks' orientation

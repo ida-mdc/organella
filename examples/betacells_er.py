@@ -1,4 +1,16 @@
-#!/usr/bin/env python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "torch",
+#     "numpy<2",
+#     "scipy",
+#     "scikit-image",
+#     "tifffile",
+#     "zarr<3",
+#     "s3fs",
+# ]
+# ///
 """Endoplasmic reticulum of the seven beta cells, at the full 4 nm resolution, with ASEM's pretrained model.
 
 The beta-cell masks are 16 nm; the raw volumes behind them are on OpenOrganelle at 4 nm, and the
@@ -6,13 +18,13 @@ ER is a thin tubular network that the 16 nm data cannot resolve. ASEM (Kirchhaus
 publishes a 3D U-Net for the ER of high-pressure-frozen FIB-SEM at 4 x 4 x 4 nm. This script runs
 that network over each cell and writes the ER as an `er` mask beside the cell's other labels.
 
-    python examples/betacells_er.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--device cuda]
+    uv run examples/betacells_er.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--device cuda]
 
+uv builds the environment from the dependencies above on the first run; there is nothing to install.
 DATA_DIR is the betacells folder with `{low,high}/<cell>/<cell>_membrane_mask.tif`; where each cell sits in
 its OpenOrganelle volume is in `examples/betacells_locations.json` (--locations). Everything else is read
-from S3 on demand.
-Needs: torch, numpy, scipy, zarr<3, s3fs, scikit-image, tifffile. A GPU with 16 GB or more takes
-about 20-40 minutes a cell with the default block; --block-k 12 fits in 4 GB, ~10x slower.
+from S3 on demand. A GPU with 16 GB or more takes about 20-40 minutes a cell with the default block;
+--block-k 12 fits in 4 GB, ~10x slower.
 
 Written per cell, in OUT_DIR:
   <cell>_er_4nm.zarr   uint8 0/1, the cell's box at 4 nm isotropic, in the volume's orientation
