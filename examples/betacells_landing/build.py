@@ -31,9 +31,15 @@ VOXEL_UM = 0.016                      # the published masks, and the volumes at 
 HERE = Path(__file__).resolve().parent
 EXAMPLES = HERE.parent
 
-# Colours the report gives a structure by its name, so the page and the report agree.
-COLOURS = {"membrane": "#6b7a8f", "nucleus": "#8da0cb", "mitochondria": "#fc8d62", "golgi": "#e78ac3",
-           "granules": "#ffd92f", "microtubules": "#66c2a5", "centrioles": "#a6d854", "mtoc_cilium": "#e5c494"}
+# The paper's own colours: the palette of Fig. 12a in "Organelle-specific segmentation, spatial analysis, and
+# visualization of volume electron microscopy datasets" (the protocol that goes with Müller et al., J Cell Biol
+# 2021), as HTML codes. The palette has no colour for the MTOC and cilium, which are the centrioles' structures, so
+# they take the centrioles' purple; it splits the vesicles by association with microtubules, which the report does
+# not, so every granule takes the associated colour.
+COLOURS = {"membrane": "#656565", "nucleus": "#FFCC66", "mitochondria": "#00A1FF", "golgi": "#2DB98A",
+           "granules": "#FF8C73", "microtubules": "#C63929", "centrioles": "#531C87", "mtoc_cilium": "#531C87"}
+# The conditions, as the blue and orange of "low glucose" and "high glucose" in Fig. 1A of the J Cell Biol paper.
+CONDITIONS = {"low": "#0077C1", "high": "#FF7E00"}
 LABELS = {"membrane": "Cell", "nucleus": "Nucleus", "mitochondria": "Mitochondria", "golgi": "Golgi",
           "granules": "Insulin granules", "microtubules": "Microtubules", "centrioles": "Centrioles",
           "mtoc_cilium": "MTOC and cilium"}
@@ -230,7 +236,12 @@ def main():
     args = ap.parse_args()
     if args.reuse:
         old = args.reuse.read_text()
-        scene = old.split("const SCENE = ", 1)[1].split(";\nconst PACKED", 1)[0]
+        described = json.loads(old.split("const SCENE = ", 1)[1].split(";\nconst PACKED", 1)[0])
+        for cell in described["cells"]:
+            for name, structure in cell["structures"].items():
+                structure["colour"] = COLOURS[name]
+        described["conditions"] = CONDITIONS
+        scene = json.dumps(described, separators=(",", ":"))
         packed = old.split('const PACKED = "', 1)[1].split('";', 1)[0]
         page = (( HERE / "template.html").read_text().replace("__SCENE__", scene).replace("__BLOB__", packed)
                 .replace("__REPORT_URL__", args.report_url))
@@ -247,7 +258,7 @@ def main():
     raw = b"".join(blob.parts)
     packed = base64.b64encode(zlib.compress(raw, 9)).decode()
     template = (HERE / "template.html").read_text()
-    page = (template.replace("__SCENE__", json.dumps({"cells": scene}, separators=(",", ":")))
+    page = (template.replace("__SCENE__", json.dumps({"cells": scene, "conditions": CONDITIONS}, separators=(",", ":")))
             .replace("__BLOB__", packed).replace("__REPORT_URL__", args.report_url))
     args.out.write_text(page)
     print(f"{args.out}: {len(page) / 1e6:.1f} MB ({len(raw) / 1e6:.1f} MB of geometry before packing)")

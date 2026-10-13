@@ -72,7 +72,7 @@ a.btn.primary:hover { background: #1b4fb8; color: #fff; }
   <label class="row" style="display:block">Spread the cells apart
     <input type="range" id="spread" min="1" max="2.4" step="0.02" value="1"></label>
   <label class="row"><input type="checkbox" id="spin"> Turn slowly</label>
-  <div class="hint">Drag to turn, scroll to zoom, right-drag to move. Click a cell to look at it.</div>
+  <div class="hint">Colours: the palette of Fig. 12a in the protocol that accompanies the paper; the blue and orange bars mark low and high glucose. Drag to turn, scroll to zoom, right-drag to move. Click a cell to look at it.</div>
 </div>
 
 <script type="module">
@@ -136,7 +136,7 @@ const shiftAll = cursor / 2 - GAP / 2;
 for (const g of order) layout[g].x -= shiftAll;
 
 // ── the cells ──────────────────────────────────────────────────────────
-const MESH_OPACITY = { membrane: 0.14, nucleus: 0.55 };
+const MESH_OPACITY = { membrane: 0.16, nucleus: 0.88 };
 const cells = [];
 const visible = {};
 function material(name, colour) {
@@ -188,6 +188,7 @@ function build() {
   for (const g of order) {
     const L = layout[g];
     const tag = Object.assign(document.createElement('div'), { className: 'tag group', textContent: `${GROUP_NAME[g] || g} · ${groups[g].length} cells` });
+    if (SCENE.conditions && SCENE.conditions[g]) tag.style.borderLeft = `5px solid ${SCENE.conditions[g]}`;
     document.body.appendChild(tag);
     L.tag = tag;
   }
@@ -221,6 +222,7 @@ function panel() {
   list.appendChild(all);
   for (const c of cells) {
     const b = Object.assign(document.createElement('button'), { textContent: c.id.replace('_c', ' ') });
+    if (SCENE.conditions && SCENE.conditions[c.group]) b.style.borderLeft = `4px solid ${SCENE.conditions[c.group]}`;
     b.onclick = () => focus(c); c.button = b; list.appendChild(b);
   }
   all.id = 'all';
