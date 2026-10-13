@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Seven mouse β cells in 3D</title>
+<title>3D β cell microtubule–organelle interaction</title>
 <!-- build.py fills in the two values below: the cells' description, and their geometry (zlib, base64). -->
 <style>
 :root { --paper: #fcfbf7; --surface: #ffffff; --ink: #14181d; --ink-2: #3e4650; --ink-3: #6a727c;
@@ -12,9 +12,8 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink-2); font: 14px/1.5 var(--sans); }
-#stage { position: fixed; top: 0; bottom: 0; right: 0; left: 340px; background:
-  radial-gradient(900px 600px at 18% 12%, rgba(106, 77, 255, .07), transparent 70%),
-  radial-gradient(800px 600px at 85% 90%, rgba(232, 178, 58, .09), transparent 70%), var(--paper); }
+#stage { position: fixed; inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, #f3f1ea 70%, #e9e6dc 100%); }
 canvas { display: block; width: 100%; height: 100%; outline: none; }
 .tag { position: fixed; left: 0; top: 0; pointer-events: none; font-size: 11px; letter-spacing: .03em; color: var(--ink-2);
   background: rgba(252, 251, 247, .82); padding: 1px 6px; border-radius: 9px; border: 1px solid var(--rule); white-space: nowrap;
@@ -24,7 +23,7 @@ canvas { display: block; width: 100%; height: 100%; outline: none; }
 .panel { position: fixed; top: 18px; left: 18px; width: 300px; max-height: calc(100% - 36px); overflow-y: auto;
   background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border: 1px solid var(--rule); border-radius: 14px;
   padding: 18px 20px 16px; box-shadow: 0 8px 30px rgba(20, 24, 29, .08); }
-h1 { font: 500 1.7rem/1.15 var(--serif); letter-spacing: -.025em; margin: 0 0 .35rem; color: var(--ink); }
+h1 { font: 500 1.45rem/1.2 var(--serif); letter-spacing: -.02em; margin: 0 0 .5rem; color: var(--ink); }
 .sub { color: var(--ink-3); margin: 0 0 1rem; font-size: 13px; }
 h2 { font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin: 1.1rem 0 .4rem; }
 label.row { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; user-select: none; }
@@ -45,7 +44,7 @@ a.btn.primary:hover { background: #1b4fb8; color: #fff; }
 .hint { color: var(--ink-3); font-size: 12px; margin-top: .8rem; }
 #loading { position: fixed; inset: 0; display: grid; place-items: center; font: 500 1.2rem var(--serif); color: var(--ink-3);
   background: var(--paper); z-index: 5; }
-@media (max-width: 760px) { .panel { width: calc(100% - 36px); max-height: 46%; } #stage { left: 0; } }
+@media (max-width: 760px) { .panel { width: calc(100% - 36px); max-height: 46%; } }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -56,7 +55,7 @@ a.btn.primary:hover { background: #1b4fb8; color: #fff; }
 <div id="loading">Unpacking the cells…</div>
 <div id="stage"></div>
 <div class="panel" id="panel">
-  <h1>Seven β cells, together</h1>
+  <h1>3D β cell microtubule–organelle interaction</h1>
   <p class="sub">Mouse pancreatic islet cells from Müller et al., <i>J Cell Biol</i> 2021: three at low glucose, four at high
     glucose, each from its own FIB-SEM volume. The cells stand where they stand in the tissue.</p>
   <a class="btn primary" href="__REPORT_URL__" target="_blank" rel="noopener">Open the full report →</a>
@@ -71,8 +70,9 @@ a.btn.primary:hover { background: #1b4fb8; color: #fff; }
   <h2>View</h2>
   <label class="row" style="display:block">Spread the cells apart
     <input type="range" id="spread" min="1" max="2.4" step="0.02" value="1"></label>
-  <label class="row"><input type="checkbox" id="spin"> Turn slowly</label>
-  <div class="hint">Colours: the palette of Fig. 12a in the protocol that accompanies the paper; the blue and orange bars mark low and high glucose. Drag to turn, scroll to zoom, right-drag to move. Click a cell to look at it.</div>
+  <label class="row"><input type="checkbox" id="spin"> Turn the two groups slowly</label>
+  <button id="reset" style="margin:.3rem 0 .2rem">Reset the view</button>
+  <div class="hint">Drag a group of cells to turn it on its own, drag the background to move the camera, scroll to zoom. Click a cell to look at it.</div>
 </div>
 
 <script type="module">
@@ -102,15 +102,50 @@ const fmt = (v, d = 0) => v == null ? '–' : v.toLocaleString('en', { maximumFr
 const host = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Self-shadowing is what makes a pile of blobs read as a pile: nothing else says which one is in front.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 host.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 5000);
 camera.up.set(0, 0, 1);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b2a4, 1.05));
-const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(30, -40, 50); scene.add(key);
-const fill = new THREE.DirectionalLight(0xffffff, .55); fill.position.set(-40, 30, -20); scene.add(fill);
+
+// The light of the report's own scene. Depth comes from the light falling off, so the ambient term stays low and
+// the rest is directional: a key from above and ahead, a weak fill so the shadow side is not black, and a rim from
+// behind to lift each surface off the one behind it. All three ride with the camera, so whatever is being looked at
+// is lit while the shadows still move across it as the cells turn.
+const STAGE = { ambient: 0.95, sky: 0xffffff, ground: 0x9c9caa, hemisphere: 0.6, key: 2.15, fill: 0.34, rim: 0.28, paper: 0xf3f1ea };
+scene.add(new THREE.AmbientLight(0xffffff, STAGE.ambient), new THREE.HemisphereLight(STAGE.sky, STAGE.ground, STAGE.hemisphere));
+const key = new THREE.DirectionalLight(0xffffff, STAGE.key), keyAt = new THREE.Object3D();
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.target = keyAt;
+const fill = new THREE.DirectionalLight(0xffffff, STAGE.fill), rim = new THREE.DirectionalLight(0xffffff, STAGE.rim);
+scene.add(key, keyAt, fill, rim);
+scene.fog = new THREE.Fog(STAGE.paper, 100, 300);
+const LIGHT_OFFSET = 35 * Math.PI / 180;
+let sceneSize = 100;                       // the diagonal of everything drawn, which the shadow frustum has to cover
+function fitShadow(size) {
+  sceneSize = size;
+  const s = key.shadow.camera;
+  s.left = -size * 0.75; s.right = size * 0.75; s.top = size * 0.75; s.bottom = -size * 0.75;
+  s.near = size * 0.05; s.far = size * 6; s.updateProjectionMatrix();
+  key.shadow.bias = -0.0008; key.shadow.normalBias = size * 0.003;       // acne otherwise, at grazing angles
+}
+const toward = new THREE.Vector3(), right = new THREE.Vector3(), upward = new THREE.Vector3();
+function lightRig() {
+  toward.copy(camera.position).sub(controls.target);
+  const distance = toward.length();
+  toward.normalize();
+  const azimuth = Math.atan2(toward.y, toward.x) + LIGHT_OFFSET, lift = Math.min(Math.asin(toward.z) + 0.45, 1.3);
+  const reach = sceneSize * 2;             // above and to the side of the camera, never straight overhead
+  key.position.set(reach * Math.cos(lift) * Math.cos(azimuth), reach * Math.cos(lift) * Math.sin(azimuth), reach * Math.sin(lift));
+  right.setFromMatrixColumn(camera.matrixWorld, 0); upward.setFromMatrixColumn(camera.matrixWorld, 1);
+  fill.position.set(0, 0, 0).addScaledVector(right, -1).addScaledVector(upward, -0.5).addScaledVector(toward, 0.5);
+  rim.position.set(0, 0, 0).addScaledVector(right, -0.6).addScaledVector(upward, 0.4).addScaledVector(toward, -1.6);
+  // The far side of what is looked at fades into the paper; it starts behind the near face.
+  scene.fog.near = distance * 0.85; scene.fog.far = distance * 2.8;
+}
 
 // ── where the cells stand: each volume centred, the two side by side ────
 const groups = {};
@@ -136,11 +171,12 @@ const shiftAll = cursor / 2 - GAP / 2;
 for (const g of order) layout[g].x -= shiftAll;
 
 // ── the cells ──────────────────────────────────────────────────────────
-const MESH_OPACITY = { membrane: 0.16, nucleus: 0.88 };
+const MESH_OPACITY = { membrane: 0.16 };       // the cell's own surface is a ghost; everything else is solid
 const cells = [];
 const visible = {};
 function material(name, colour) {
-  const m = new THREE.MeshStandardMaterial({ color: colour, roughness: .62, metalness: 0, side: THREE.DoubleSide });
+  // A grey specular makes a saturated surface look chalky; nearly black keeps the sheen and the colour.
+  const m = new THREE.MeshPhongMaterial({ color: colour, side: THREE.DoubleSide, shininess: 14, specular: 0x0d0d10 });
   if (name in MESH_OPACITY) { m.transparent = true; m.opacity = MESH_OPACITY[name]; m.depthWrite = false; }
   m.userData = { base: m.opacity, transparent: name in MESH_OPACITY };
   return m;
@@ -154,9 +190,11 @@ function buildStructure(name, s) {
     g.computeVertexNormals();
     object = new THREE.Mesh(g, material(name, s.colour));
     if (name === 'membrane') object.renderOrder = 3;
+    else { object.castShadow = true; object.receiveShadow = true; }
   } else if (s.kind === 'spheres') {
     const c = array(s.centres), r = array(s.radii), n = r.length;
     object = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), material(name, s.colour), n);
+    object.castShadow = true; object.receiveShadow = true;
     const m = new THREE.Matrix4();
     for (let i = 0; i < n; i++) { m.makeScale(r[i], r[i], r[i]).setPosition(c[3 * i], c[3 * i + 1], c[3 * i + 2]); object.setMatrixAt(i, m); }
   } else {
@@ -169,7 +207,9 @@ function buildStructure(name, s) {
   object.userData = { name };
   return object;
 }
+const pivots = {};          // one per volume: turning it turns that volume's cells about their own centre
 function build() {
+  for (const g of order) { pivots[g] = new THREE.Group(); pivots[g].position.set(layout[g].x, 0, 0); scene.add(pivots[g]); }
   for (const c of SCENE.cells) {
     const node = new THREE.Group();
     const parts = {};
@@ -178,12 +218,12 @@ function build() {
       visible[name] = name !== 'granules';   // 60,000 of them hide everything else; one click brings them back
       parts[name].visible = visible[name];
     }
-    scene.add(node);
+    pivots[c.group].add(node);
     const L = layout[c.group];
     const rel = c.centre.map((v, k) => v - L.mid[k]);
     const tag = Object.assign(document.createElement('div'), { className: 'tag', textContent: c.id.replace('_c', ' cell ') });
     document.body.appendChild(tag);
-    cells.push({ ...c, node, parts, rel, home: new THREE.Vector3(L.x, 0, 0), tag, radius: Math.max(...c.extent) / 2 });
+    cells.push({ ...c, node, parts, rel, tag, radius: Math.max(...c.extent) / 2 });
   }
   for (const g of order) {
     const L = layout[g];
@@ -194,8 +234,9 @@ function build() {
   }
 }
 let spread = 1;
+const worldOf = c => c.node.getWorldPosition(new THREE.Vector3());
 const place = () => {
-  for (const c of cells) c.node.position.set(c.home.x + c.rel[0] * spread, c.rel[1] * spread, c.rel[2] * spread);
+  for (const c of cells) c.node.position.set(c.rel[0] * spread, c.rel[1] * spread, c.rel[2] * spread);
 };
 
 // ── what the panel offers ───────────────────────────────────────────────
@@ -227,11 +268,12 @@ function panel() {
   }
   all.id = 'all';
   document.getElementById('spread').addEventListener('input', e => { spread = +e.target.value; place(); });
-  document.getElementById('spin').addEventListener('change', e => { controls.autoRotate = e.target.checked; controls.autoRotateSpeed = 0.8; });
+  document.getElementById('spin').addEventListener('change', e => { spinning = e.target.checked; });
+  document.getElementById('reset').addEventListener('click', () => { for (const g of order) pivots[g].quaternion.identity(); focus(null); });
 }
 
 // ── looking at one cell ─────────────────────────────────────────────────
-let selected = null, tween = null;
+let selected = null, tween = null, spinning = false, drag = null;
 function stats(c) {
   const el = document.getElementById('stats');
   if (!c) { el.innerHTML = ''; return; }
@@ -258,7 +300,7 @@ function focus(c) {
   for (const k of cells) { dim(k, !c || k === c ? 1 : 0.1); if (k.button) k.button.classList.toggle('on', k === c); }
   document.getElementById('all').classList.toggle('on', !c);
   stats(c);
-  const to = c ? c.node.position.clone() : sceneCentre();
+  const to = c ? worldOf(c) : sceneCentre();
   const dist = c ? c.radius * 2.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.62 : fitDistance();
   const dir = camera.position.clone().sub(controls.target).normalize();
   tween = { start: performance.now(), from: { target: controls.target.clone(), pos: camera.position.clone() },
@@ -267,7 +309,8 @@ function focus(c) {
 function sceneCentre() { return new THREE.Vector3(0, 0, 0); }
 // How far back the camera has to be for every cell to fit the scene area, whichever way that area is shaped.
 function fitDistance() {
-  const half = THREE.MathUtils.degToRad(camera.fov / 2), halfWide = Math.atan(Math.tan(half) * camera.aspect);
+  const half = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfWide = Math.atan(Math.tan(half) * Math.max((host.clientWidth - panelWidth()) / host.clientHeight, 0.3));
   const width = cursor - GAP, height = Math.max(...order.map(g => Math.max(layout[g].size[1], layout[g].size[2])));
   return 1.08 * Math.max(width / 2 / Math.tan(halfWide), height / 2 / Math.tan(half)) + height * 0.2;
 }
@@ -284,11 +327,40 @@ renderer.domElement.addEventListener('pointerup', e => {
   focus(hit && hit !== selected ? hit : null);
 });
 addEventListener('keydown', e => { if (e.key === 'Escape') focus(null); });
+const UP = new THREE.Vector3(0, 0, 1);
+function pick(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hits = ray.intersectObjects(cells.flatMap(c => c.parts.membrane ? [c.parts.membrane] : []));
+  return hits.length ? cells.find(c => c.parts.membrane === hits[0].object) : null;
+}
+// Capturing on the container, so this sees the press before the camera's controls do.
+host.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const hit = pick(e);
+  if (!hit) return;                       // empty space: the camera orbits as usual
+  drag = { group: hit.group, x: e.clientX, y: e.clientY };
+  controls.enabled = false;
+}, true);
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  const pivot = pivots[drag.group], right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  pivot.rotateOnWorldAxis(UP, dx * 0.006);       // across: turn about the vertical through the group's centre
+  pivot.rotateOnWorldAxis(right, dy * 0.006);    // up and down: tip it towards or away from you
+});
+addEventListener('pointerup', () => { if (drag) { drag = null; controls.enabled = true; } });
 
 // ── the loop ───────────────────────────────────────────────────────────
+// The panel floats over the left of the stage, so the scene is centred in what is left of it: the camera's view is
+// shifted, not the canvas, which leaves one unbroken backdrop behind both.
+const panelWidth = () => innerWidth > 760 ? 340 : 0;
 function resize() {
   const w = host.clientWidth, h = host.clientHeight;
-  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false); camera.aspect = w / h;
+  camera.setViewOffset(w, h, -panelWidth() / 2, 0, w, h);
+  camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
 const v = new THREE.Vector3();
@@ -298,8 +370,11 @@ function project(tag, p, lift = 0) {
   tag.style.display = v.z < 1 ? '' : 'none';
   tag.style.left = (r.left + (v.x + 1) / 2 * r.width) + 'px'; tag.style.top = (r.top + (1 - v.y) / 2 * r.height) + 'px';
 }
+let last = performance.now();
 function frame() {
   requestAnimationFrame(frame);
+  const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (spinning && !drag && !selected) order.forEach((g, i) => pivots[g].rotateOnWorldAxis(UP, (i % 2 ? -1 : 1) * 0.14 * dt));
   if (tween) {
     const t = Math.min(1, (performance.now() - tween.start) / 700);
     const e = t * t * (3 - 2 * t);
@@ -308,18 +383,21 @@ function frame() {
     if (t === 1) tween = null;
   }
   controls.update();
-  for (const c of cells) project(c.tag, c.node.position, c.radius * 0.0);
+  scene.updateMatrixWorld();
+  lightRig();
+  for (const c of cells) project(c.tag, worldOf(c));
   for (const g of order) project(layout[g].tag, new THREE.Vector3(layout[g].x, 0, 0), layout[g].size[2] / 2 + 3);
   renderer.render(scene, camera);
 }
 
 DATA = await unpack(PACKED);
 build(); place(); panel(); resize();
+fitShadow(Math.hypot(cursor - GAP, ...order.map(g => Math.max(layout[g].size[1], layout[g].size[2]))));
 camera.position.set(0, -0.88, 0.47).multiplyScalar(fitDistance());
 controls.target.copy(sceneCentre());
 document.getElementById('loading').remove();
 frame();
-window.__landing = { cells, focus, camera, controls, renderer };   // for the page's own tests
+window.__landing = { cells, focus, camera, controls, renderer, pivots };   // for the page's own tests
 </script>
 </body>
 </html>
