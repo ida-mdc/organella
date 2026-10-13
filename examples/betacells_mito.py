@@ -4,7 +4,6 @@
 # dependencies = [
 #     "numpy==1.26.4",
 #     "empanada-napari==1.2.4",
-#     "empanada-dl==0.1.7",
 #     "scikit-image==0.22.0",
 #     "scipy==1.11.4",
 #     "tifffile",
@@ -17,8 +16,9 @@
 # ]
 #
 # [tool.uv]
-# # What it was run with, against the pins of the two empanada packages: empanada-dl wants numpy 1.22,
-# # which breaks scikit-image, and empanada-napari wants opencv >= 4.11, which it does not need.
+# # What it was run with. empanada-napari asks for opencv >= 4.11, which it does not need. empanada-dl is
+# # left out on purpose: it ships an older copy of the same `empanada` package that overwrites the one in
+# # empanada-napari and imports names the current cztile no longer has.
 # override-dependencies = ["numpy==1.26.4", "opencv-python==4.7.0.72", "opencv-python-headless==4.7.0.72"]
 # ///
 """Mitochondria instances of the seven beta cells, from the raw OpenOrganelle volumes, with empanada's MitoNet.
@@ -244,22 +244,29 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("data_dir", type=Path, help="the betacells folder holding low/ and high/")
-    ap.add_argument("out_dir", type=Path)
+    ap.add_argument("data_dir", type=Path, nargs="?", help="the betacells folder holding low/ and high/")
+    ap.add_argument("out_dir", type=Path, nargs="?")
     ap.add_argument("--cells", default="", help="comma list; default: all seven")
     ap.add_argument("--locations", type=Path, default=Path(__file__).with_name("betacells_locations.json"))
     ap.add_argument("--tile", type=int, default=512, help="xy tile edge in 8 nm voxels")
     ap.add_argument("--overlap", type=int, default=64)
     ap.add_argument("--cpu", action="store_true", help="no GPU")
+    ap.add_argument("--check", action="store_true", help="download the weights, build the engine and exit")
     ap.add_argument("--weights", type=Path, default=Path("MitoNet_v1.pth"))
     args = ap.parse_args()
 
     if not args.weights.exists():
         print("downloading MitoNet_v1 ->", args.weights)
         urllib.request.urlretrieve(WEIGHTS, args.weights)
+    engine = load_engine(args.weights.resolve(), not args.cpu)
+    if args.check:
+        import torch
+        print(f"MitoNet is ready; GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() and not args.cpu else 'none'}")
+        return
+    if not (args.data_dir and args.out_dir):
+        ap.error("data_dir and out_dir are required")
     locations = json.loads(args.locations.read_text())
     cells = [c for c in args.cells.split(",") if c] or list(locations)
-    engine = load_engine(args.weights.resolve(), not args.cpu)
     for cell in cells:
         run_cell(cell, locations[cell], args.data_dir, args.out_dir, engine, args.tile, args.overlap)
 
