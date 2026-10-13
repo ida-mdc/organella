@@ -234,7 +234,10 @@ def _tiff_voxel_size_um(source_path: Path, ndim: int) -> Tuple[float, ...]:
         xres_tag = page.tags.get("XResolution")
         yres_tag = page.tags.get("YResolution")
         unit_tag = page.tags.get("ResolutionUnit")
-        unit_code = int(unit_tag.value) if unit_tag is not None else 1
+        # TIFF's own default for a missing ResolutionUnit is 2 (inch); reading it as
+        # unitless instead made an FEI TIFF's 3.4 nm pixel 0.13 pm, 25400x too small.
+        # An ImageJ file, whose unit is in its own metadata, writes the tag as 1.
+        unit_code = int(unit_tag.value) if unit_tag is not None else 2
         unit_to_um = {2: 25400.0, 3: 10000.0}.get(unit_code)
         if unit_to_um and xres_tag is not None and yres_tag is not None:
             x_num, x_den = xres_tag.value
