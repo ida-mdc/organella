@@ -16,6 +16,9 @@ FIB-SEM, seven cells grouped in two conditions (stimulated with low and high glu
 segmented into plasma membrane, nucleus, Golgi apparatus, mitochondria, insulin secretory
 granules, microtubules, centrioles and axoneme.
 
+The seven cells together in 3D, where they stand in the tissue: [`examples/betacells_landing`](examples/betacells_landing/build.py)
+builds that page from the report's meshes.
+
 <br clear="right">
 
 ## Screenshots from the reports

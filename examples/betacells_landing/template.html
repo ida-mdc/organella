@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Seven mouse β cells in 3D</title>
+<!-- build.py fills in the two values below: the cells' description, and their geometry (zlib, base64). -->
+<style>
+:root { --paper: #fcfbf7; --surface: #ffffff; --ink: #14181d; --ink-2: #3e4650; --ink-3: #6a727c;
+  --rule: #e8e5db; --rule-2: #d3cfc2; --accent: #2563d4;
+  --serif: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink-2); font: 14px/1.5 var(--sans); }
+#stage { position: fixed; top: 0; bottom: 0; right: 0; left: 340px; background:
+  radial-gradient(900px 600px at 18% 12%, rgba(106, 77, 255, .07), transparent 70%),
+  radial-gradient(800px 600px at 85% 90%, rgba(232, 178, 58, .09), transparent 70%), var(--paper); }
+canvas { display: block; width: 100%; height: 100%; outline: none; }
+.tag { position: fixed; left: 0; top: 0; pointer-events: none; font-size: 11px; letter-spacing: .03em; color: var(--ink-2);
+  background: rgba(252, 251, 247, .82); padding: 1px 6px; border-radius: 9px; border: 1px solid var(--rule); white-space: nowrap;
+  transform: translate(-50%, -50%); transition: opacity .2s; }
+.tag.group { font-family: var(--serif); font-size: 15px; padding: 3px 12px; color: var(--ink); background: rgba(252, 251, 247, .9); }
+.tag.dim { opacity: .25; }
+.panel { position: fixed; top: 18px; left: 18px; width: 300px; max-height: calc(100% - 36px); overflow-y: auto;
+  background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 18px 20px 16px; box-shadow: 0 8px 30px rgba(20, 24, 29, .08); }
+h1 { font: 500 1.7rem/1.15 var(--serif); letter-spacing: -.025em; margin: 0 0 .35rem; color: var(--ink); }
+.sub { color: var(--ink-3); margin: 0 0 1rem; font-size: 13px; }
+h2 { font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin: 1.1rem 0 .4rem; }
+label.row { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; user-select: none; }
+label.row .n { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12px; }
+.chip { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+button, a.btn { font: 600 13px var(--sans); border: 1px solid var(--rule-2); background: var(--surface); color: var(--ink);
+  border-radius: 9px; padding: 6px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, a.btn:hover { border-color: var(--accent); color: var(--accent); }
+a.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+a.btn.primary:hover { background: #1b4fb8; color: #fff; }
+.cells { display: flex; flex-wrap: wrap; gap: 6px; }
+.cells button { padding: 3px 9px; font-weight: 500; font-size: 12px; }
+.cells button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.stats { font-size: 13px; }
+.stats td { padding: 1px 0; }
+.stats td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hint { color: var(--ink-3); font-size: 12px; margin-top: .8rem; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; font: 500 1.2rem var(--serif); color: var(--ink-3);
+  background: var(--paper); z-index: 5; }
+@media (max-width: 760px) { .panel { width: calc(100% - 36px); max-height: 46%; } #stage { left: 0; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="loading">Unpacking the cells…</div>
+<div id="stage"></div>
+<div class="panel" id="panel">
+  <h1>Seven β cells, together</h1>
+  <p class="sub">Mouse pancreatic islet cells from Müller et al., <i>J Cell Biol</i> 2021: three at low glucose, four at high
+    glucose, each from its own FIB-SEM volume. The cells stand where they stand in the tissue.</p>
+  <a class="btn primary" href="__REPORT_URL__" target="_blank" rel="noopener">Open the full report →</a>
+
+  <h2>Structures</h2>
+  <div id="structures"></div>
+
+  <h2>Cells</h2>
+  <div class="cells" id="cells"></div>
+  <div class="stats" id="stats"></div>
+
+  <h2>View</h2>
+  <label class="row" style="display:block">Spread the cells apart
+    <input type="range" id="spread" min="1" max="2.4" step="0.02" value="1"></label>
+  <label class="row"><input type="checkbox" id="spin"> Turn slowly</label>
+  <div class="hint">Drag to turn, scroll to zoom, right-drag to move. Click a cell to look at it.</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const SCENE = __SCENE__;
+const PACKED = "__BLOB__";
+
+// ── the geometry, unpacked ──────────────────────────────────────────────
+async function unpack(b64) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+const TYPES = { '<u2': Uint16Array, '<u4': Uint32Array, '<f4': Float32Array };
+let DATA;
+const array = s => new TYPES[s.type](DATA.buffer, DATA.byteOffset + s.at, s.n);
+const decode = (q, min, span) => {
+  const out = new Float32Array(q.length);
+  for (let i = 0; i < q.length; i++) out[i] = min[i % 3] + q[i] * span[i % 3] / 65535;
+  return out;
+};
+const fmt = (v, d = 0) => v == null ? '–' : v.toLocaleString('en', { maximumFractionDigits: d, minimumFractionDigits: d });
+
+// ── the stage ──────────────────────────────────────────────────────────
+const host = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 5000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b2a4, 1.05));
+const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(30, -40, 50); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, .55); fill.position.set(-40, 30, -20); scene.add(fill);
+
+// ── where the cells stand: each volume centred, the two side by side ────
+const groups = {};
+for (const c of SCENE.cells) (groups[c.group] ||= []).push(c);
+const order = ['high', 'low'].filter(g => groups[g]).concat(Object.keys(groups).filter(g => !['high', 'low'].includes(g)));
+const GROUP_NAME = { high: 'High glucose', low: 'Low glucose' };
+const footprint = cs => {
+  const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (const c of cs) for (let k = 0; k < 3; k++) {
+    lo[k] = Math.min(lo[k], c.centre[k] - c.extent[k] / 2); hi[k] = Math.max(hi[k], c.centre[k] + c.extent[k] / 2);
+  }
+  return { lo, hi, mid: lo.map((v, k) => (v + hi[k]) / 2), size: lo.map((v, k) => hi[k] - v) };
+};
+const GAP = 12;
+let cursor = 0;
+const layout = {};
+for (const g of order) {
+  const f = footprint(groups[g]);
+  layout[g] = { mid: f.mid, x: cursor + f.size[0] / 2, size: f.size };
+  cursor += f.size[0] + GAP;
+}
+const shiftAll = cursor / 2 - GAP / 2;
+for (const g of order) layout[g].x -= shiftAll;
+
+// ── the cells ──────────────────────────────────────────────────────────
+const MESH_OPACITY = { membrane: 0.14, nucleus: 0.55 };
+const cells = [];
+const visible = {};
+function material(name, colour) {
+  const m = new THREE.MeshStandardMaterial({ color: colour, roughness: .62, metalness: 0, side: THREE.DoubleSide });
+  if (name in MESH_OPACITY) { m.transparent = true; m.opacity = MESH_OPACITY[name]; m.depthWrite = false; }
+  m.userData = { base: m.opacity, transparent: name in MESH_OPACITY };
+  return m;
+}
+function buildStructure(name, s) {
+  let object;
+  if (s.kind === 'mesh') {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(decode(array(s.pos), s.min, s.span), 3));
+    g.setIndex(new THREE.BufferAttribute(array(s.index), 1));
+    g.computeVertexNormals();
+    object = new THREE.Mesh(g, material(name, s.colour));
+    if (name === 'membrane') object.renderOrder = 3;
+  } else if (s.kind === 'spheres') {
+    const c = array(s.centres), r = array(s.radii), n = r.length;
+    object = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), material(name, s.colour), n);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < n; i++) { m.makeScale(r[i], r[i], r[i]).setPosition(c[3 * i], c[3 * i + 1], c[3 * i + 2]); object.setMatrixAt(i, m); }
+  } else {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(decode(array(s.pos), s.min, s.span), 3));
+    g.setIndex(new THREE.BufferAttribute(array(s.index), 1));
+    object = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: s.colour, transparent: true, opacity: .85 }));
+    object.material.userData = { base: .85, transparent: true };
+  }
+  object.userData = { name };
+  return object;
+}
+function build() {
+  for (const c of SCENE.cells) {
+    const node = new THREE.Group();
+    const parts = {};
+    for (const [name, s] of Object.entries(c.structures)) {
+      parts[name] = buildStructure(name, s); node.add(parts[name]);
+      visible[name] = name !== 'granules';   // 60,000 of them hide everything else; one click brings them back
+      parts[name].visible = visible[name];
+    }
+    scene.add(node);
+    const L = layout[c.group];
+    const rel = c.centre.map((v, k) => v - L.mid[k]);
+    const tag = Object.assign(document.createElement('div'), { className: 'tag', textContent: c.id.replace('_c', ' cell ') });
+    document.body.appendChild(tag);
+    cells.push({ ...c, node, parts, rel, home: new THREE.Vector3(L.x, 0, 0), tag, radius: Math.max(...c.extent) / 2 });
+  }
+  for (const g of order) {
+    const L = layout[g];
+    const tag = Object.assign(document.createElement('div'), { className: 'tag group', textContent: `${GROUP_NAME[g] || g} · ${groups[g].length} cells` });
+    document.body.appendChild(tag);
+    L.tag = tag;
+  }
+}
+let spread = 1;
+const place = () => {
+  for (const c of cells) c.node.position.set(c.home.x + c.rel[0] * spread, c.rel[1] * spread, c.rel[2] * spread);
+};
+
+// ── what the panel offers ───────────────────────────────────────────────
+function panel() {
+  const names = ['membrane', 'nucleus', 'mitochondria', 'golgi', 'granules', 'microtubules', 'centrioles', 'mtoc_cilium']
+    .filter(n => cells.some(c => n in c.structures));
+  const box = document.getElementById('structures');
+  for (const n of names) {
+    const first = cells.find(c => n in c.structures).structures[n];
+    const total = cells.reduce((a, c) => a + ((c.structures[n] || {}).instances || 0), 0);
+    const row = document.createElement('label');
+    row.className = 'row';
+    row.innerHTML = `<input type="checkbox" ${visible[n] ? "checked" : ""}><span class="chip" style="background:${first.colour}"></span>${first.label}` +
+      `<span class="n">${first.kind === 'mesh' && total <= cells.length ? '' : fmt(total)}</span>`;
+    row.querySelector('input').addEventListener('change', e => {
+      visible[n] = e.target.checked;
+      for (const c of cells) if (c.parts[n]) c.parts[n].visible = visible[n];
+    });
+    box.appendChild(row);
+  }
+  const list = document.getElementById('cells');
+  const all = Object.assign(document.createElement('button'), { textContent: 'All' });
+  all.className = 'on'; all.onclick = () => focus(null);
+  list.appendChild(all);
+  for (const c of cells) {
+    const b = Object.assign(document.createElement('button'), { textContent: c.id.replace('_c', ' ') });
+    b.onclick = () => focus(c); c.button = b; list.appendChild(b);
+  }
+  all.id = 'all';
+  document.getElementById('spread').addEventListener('input', e => { spread = +e.target.value; place(); });
+  document.getElementById('spin').addEventListener('change', e => { controls.autoRotate = e.target.checked; controls.autoRotateSpeed = 0.8; });
+}
+
+// ── looking at one cell ─────────────────────────────────────────────────
+let selected = null, tween = null;
+function stats(c) {
+  const el = document.getElementById('stats');
+  if (!c) { el.innerHTML = ''; return; }
+  const s = c.structures, n = k => (s[k] || {}).instances;
+  const rows = [['Cell volume', c.cell_um3 && fmt(c.cell_um3) + ' µm³'], ['Nucleus', c.nucleus_um3 && fmt(c.nucleus_um3) + ' µm³'],
+    ['Mitochondria', n('mitochondria') > 1 ? fmt(n('mitochondria')) : null], ['Insulin granules', n('granules') != null ? fmt(n('granules')) : null],
+    ['Microtubules', n('microtubules') != null ? `${fmt(n('microtubules'))} · ${fmt(s.microtubules.length_um)} µm` : null]]
+    .filter(r => r[1]);
+  el.innerHTML = `<h2>${c.id.replace('_c', ' glucose cell ')}</h2><table style="width:100%">` +
+    rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('') + '</table>';
+}
+function dim(c, amount) {
+  c.node.traverse(o => {
+    const m = o.material; if (!m) return;
+    m.transparent = m.userData.transparent || amount < 1;
+    m.opacity = m.userData.base * amount;
+    m.depthWrite = !m.transparent;
+    m.needsUpdate = true;
+  });
+  c.tag.classList.toggle('dim', amount < 1);
+}
+function focus(c) {
+  selected = c;
+  for (const k of cells) { dim(k, !c || k === c ? 1 : 0.1); if (k.button) k.button.classList.toggle('on', k === c); }
+  document.getElementById('all').classList.toggle('on', !c);
+  stats(c);
+  const to = c ? c.node.position.clone() : sceneCentre();
+  const dist = c ? c.radius * 2.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.62 : fitDistance();
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  tween = { start: performance.now(), from: { target: controls.target.clone(), pos: camera.position.clone() },
+            to: { target: to, pos: to.clone().add(dir.multiplyScalar(dist)) } };
+}
+function sceneCentre() { return new THREE.Vector3(0, 0, 0); }
+// How far back the camera has to be for every cell to fit the scene area, whichever way that area is shaped.
+function fitDistance() {
+  const half = THREE.MathUtils.degToRad(camera.fov / 2), halfWide = Math.atan(Math.tan(half) * camera.aspect);
+  const width = cursor - GAP, height = Math.max(...order.map(g => Math.max(layout[g].size[1], layout[g].size[2])));
+  return 1.08 * Math.max(width / 2 / Math.tan(halfWide), height / 2 / Math.tan(half)) + height * 0.2;
+}
+
+// ── picking: a click, not a drag ────────────────────────────────────────
+const ray = new THREE.Raycaster(); let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hits = ray.intersectObjects(cells.flatMap(c => c.parts.membrane ? [c.parts.membrane] : []));
+  const hit = hits.length ? cells.find(c => c.parts.membrane === hits[0].object) : null;
+  focus(hit && hit !== selected ? hit : null);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape') focus(null); });
+
+// ── the loop ───────────────────────────────────────────────────────────
+function resize() {
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+const v = new THREE.Vector3();
+function project(tag, p, lift = 0) {
+  v.copy(p); v.z += lift; v.project(camera);
+  const r = host.getBoundingClientRect();
+  tag.style.display = v.z < 1 ? '' : 'none';
+  tag.style.left = (r.left + (v.x + 1) / 2 * r.width) + 'px'; tag.style.top = (r.top + (1 - v.y) / 2 * r.height) + 'px';
+}
+function frame() {
+  requestAnimationFrame(frame);
+  if (tween) {
+    const t = Math.min(1, (performance.now() - tween.start) / 700);
+    const e = t * t * (3 - 2 * t);
+    controls.target.lerpVectors(tween.from.target, tween.to.target, e);
+    camera.position.lerpVectors(tween.from.pos, tween.to.pos, e);
+    if (t === 1) tween = null;
+  }
+  controls.update();
+  for (const c of cells) project(c.tag, c.node.position, c.radius * 0.0);
+  for (const g of order) project(layout[g].tag, new THREE.Vector3(layout[g].x, 0, 0), layout[g].size[2] / 2 + 3);
+  renderer.render(scene, camera);
+}
+
+DATA = await unpack(PACKED);
+build(); place(); panel(); resize();
+camera.position.set(0, -0.88, 0.47).multiplyScalar(fitDistance());
+controls.target.copy(sceneCentre());
+document.getElementById('loading').remove();
+frame();
+window.__landing = { cells, focus, camera, controls, renderer };   // for the page's own tests
+</script>
+</body>
+</html>
