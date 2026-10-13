@@ -98,41 +98,87 @@ def load_engine(weights: Path, tile_device: bool):
                     min_extent=4, save_panoptic=True, confidence_thr=CONFIDENCE, fill_holes_in_segmentation=True)
 
 
-def read_cell_8nm(loc):
-    """The cell's box at 8 nm isotropic, in the volume's orientation, with contrast like the 8-bit volumes."""
+def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
+    """The cell's box at 8 nm isotropic, in the volume's orientation, with contrast like the 8-bit volumes.
+
+    The box is read as the stored data, in z-slabs that line up with the stored chunks (a slab that cuts a chunk
+    fetches and unpacks it again for every cut), several at a time. Then the contrast mapping is worked out over
+    all of it (clip at the 1st and 99th percentile, then mean 128 and standard deviation 43), and the uint8
+    volume is made slab by slab, resampling a 6.8 nm volume to 8 nm on the way: nothing larger than a few slabs
+    is ever float32. With `cache` the finished volume is kept there and a resumed run reads it back."""
+    from concurrent.futures import ThreadPoolExecutor
+
     import zarr
     from zarr.n5 import N5FSStore
 
+    if cache is not None and cache.exists():
+        print("  reading the cell from", cache, flush=True)
+        return np.load(cache, mmap_mode="r")
     root = zarr.open(N5FSStore(loc["store"], anon=True), mode="r")
     arr = root[f"{loc['array']}/s1"]
+    cz = arr.chunks[0]
     z0, y0, x0 = loc["offset_s0_zyx"]
     nz, ny, nx = loc["size_16nm_zyx"]
-    zstep = loc["s0_voxel_nm_zyx"][0]
+    iso = loc["s0_voxel_nm_zyx"][0] == 4.0                # else 6.8 nm slices to be resampled to 8 nm
     y1, x1, ys, xs = y0 // 2, x0 // 2, ny * 2, nx * 2
-    if zstep == 4.0:                                      # already isotropic
-        vol = np.asarray(arr[z0 // 2:z0 // 2 + nz * 2, y1:y1 + ys, x1:x1 + xs]).astype(np.float32)
-    else:                                                 # 6.8 nm slices -> 8 nm
-        zs = z0 // 2
-        raw = np.asarray(arr[zs:zs + int(np.ceil(nz * 2 * 8 / 6.8)) + 2, y1:y1 + ys, x1:x1 + xs]).astype(np.float32)
-        pos = np.arange(nz * 2) * 8 / 6.8
+    zbase, depth = z0 // 2, nz * 2
+    stored = depth if iso else min(int(np.ceil(depth * 8 / 6.8)) + 2, arr.shape[0] - zbase)
+    sign = -1.0 if loc["volume_contrast_inverted"] else 1.0   # the 16-bit volume is stored with opposite contrast
+
+    raw = np.empty((stored, ys, xs), arr.dtype)
+    edges = [zbase] + list(range((zbase // cz + 1) * cz, zbase + stored, cz)) + [zbase + stored]
+
+    def read(r):
+        raw[r[0] - zbase:r[1] - zbase] = arr[r[0]:r[1], y1:y1 + ys, x1:x1 + xs]
+        return r[1] - r[0]
+
+    t0, done = time.time(), 0
+    with ThreadPoolExecutor(threads) as pool:
+        for n in pool.map(read, zip(edges[:-1], edges[1:])):
+            done += n
+            print(f"  read {done}/{stored} slices, {time.time() - t0:.0f} s", flush=True)
+
+    def resampled(z):
+        """Output slices [z, z + 64) at 8 nm, float32 and not yet inverted."""
+        if iso:
+            return raw[z:z + 64].astype(np.float32)
+        pos = np.arange(z, min(z + 64, depth)) * 8 / 6.8
         lo = np.floor(pos).astype(int)
-        w = (pos - lo).astype(np.float32)
-        lo1 = np.minimum(lo + 1, raw.shape[0] - 1)
-        vol = np.empty((nz * 2,) + raw.shape[1:], np.float32)
-        for i in range(nz * 2):
-            vol[i] = raw[lo[i]] * (1 - w[i]) + raw[lo1[i]] * w[i]
-        del raw
-    if loc["volume_contrast_inverted"]:                   # the 16-bit volume is stored with opposite contrast
-        vol = -vol
-    lo_, hi_ = np.percentile(vol[::4, ::4, ::4], [1, 99])
-    vol = np.clip(vol, lo_, hi_)
-    return np.clip((vol - vol.mean()) / vol.std() * 43 + 128, 0, 255).astype(np.uint8)
+        w = (pos - lo).astype(np.float32)[:, None, None]
+        return raw[lo].astype(np.float32) * (1 - w) + raw[np.minimum(lo + 1, stored - 1)].astype(np.float32) * w
+
+    lo_, hi_ = np.percentile(raw[::4, ::4, ::4].astype(np.float32) * sign, [1, 99])
+    total = total2 = 0.0
+    for z in range(0, depth, 64):
+        v = np.clip(resampled(z) * sign, lo_, hi_).astype(np.float64)
+        total += v.sum()
+        total2 += (v * v).sum()
+    count = depth * ys * xs
+    mean = total / count
+    std = float(np.sqrt(total2 / count - mean * mean))
+
+    vol = np.empty((depth, ys, xs), np.uint8)
+    for z in range(0, depth, 64):
+        v = np.clip(resampled(z) * sign, lo_, hi_)
+        vol[z:z + v.shape[0]] = np.clip((v - mean) / std * 43 + 128, 0, 255).astype(np.uint8)
+    del raw
+    if cache is not None:
+        np.save(cache.with_suffix(".part.npy"), vol)
+        del vol
+        os.replace(cache.with_suffix(".part.npy"), cache)
+        return np.load(cache, mmap_mode="r")
+    return vol
 
 
-def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path):
-    """MitoNet on xy tiles of the whole z stack; instances that two tiles share are one mitochondrion.
+def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256, zoverlap=32):
+    """MitoNet on blocks of the volume; instances that two blocks share are one mitochondrion.
 
-    Tile results go to a memory-mapped file with the merge state beside it, so an interrupted run resumes."""
+    The blocks are xy tiles of `tile` voxels, each cut in z every `zblock` slices. The z cut is not about
+    memory: empanada numbers the objects it tracks through a stack with a counter that starts at 1001 and
+    is never reused, and past 1999 a label reads as another class and is dropped. A beta cell uses that up
+    about 700 slices in, after which nothing more is found. A block of 256 slices stays far below it.
+
+    Block results go to a memory-mapped file with the merge state beside it, so an interrupted run resumes."""
     from scipy import ndimage as ndi
 
     raw_path, state_path = work / "raw.npy", work / "state.json"
@@ -149,38 +195,45 @@ def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path):
             i = parent[i]
         return i
 
-    _, Y, X = vol.shape
+    Z, Y, X = vol.shape
     step = tile - overlap
+    zstep = zblock - zoverlap
     t0 = time.time()
-    for yi in range(0, max(Y - overlap, 1), step):
-        for xi in range(0, max(X - overlap, 1), step):
-            ya, xa = min(yi, max(Y - tile, 0)), min(xi, max(X - tile, 0))
-            yb, xb = min(ya + tile, Y), min(xa + tile, X)
-            if (ya, xa) in done or not inside_xy[ya:yb, xa:xb].any():
-                continue
-            stack, _ = engine.infer_on_axis(np.ascontiguousarray(vol[:, ya:yb, xa:xb]), "xy")
-            stack = np.asarray(stack)
-            ids = np.unique(stack[stack > 0])
-            remap = np.zeros(int(stack.max()) + 1, np.uint32)
-            remap[ids] = np.arange(nextid, nextid + len(ids), dtype=np.uint32)
-            nextid += len(ids)
-            new = remap[stack]
-            old = out[:, ya:yb, xa:xb]
-            both = (old > 0) & (new > 0)
-            if both.any():
-                pairs, counts = np.unique(np.stack([old[both], new[both]]), axis=1, return_counts=True)
-                size = np.bincount(new[new > 0], minlength=nextid)
-                for (o, n), c in zip(pairs.T, counts):
-                    if c >= 50 and c >= 0.2 * min(size[n], (old == o).sum()):
-                        ro, rn = find(int(o)), find(int(n))
-                        if ro != rn:
-                            parent[rn] = ro
-            old[old == 0] = new[old == 0]
-            out.flush()
-            done.add((ya, xa))
-            state_path.write_text(json.dumps({"nextid": nextid, "parent": {str(k): int(v) for k, v in parent.items()},
-                                              "done": sorted(done)}))
-            print(f"  tile y{ya} x{xa}: {len(ids)} instances, {time.time() - t0:.0f} s", flush=True)
+    def blocks():
+        for zi in range(0, max(Z - zoverlap, 1), zstep):
+            za = min(zi, max(Z - zblock, 0))
+            for yi in range(0, max(Y - overlap, 1), step):
+                for xi in range(0, max(X - overlap, 1), step):
+                    ya, xa = min(yi, max(Y - tile, 0)), min(xi, max(X - tile, 0))
+                    yield za, min(za + zblock, Z), ya, min(ya + tile, Y), xa, min(xa + tile, X)
+
+    for za, zb, ya, yb, xa, xb in blocks():
+        if (za, ya, xa) in done or not inside_xy[ya:yb, xa:xb].any():
+            continue
+        stack, _ = engine.infer_on_axis(np.ascontiguousarray(vol[za:zb, ya:yb, xa:xb]), "xy")
+        stack = np.asarray(stack)
+        ids = np.unique(stack[stack > 0])
+        remap = np.zeros(int(stack.max()) + 1, np.uint32)
+        remap[ids] = np.arange(nextid, nextid + len(ids), dtype=np.uint32)
+        nextid += len(ids)
+        new = remap[stack]
+        old = out[za:zb, ya:yb, xa:xb]
+        both = (old > 0) & (new > 0)
+        if both.any():
+            pairs, counts = np.unique(np.stack([old[both], new[both]]), axis=1, return_counts=True)
+            size = np.bincount(new[new > 0], minlength=nextid)
+            old_size = np.bincount(old[old > 0], minlength=nextid)
+            for (o, n), c in zip(pairs.T, counts):
+                if c >= 50 and c >= 0.2 * min(size[n], old_size[o]):
+                    ro, rn = find(int(o)), find(int(n))
+                    if ro != rn:
+                        parent[rn] = ro
+        old[old == 0] = new[old == 0]
+        out.flush()
+        done.add((za, ya, xa))
+        state_path.write_text(json.dumps({"nextid": nextid, "parent": {str(k): int(v) for k, v in parent.items()},
+                                          "done": sorted(done)}))
+        print(f"  block z{za}-{zb} y{ya} x{xa}: {len(ids)} instances, {time.time() - t0:.0f} s", flush=True)
 
     lut = np.arange(nextid, dtype=np.uint32)
     for i in range(1, nextid):
@@ -208,7 +261,7 @@ def to_16nm(inst8):
     return lab.astype(np.uint16 if lab.max() < 65535 else np.uint32)
 
 
-def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap):
+def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zblock=256, zoverlap=32):
     import tifffile
 
     group = cell.split("_")[0]
@@ -216,8 +269,10 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap):
     dst.mkdir(parents=True, exist_ok=True)
     nz, ny, nx = loc["size_16nm_zyx"]
 
+    work = out_dir / "_work" / cell
+    work.mkdir(parents=True, exist_ok=True)
     print(f"{cell}: reading the cell at 8 nm", flush=True)
-    vol = read_cell_8nm(loc)
+    vol = read_cell_8nm(loc, work / "vol8.npy")
     # Where the cell is: skip the xy tiles with none of it. The published masks run opposite to the volume in y.
     inside = np.zeros((nz, ny, nx), bool)
     for name in ("membrane", "nucleus"):
@@ -227,9 +282,7 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap):
     from scipy import ndimage as ndi
     column = ndi.binary_dilation(column, iterations=24)
 
-    work = out_dir / "_work" / cell
-    work.mkdir(parents=True, exist_ok=True)
-    inst8 = segment_tiled(engine, vol, column, tile, overlap, work)
+    inst8 = segment_tiled(engine, vol, column, tile, overlap, work, zblock, zoverlap)
     del vol
     print(f"{cell}: {int(inst8.max())} mitochondria", flush=True)
 
@@ -246,8 +299,11 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap):
 
     old = tifffile.imread(src / f"{cell}_mitochondria_mask.tif") > 0
     new = lab > 0
-    print(f"{cell}: {int(lab.max())} instances at 16 nm; Dice with the published mask "
-          f"{2 * (new & old).sum() / (new.sum() + old.sum()):.3f}", flush=True)
+    dice = 2 * (new & old).sum() / (new.sum() + old.sum())
+    print(f"{cell}: {int(lab.max())} instances at 16 nm; Dice with the published mask {dice:.3f}", flush=True)
+    if dice < 0.5:
+        print(f"{cell}: WARNING the result agrees poorly with the published mask (0.8 or more is usual). "
+              "Look at where it is empty along z before using it.", flush=True)
     for f in work.iterdir():
         f.unlink()
     work.rmdir()
@@ -260,7 +316,9 @@ def main():
     ap.add_argument("--cells", default="", help="comma list; default: all seven")
     ap.add_argument("--locations", type=Path, default=Path(__file__).with_name("betacells_locations.json"))
     ap.add_argument("--tile", type=int, default=512, help="xy tile edge in 8 nm voxels")
-    ap.add_argument("--overlap", type=int, default=64)
+    ap.add_argument("--overlap", type=int, default=64, help="xy overlap of neighbouring tiles")
+    ap.add_argument("--zblock", type=int, default=256, help="slices per block; empanada loses objects past ~1000 per stack")
+    ap.add_argument("--zoverlap", type=int, default=32)
     ap.add_argument("--cpu", action="store_true", help="no GPU")
     ap.add_argument("--check", action="store_true", help="download the weights, build the engine and exit")
     ap.add_argument("--weights", type=Path, default=Path("MitoNet_v1.pth"))
@@ -280,7 +338,8 @@ def main():
     locations = json.loads(args.locations.read_text())
     cells = [c for c in args.cells.split(",") if c] or list(locations)
     for cell in cells:
-        run_cell(cell, locations[cell], args.data_dir, args.out_dir, engine, args.tile, args.overlap)
+        run_cell(cell, locations[cell], args.data_dir, args.out_dir, engine, args.tile, args.overlap,
+                 args.zblock, args.zoverlap)
 
 
 if __name__ == "__main__":
