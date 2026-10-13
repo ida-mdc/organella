@@ -3,6 +3,8 @@
 # requires-python = ">=3.10,<3.12"
 # dependencies = [
 #     "numpy==1.26.4",
+#     "torch==2.14.1",
+#     "torchvision==0.29.1",
 #     "empanada-napari==1.2.4",
 #     "scikit-image==0.22.0",
 #     "scipy==1.11.4",
@@ -20,6 +22,10 @@
 # # left out on purpose: it ships an older copy of the same `empanada` package that overwrites the one in
 # # empanada-napari and imports names the current cztile no longer has.
 # override-dependencies = ["numpy==1.26.4", "opencv-python==4.7.0.72", "opencv-python-headless==4.7.0.72"]
+#
+# # Which CUDA build of torch uv installs is chosen from outside (see betacells_slurm.sh): the one on PyPI is
+# # built for CUDA 13, which has no kernels for Volta cards such as the V100, and torch then runs on the CPU;
+# # the CUDA 12.6 build covers Volta to Hopper (V100, A100, H100, H200), CUDA 13 is for Blackwell (B100, B200).
 # ///
 """Mitochondria instances of the seven beta cells, from the raw OpenOrganelle volumes, with empanada's MitoNet.
 
@@ -81,9 +87,14 @@ def load_engine(weights: Path, tile_device: bool):
     filters.connected_components = lambda seg: measure.label(seg, connectivity=seg.ndim).astype(np.uint32)
     from empanada_napari.inference import Engine3d
 
+    if tile_device and not torch.cuda.is_available():
+        # torch falls back to the CPU without a word, and the warning that says why is silenced above;
+        # on the CPU a cell takes days, so say it now. A wheel built for a newer CUDA than the driver is the usual cause.
+        raise SystemExit(f"torch {torch.__version__} (built for CUDA {torch.version.cuda}) sees no usable GPU. "
+                         "Check `nvidia-smi` on this node; --cpu runs on the CPU anyway.")
     config = yaml.safe_load(open(pkg / "configs" / "MitoNet_v1.yaml"))
     config["model"] = str(weights)
-    return Engine3d(config, inference_scale=1, use_gpu=tile_device and torch.cuda.is_available(), min_size=500,
+    return Engine3d(config, inference_scale=1, use_gpu=tile_device, min_size=500,
                     min_extent=4, save_panoptic=True, confidence_thr=CONFIDENCE, fill_holes_in_segmentation=True)
 
 
@@ -261,7 +272,8 @@ def main():
     engine = load_engine(args.weights.resolve(), not args.cpu)
     if args.check:
         import torch
-        print(f"MitoNet is ready; GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() and not args.cpu else 'none'}")
+        print(f"MitoNet is ready; torch {torch.__version__} for CUDA {torch.version.cuda}; "
+              f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'}")
         return
     if not (args.data_dir and args.out_dir):
         ap.error("data_dir and out_dir are required")
