@@ -42,8 +42,8 @@ cell sits in its OpenOrganelle volume is in `examples/betacells_locations.json`.
 S3 on demand. Tiles of 512 x 512 voxels fit in 4 GB; with a larger GPU use --tile 1024 or more.
 
 Per cell, in OUT_DIR/<group>/<cell>/ (an `organella`-readable folder: the cell's other files are linked in):
-  <cell>_mitochondria_labels.tif       one label per mitochondrion, 16 nm, the published masks' orientation
-  <cell>_mitochondria_8nm.tif          the same at 8 nm, in the volume's orientation with y flipped back
+  <cell>_mitochondria_labels.tif       one label per mitochondrion of the cell, 16 nm, the published masks' orientation
+  <cell>_mitochondria_8nm.tif          the whole box at 8 nm, neighbouring cells included, y as in the published masks
 """
 from __future__ import annotations
 
@@ -309,6 +309,11 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zb
     tifffile.imwrite(dst / f"{cell}_mitochondria_8nm.tif", inst8[:, ::-1, :], compression="zlib")
     lab = to_16nm(inst8)[:, ::-1, :]
     del inst8
+    # The box holds the neighbouring cells too, and MitoNet segments their mitochondria as well; like the published
+    # masks, the 16 nm labels are the cell's own. An object that crosses the membrane is cut there.
+    lab = np.where(inside, lab, 0)
+    ids, inverse = np.unique(lab, return_inverse=True)
+    lab = inverse.reshape(lab.shape).astype(np.uint16 if len(ids) < 65535 else np.uint32)
     for f in src.iterdir():                               # the cell's other labels, linked: the folder is a whole cell
         if f.name.endswith("_mitochondria_mask.tif") or "mitochondria_" in f.name and f.name.endswith("8nm.tif"):
             continue
@@ -317,11 +322,11 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zb
             os.symlink(f.resolve(), link)
     tifffile.imwrite(dst / f"{cell}_mitochondria_labels.tif", lab, compression="zlib")
 
-    old = tifffile.imread(src / f"{cell}_mitochondria_mask.tif") > 0
+    old = (tifffile.imread(src / f"{cell}_mitochondria_mask.tif") > 0) & inside
     new = lab > 0
     dice = 2 * (new & old).sum() / (new.sum() + old.sum())
-    print(f"{cell}: {int(lab.max())} instances at 16 nm; Dice with the published mask {dice:.3f}", flush=True)
-    if dice < 0.5:
+    print(f"{cell}: {int(lab.max())} instances inside the cell at 16 nm; Dice with the published mask {dice:.3f}", flush=True)
+    if dice < 0.6:
         print(f"{cell}: WARNING the result agrees poorly with the published mask (0.8 or more is usual). "
               "Look at where it is empty along z before using it.", flush=True)
     for f in work.iterdir():
