@@ -1,0 +1,198 @@
+{
+  "high_c1": {
+    "dataset": "jrc_mus-pancreas-1",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-1/jrc_mus-pancreas-1.n5",
+    "array": "em/fibsem-uint16",
+    "offset_16nm_zyx": [
+      0,
+      295,
+      0
+    ],
+    "offset_s0_zyx": [
+      0,
+      1180,
+      0
+    ],
+    "size_16nm_zyx": [
+      1097,
+      699,
+      760
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": true,
+    "s0_voxel_nm_zyx": [
+      3.4,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.901
+  },
+  "high_c2": {
+    "dataset": "jrc_mus-pancreas-1",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-1/jrc_mus-pancreas-1.n5",
+    "array": "em/fibsem-uint16",
+    "offset_16nm_zyx": [
+      0,
+      327,
+      439
+    ],
+    "offset_s0_zyx": [
+      0,
+      1308,
+      1756
+    ],
+    "size_16nm_zyx": [
+      1043,
+      606,
+      870
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": true,
+    "s0_voxel_nm_zyx": [
+      3.4,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.988
+  },
+  "high_c3": {
+    "dataset": "jrc_mus-pancreas-1",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-1/jrc_mus-pancreas-1.n5",
+    "array": "em/fibsem-uint16",
+    "offset_16nm_zyx": [
+      0,
+      247,
+      1028
+    ],
+    "offset_s0_zyx": [
+      0,
+      988,
+      4112
+    ],
+    "size_16nm_zyx": [
+      1023,
+      676,
+      845
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": true,
+    "s0_voxel_nm_zyx": [
+      3.4,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.946
+  },
+  "high_c4": {
+    "dataset": "jrc_mus-pancreas-1",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-1/jrc_mus-pancreas-1.n5",
+    "array": "em/fibsem-uint16",
+    "offset_16nm_zyx": [
+      471,
+      70,
+      793
+    ],
+    "offset_s0_zyx": [
+      2216,
+      280,
+      3172
+    ],
+    "size_16nm_zyx": [
+      1022,
+      545,
+      1082
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": true,
+    "s0_voxel_nm_zyx": [
+      3.4,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.92
+  },
+  "low_c1": {
+    "dataset": "jrc_mus-pancreas-2",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
+    "array": "em/fibsem-uint8",
+    "offset_16nm_zyx": [
+      91,
+      471,
+      525
+    ],
+    "offset_s0_zyx": [
+      364,
+      1884,
+      2100
+    ],
+    "size_16nm_zyx": [
+      906,
+      694,
+      725
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": false,
+    "s0_voxel_nm_zyx": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.397
+  },
+  "low_c2": {
+    "dataset": "jrc_mus-pancreas-2",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
+    "array": "em/fibsem-uint8",
+    "offset_16nm_zyx": [
+      428,
+      0,
+      292
+    ],
+    "offset_s0_zyx": [
+      1712,
+      0,
+      1168
+    ],
+    "size_16nm_zyx": [
+      853,
+      758,
+      958
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": false,
+    "s0_voxel_nm_zyx": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.444
+  },
+  "low_c3": {
+    "dataset": "jrc_mus-pancreas-2",
+    "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
+    "array": "em/fibsem-uint8",
+    "offset_16nm_zyx": [
+      980,
+      366,
+      0
+    ],
+    "offset_s0_zyx": [
+      3920,
+      1464,
+      0
+    ],
+    "size_16nm_zyx": [
+      912,
+      705,
+      880
+    ],
+    "crop_y_flipped": true,
+    "volume_contrast_inverted": false,
+    "s0_voxel_nm_zyx": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "correlation": 0.192
+  }
+}
