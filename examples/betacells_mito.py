@@ -170,7 +170,7 @@ def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
     return vol
 
 
-def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256, zoverlap=32):
+def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256, zoverlap=32, merge_iou=0.3):
     """MitoNet on blocks of the volume; instances that two blocks share are one mitochondrion.
 
     The blocks are xy tiles of `tile` voxels, each cut in z every `zblock` slices. The z cut is not about
@@ -207,7 +207,8 @@ def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256,
                     ya, xa = min(yi, max(Y - tile, 0)), min(xi, max(X - tile, 0))
                     yield za, min(za + zblock, Z), ya, min(ya + tile, Y), xa, min(xa + tile, X)
 
-    for za, zb, ya, yb, xa, xb in blocks():
+    boxes = list(blocks())
+    for k, (za, zb, ya, yb, xa, xb) in enumerate(boxes):
         if (za, ya, xa) in done or not inside_xy[ya:yb, xa:xb].any():
             continue
         stack, _ = engine.infer_on_axis(np.ascontiguousarray(vol[za:zb, ya:yb, xa:xb]), "xy")
@@ -218,16 +219,35 @@ def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256,
         nextid += len(ids)
         new = remap[stack]
         old = out[za:zb, ya:yb, xa:xb]
-        both = (old > 0) & (new > 0)
+        # The zone this block shares with the blocks done before it, and in it the objects each side found.
+        # Two labels are one mitochondrion when they cover the same voxels of the zone (IoU of at least 0.5)
+        # and each is the other's best match (`merge_iou`). A looser rule chains touching mitochondria into one object.
+        zone = np.zeros(old.shape, bool)
+        for (z0, z1, y0, y1, x0, x1) in boxes[:k]:
+            if (z0, y0, x0) in done:
+                zone[max(z0 - za, 0):max(z1 - za, 0), max(y0 - ya, 0):max(y1 - ya, 0),
+                     max(x0 - xa, 0):max(x1 - xa, 0)] = True
+        roots = np.array([find(i) for i in range(nextid)], dtype=np.int64)
+        old_obj = roots[old]                                   # an object that earlier merges joined counts once
+        new_zone = np.where(zone, new, 0)
+        both = (old_obj > 0) & (new_zone > 0)
         if both.any():
-            pairs, counts = np.unique(np.stack([old[both], new[both]]), axis=1, return_counts=True)
-            size = np.bincount(new[new > 0], minlength=nextid)
-            old_size = np.bincount(old[old > 0], minlength=nextid)
-            for (o, n), c in zip(pairs.T, counts):
-                if c >= 50 and c >= 0.2 * min(size[n], old_size[o]):
-                    ro, rn = find(int(o)), find(int(n))
-                    if ro != rn:
-                        parent[rn] = ro
+            pairs, counts = np.unique(np.stack([old_obj[both], new_zone[both]]), axis=1, return_counts=True)
+            old_size = np.bincount(old_obj[old_obj > 0], minlength=nextid)
+            new_size = np.bincount(new_zone[new_zone > 0], minlength=nextid)
+            o, n = pairs
+            iou = counts / (old_size[o] + new_size[n] - counts)
+            best_o, best_n = {}, {}
+            for a, b, v in zip(o, n, iou):
+                if v > best_o.get(a, (0, 0))[0]:
+                    best_o[a] = (v, b)
+                if v > best_n.get(b, (0, 0))[0]:
+                    best_n[b] = (v, a)
+            for a, (v, b) in best_o.items():
+                if v >= merge_iou and best_n[b][1] == a:
+                    ra, rb = find(int(a)), find(int(b))
+                    if ra != rb:
+                        parent[rb] = ra
         old[old == 0] = new[old == 0]
         out.flush()
         done.add((za, ya, xa))
