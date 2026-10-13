@@ -30,7 +30,9 @@ from organella.analysis.distances import (
     segmented_center_um,
 )
 from organella.analysis.parallel import WorkPool, batched, worker_share
-from organella.analysis.shapes import skeleton_graph_metrics
+from organella.analysis.shapes import (
+    DEFAULT_SKELETON_PARAMS, SkeletonParams, skeleton_graph_metrics,
+)
 from organella.analysis.cache import (
     contacts_for,
     label_metrics_for,
@@ -102,6 +104,7 @@ class MeshOptions:
     # skeleton is computed once per object and shared.
     skeletons: EntityFilter = None
     max_skeleton_voxels: Optional[int] = 500_000
+    skeleton_params: SkeletonParams = DEFAULT_SKELETON_PARAMS
     # Contacts ride along so "Colour by → Contact group" works; None leaves them out. Cheap
     # next to meshing (seconds against minutes).
     contact_max_um: Optional[float] = 0.5
@@ -136,6 +139,7 @@ class MeshOptions:
             geometry_as=cfg.geometry_as,
             skeletons=cfg.skeletons,
             max_skeleton_voxels=cfg.max_skeleton_voxels,
+            skeleton_params=cfg.skeleton_params(),
             contact_max_um=cfg.contact_max_um,
             mesh_workers=cfg.mesh_workers,
             max_vertices=cfg.mesh_max_vertices,
@@ -586,7 +590,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
         shape_keys = METRICS_2D if ndim == 2 else METRICS_3D
         skeletons = (
             skeletons_for(object_id, name, labels, sample_size,
-                          options.max_skeleton_voxels)
+                          options.max_skeleton_voxels, options.skeleton_params)
             if wants_skeletons(name, options.geometry_as, options.skeletons)
             else {}
         )

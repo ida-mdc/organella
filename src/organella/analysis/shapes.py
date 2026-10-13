@@ -8,6 +8,7 @@ it: volume, surface area and sphericity, or area, perimeter and circularity.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import kimimaro
@@ -94,16 +95,110 @@ def region_metrics(binary: np.ndarray, sample_size: Sequence[float]) -> Dict[str
 # Minimum component size (voxels) for kimimaro to attempt a skeleton.
 SKELETON_DUST_VOXELS = 2
 
-# TEASAR parameters, distances in µm. scale/const set branch-pruning aggressiveness; soma
-# handling is off, since it targets neurons, not organelles.
-_TEASAR_PARAMS = {
-    "scale": 1.5,
-    "const": 0.05,
-    "pdrf_scale": 100000,
-    "pdrf_exponent": 4,
-    "soma_detection_threshold": 1e9,
-    "soma_acceptance_threshold": 1e9,
-}
+@dataclass(frozen=True)
+class SkeletonParams:
+    """What decides how coarse a curve skeleton is. Every number is relative to the data.
+
+    TEASAR traces a path, then rules out everything within ``scale · r + const`` of it
+    (r the local radius) as already covered, and traces again from whatever is left. Too
+    small a reach and the same tube is traced again and again from its own wall, which is
+    a skeleton of spurs.
+
+    ``scale`` and ``prune`` are in radii, so a thick mitochondrion and a thin ER tube each
+    get a reach in proportion to their own width. ``const_voxels`` is in voxels: it is
+    there for the places a tube is a few voxels wide, where ``scale · r`` is smaller than
+    the staircase noise, and noise comes in voxels whatever the micrometres are.
+    """
+
+    # Reach of the covered zone around a path, in local radii.
+    scale: float = 3.0
+    # Reach added to it everywhere, in voxels (of the coarsest axis).
+    const_voxels: float = 6.0
+    # Terminal branches shorter than this many radii (at the junction they leave) are cut
+    # off; a stub that short is the surface bulging, not a branch. 0 keeps everything.
+    prune: float = 2.0
+
+
+DEFAULT_SKELETON_PARAMS = SkeletonParams()
+
+
+def _teasar_params(params: SkeletonParams, voxel_size: Sequence[float]) -> dict:
+    """kimimaro's parameters for this resolution. Soma handling is off: it targets
+    neurons, not organelles."""
+    return {
+        "scale": params.scale,
+        "const": params.const_voxels * max(float(v) for v in voxel_size),
+        "pdrf_scale": 100000,
+        "pdrf_exponent": 4,
+        "soma_detection_threshold": 1e9,
+        "soma_acceptance_threshold": 1e9,
+    }
+
+
+def prune_spurs(skeleton: Any, factor: float) -> Any:
+    """Cut the terminal branches shorter than ``factor`` radii, in place; the skeleton back.
+
+    A terminal branch runs from a tip to the junction it leaves, and its length is judged
+    against the radius at that junction, which is how wide the thing it hangs off is. Short
+    ones go first, and a junction that is down to two branches is not a junction any more,
+    so the longest of the rest are never cut. A skeleton that is one unbranched path has
+    no junction and is left alone.
+    """
+    vertices = np.asarray(skeleton.vertices)
+    edges = np.asarray(skeleton.edges)
+    radii = getattr(skeleton, "radii", None)
+    if factor <= 0 or len(edges) == 0 or radii is None or len(radii) != len(vertices):
+        return skeleton
+    pos = vertices.astype(np.float64)
+    radius = np.asarray(radii, dtype=np.float64)
+    neighbours: list[set[int]] = [set() for _ in range(len(vertices))]
+    for a, b in edges:
+        neighbours[int(a)].add(int(b))
+        neighbours[int(b)].add(int(a))
+
+    removed: set[int] = set()
+    while True:
+        spurs = []
+        for tip in range(len(neighbours)):
+            if len(neighbours[tip]) != 1 or tip in removed:
+                continue
+            path, previous, here, length = [tip], None, tip, 0.0
+            while len(neighbours[here]) <= 2:
+                step = [n for n in neighbours[here] if n != previous]
+                if not step:
+                    break
+                previous, here = here, step[0]
+                length += float(np.linalg.norm(pos[here] - pos[previous]))
+                path.append(here)
+            if len(neighbours[here]) >= 3 and length < factor * radius[here]:
+                spurs.append((length, path))
+        cut = False
+        for _, path in sorted(spurs, key=lambda spur: spur[0]):
+            junction = path[-1]
+            if len(neighbours[junction]) < 3:
+                continue
+            for vertex in path[:-1]:
+                for n in neighbours[vertex]:
+                    neighbours[n].discard(vertex)
+                neighbours[vertex] = set()
+                removed.add(vertex)
+            cut = True
+        if not cut:
+            break
+
+    if not removed:
+        return skeleton
+    keep = np.array([v for v in range(len(vertices)) if v not in removed])
+    remap = np.full(len(vertices), -1, dtype=np.int64)
+    remap[keep] = np.arange(len(keep))
+    kept = np.array([(remap[a], remap[b]) for a, b in edges
+                     if a not in removed and b not in removed], dtype=edges.dtype)
+    skeleton.vertices = vertices[keep]
+    skeleton.edges = kept.reshape(-1, 2)
+    skeleton.radii = np.asarray(radii)[keep]
+    if getattr(skeleton, "vertex_types", None) is not None:
+        skeleton.vertex_types = np.asarray(skeleton.vertex_types)[keep]
+    return skeleton
 
 
 class _Polyline:
@@ -182,18 +277,20 @@ def compute_skeletons(
     labels: np.ndarray,
     sample_size: Sequence[float],
     max_voxels: int | None = None,
+    params: SkeletonParams = DEFAULT_SKELETON_PARAMS,
 ) -> dict:
     """Skeletons for every instance, by whichever dimensionality the labels have."""
     if labels.ndim == 2:
         return compute_planar_skeletons(labels, sample_size, max_voxels)
     return compute_curve_skeletons(labels, tuple(float(v) for v in sample_size),
-                                   max_voxels=max_voxels)
+                                   max_voxels=max_voxels, params=params)
 
 
 def compute_curve_skeletons(
     labels: np.ndarray,
     voxel_size_zyx: Tuple[float, float, float],
     max_voxels: int | None = None,
+    params: SkeletonParams = DEFAULT_SKELETON_PARAMS,
 ) -> dict:
     """TEASAR curve skeletons for every instance in a 3D label volume (kimimaro).
 
@@ -215,7 +312,8 @@ def compute_curve_skeletons(
     for index, box in enumerate(find_objects(labels)):
         if box is None:
             continue
-        skeleton = _instance_skeleton(labels, box, index + 1, voxel_size_zyx, max_voxels)
+        skeleton = _instance_skeleton(labels, box, index + 1, voxel_size_zyx, max_voxels,
+                                      params)
         if skeleton is not None:
             out[index + 1] = skeleton
     return out
@@ -227,6 +325,7 @@ def _instance_skeleton(
     label_id: int,
     voxel_size_zyx: Tuple[float, float, float],
     max_voxels: int | None,
+    params: SkeletonParams,
 ) -> Any:
     """One instance's centre line, traced in its own bounding box, in the volume's frame.
 
@@ -245,7 +344,7 @@ def _instance_skeleton(
         return None
     skeleton = kimimaro.skeletonize(
         crop,
-        teasar_params=_TEASAR_PARAMS,
+        teasar_params=_teasar_params(params, voxel_size_zyx),
         anisotropy=tuple(float(v) for v in voxel_size_zyx),
         dust_threshold=SKELETON_DUST_VOXELS,
         fix_branching=True,
@@ -266,7 +365,7 @@ def _instance_skeleton(
     origin = np.asarray([axis.start for axis in window], dtype=np.float64)
     voxels = np.rint(np.asarray(skeleton.vertices, dtype=np.float64) / anisotropy) + origin
     skeleton.vertices = voxels.astype(np.float32) * anisotropy
-    return skeleton
+    return prune_spurs(skeleton, params.prune)
 
 
 def _branch_segments(adj: list[list[int]], deg: np.ndarray) -> list[list[int]]:

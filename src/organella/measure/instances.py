@@ -351,7 +351,8 @@ class InstanceMeasurer:
         # A skeleton per instance, shared with the geometry writer through the cache, and
         # skipped for entities that want none.
         skels = (
-            skeletons_for(object_id, entity, labels, sample_size, cfg.max_skeleton_voxels)
+            skeletons_for(object_id, entity, labels, sample_size, cfg.max_skeleton_voxels,
+                           cfg.skeleton_params())
             if wants_skeletons(entity, cfg.geometry_as, cfg.skeletons) else {}
         )
         unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
@@ -520,7 +521,7 @@ class InstanceMeasurer:
             if not wants_skeletons(name, cfg.geometry_as, cfg.skeletons):
                 continue
             skeletons = skeletons_for(object_id, name, views[name], sample_size,
-                                      cfg.max_skeleton_voxels)
+                                      cfg.max_skeleton_voxels, cfg.skeleton_params())
             index = _endpoint_index(views[name], skeletons, sample_size)
             if index is not None:
                 out[name] = index

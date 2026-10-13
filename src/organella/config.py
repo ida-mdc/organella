@@ -209,6 +209,10 @@ class RunConfig:
     label_map_entity: Optional[str] = None
     entity_colours: Dict[str, str] = field(default_factory=dict)
     max_skeleton_voxels: int = 500_000
+    # How coarse a curve skeleton is; see SkeletonParams. All relative to the data.
+    skeleton_scale: float = 3.0
+    skeleton_const_voxels: float = 6.0
+    skeleton_prune: float = 2.0
     skeletons: EntityFilter = None
     geometry_as: Dict[str, str] = field(default_factory=dict)
     # What --num-threads sets, and nothing reads: a skeleton is traced in one instance's
@@ -232,10 +236,18 @@ class RunConfig:
     _RESULT_AFFECTING = (
         "object_mask", "voxel_size_um", "clip", "auto_label_masks", "entities",
         "label_map", "label_map_entity", "skeletons", "geometry_as",
-        "max_skeleton_voxels",
+        "max_skeleton_voxels", "skeleton_scale", "skeleton_const_voxels", "skeleton_prune",
         "contact_max_um", "polarity_spread", "distance_histograms", "baseline_exclude",
         "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
     )
+
+    def skeleton_params(self) -> "SkeletonParams":
+        """The three --skeleton-* settings as the one value the tracer takes."""
+        from organella.analysis.shapes import SkeletonParams
+
+        return SkeletonParams(scale=self.skeleton_scale,
+                              const_voxels=self.skeleton_const_voxels,
+                              prune=self.skeleton_prune)
 
     def fingerprint(self, *extra: Any) -> str:
         """A short digest of the settings a cached result was produced under.

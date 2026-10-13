@@ -269,6 +269,9 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `--contact-max-um T` | Largest gap between two instances of one structure that still counts as a contact. Default 0.5                                                                                                                                       |
 | `--skeletons NAMES` | Structures to skeletonise, for branches, length and tortuosity. Opt-in: it is the most expensive thing in a run.                                                                                                                     |
 | `--max-skeleton-voxels N` | skip skeletons for instances above this voxel count. Default 500000                                                                                                                                                                  |
+| `--skeleton-scale R` | reach around a traced path, in local radii. Default 3 |
+| `--skeleton-const-voxels N` | extra reach, in voxels of the coarsest axis. Default 6 |
+| `--skeleton-prune R` | cut terminal branches shorter than R radii; 0 keeps all. Default 2 |
 | `--polarity-spread` | Measure each instance's angular spread on the polarity sphere.                                                                                                                                                                       |
 | `--distance-histograms` | Measure per-instance distance distributions, not just the minimum.                                                                                                                                                                   |
 | `--baseline-exclude NAMES` | Structures to leave out of the region every distance is read against. Each structure gets a chance distribution - its distance from everywhere in the object. Name the structures an instance could never sit inside, e.g. `nucleus. |

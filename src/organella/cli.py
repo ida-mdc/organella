@@ -73,6 +73,23 @@ def estimate_peak_gb(object_dir: Path, wanted: EntityFilter = None) -> float:
     return voxels * (2 * entities + 4) * _PEAK_OVERHEAD / 1024**3
 
 
+def _skeleton_flags(fn):
+    """The --skeleton-* options, identical on `process` and `mesh`. All relative to the data."""
+    for option in reversed([
+        click.option("--skeleton-scale", type=float, default=None, metavar="R",
+                     help="How far around a traced path counts as covered, in local radii "
+                          "(default: 3). Lower traces more side branches."),
+        click.option("--skeleton-const-voxels", type=float, default=None, metavar="N",
+                     help="Added to that reach, in voxels of the coarsest axis (default: 6). "
+                          "Matters where a tube is only a few voxels wide."),
+        click.option("--skeleton-prune", type=float, default=None, metavar="R",
+                     help="Cut terminal branches shorter than this many radii at the "
+                          "junction they leave (default: 2; 0 keeps them all)."),
+    ]):
+        fn = option(fn)
+    return fn
+
+
 def _mesh_flags(fn):
     """The --mesh-* options, identical on `process --with-mesh` and `mesh`."""
     for option in reversed([
@@ -283,6 +300,7 @@ def describe(report: Path, text: str) -> None:
                    "to <output>_meshes/.")
 @click.option("--mesh-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Where --with-mesh writes the geometry (default: <output>_meshes).")
+@_skeleton_flags
 @_mesh_flags
 def process(
     object_dir: Path, output: Path, paths: Tuple[str, ...], object_mask: str | None,
@@ -291,6 +309,8 @@ def process(
     label_map: Path | None, label_map_entity: str | None,
     contact_max_um: float | None,
     max_skeleton_voxels: int | None, num_threads: int | None,
+    skeleton_scale: float | None, skeleton_const_voxels: float | None,
+    skeleton_prune: float | None,
     skeletons: str | None, geometry_as: str | None, polarity_spread: bool,
     distance_histograms: bool, baseline_exclude: str | None,
     colours: Path | None, no_contacts: bool, no_instances: bool,
@@ -322,6 +342,9 @@ def process(
         label_map_entity=label_map_entity,
         entity_colours=_given(colours_from_file, colours),
         max_skeleton_voxels=max_skeleton_voxels,
+        skeleton_scale=skeleton_scale,
+        skeleton_const_voxels=skeleton_const_voxels,
+        skeleton_prune=skeleton_prune,
         skeletons=parse_entity_filter(skeletons),
         geometry_as=_given(parse_geometry_as, geometry_as),
         num_threads=num_threads,
@@ -625,12 +648,15 @@ def cells(
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
               help="Gap threshold for the contact rows the 3D viewer groups by (default: 0.5).")
 @click.option("--no-contacts", is_flag=True, help="Leave the contact rows out of the geometry.")
+@_skeleton_flags
 @_mesh_flags
 def mesh(
     object_dir: Path, out_dir: Path, object_mask: str | None,
     voxel_size_um: str | None, no_clip: bool,
     skeletons: str | None, geometry_as: str | None, contact_max_um: float | None,
     no_contacts: bool,
+    skeleton_scale: float | None, skeleton_const_voxels: float | None,
+    skeleton_prune: float | None,
     mesh_smooth_sigma: float | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
@@ -654,6 +680,9 @@ def mesh(
         voxel_size_um=_given(parse_voxel_size, voxel_size_um),
         clip=False if no_clip else None,
         skeletons=parse_entity_filter(skeletons),
+        skeleton_scale=skeleton_scale,
+        skeleton_const_voxels=skeleton_const_voxels,
+        skeleton_prune=skeleton_prune,
         geometry_as=_given(parse_geometry_as, geometry_as),
         contact_max_um=None if no_contacts else contact_max_um,
         mesh_smooth_sigma=mesh_smooth_sigma,

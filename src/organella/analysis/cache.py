@@ -20,7 +20,9 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from organella.analysis.shapes import compute_skeletons
+from organella.analysis.shapes import (
+    DEFAULT_SKELETON_PARAMS, SkeletonParams, compute_skeletons,
+)
 from organella.config import normalize_name
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,7 @@ def skeletons_for(
     labels: np.ndarray,
     sample_size: Sequence[float],
     max_voxels: Optional[int],
+    params: SkeletonParams = DEFAULT_SKELETON_PARAMS,
 ) -> dict:
     """This entity's skeletons, computed once per object however many readers ask.
 
@@ -89,9 +92,10 @@ def skeletons_for(
     and tortuosity, and share one cache.
     """
     return CACHE.get_or_compute(
-        object_id, ("skeletons", entity, max_voxels), labels,
+        object_id, ("skeletons", entity, max_voxels, params), labels,
         lambda: compute_skeletons(
             labels, tuple(float(v) for v in sample_size), max_voxels=max_voxels,
+            params=params,
         ),
     )
 
