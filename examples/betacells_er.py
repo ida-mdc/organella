@@ -277,7 +277,7 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, model, device, k, half, m
     tifffile.imwrite(dst / f"{cell}_er_mask.tif", er16[:, ::-1, :].copy(), compression="zlib")
     fraction = 100 * er16[inside_v].mean()
     print(f"{cell}: ER is {fraction:.2f} % of the cell volume", flush=True)
-    if not 0.3 < fraction < 25:
+    if len(done) == len(blocks) and not 0.3 < fraction < 25:
         print(f"{cell}: WARNING that is outside what an ER network fills (a few percent); look at it before using it.",
               flush=True)
     if len(done) == len(blocks):
