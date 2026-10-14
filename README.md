@@ -117,7 +117,7 @@ as the reference for the instances. `--baseline-exclude` leaves a structure (i.e
 
 Entity files must match `<prefix>_<name>_label.tif` (or `_labels.tif`) and
 `<prefix>_<name>_mask.tif`, where `<prefix>` is the source image basename. The prefix is taken
-off the front, i.e. for `s0011_rib_left_11_mask.tif`, `s0011` is the prefix and `rib_left_11` is the entity.
+off the front, i.e. for `s0011_rib_left_11_mask.tif`, `s0011` is the prefix and `rib_left_11` is the entity. Labels are read as an instance labelled image (background 0, each instance with its own label value), whereas masks are read as binary images (0 or 1).
 
 ```text
 my_cell/
@@ -180,7 +180,7 @@ report.parquet                            # rows per object, structure, instance
 report_meshes/<object>/geometry.parquet   # only with --with-mesh
 ```
 
-Everything measured lands in `report.parquet`, as rows at four depths told apart by `row_type`:
+Everything measured lands in `report.parquet`, as six row types at three levels:
 
 | `row_type` | `obs_level` | one row per |
 | --- | --- | --- |
@@ -189,6 +189,7 @@ Everything measured lands in `report.parquet`, as rows at four depths told apart
 | `instance` | 2 | labelled instance: its own size, shape, polarity and nearest neighbour |
 | `distance` | 2 | instance × target structure: how far that instance is from it |
 | `contact` | 2 | touching pair of instances of one structure, with their gap |
+| `baseline` | 2 | object × target structure: how far every point of the object is from it, the chance reference of the distances |
 
 Geometry goes beside the report. One `geometry.parquet` per object holds a surface per instance (an
 outline, for a 2D object), the skeletons, and the touching pairs.
