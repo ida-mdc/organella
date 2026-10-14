@@ -150,24 +150,25 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-title { font-family: var(--serif); font-size: 1.28rem; font-weight: 600;
   color: var(--ink); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
 .pair-picker { width: auto; margin: .3rem 0 .9rem; }
-.strip-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: .7rem .9rem .5rem;
-  margin: .4rem 0 .8rem; width: fit-content; max-width: 100%; overflow-x: auto; }
-.strip-legend { display: flex; flex-wrap: wrap; gap: .2rem 1rem; align-items: center; font-size: .78rem; color: var(--ink-2);
-  margin-bottom: .35rem; }
-.strip-legend > span { display: inline-flex; align-items: center; gap: .35rem; }
+.strip-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: .9rem 1.1rem .7rem;
+  margin: .4rem 0 .8rem; width: 100%; }
+.strip-legend { display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; align-items: center; font-size: .86rem; color: var(--ink-2);
+  margin-bottom: .6rem; }
+.strip-legend > span { display: inline-flex; align-items: center; gap: .4rem; }
 .strip-key { color: var(--ink-3); }
-.strip-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
-.strip-table { border-collapse: collapse; table-layout: auto; }
-.strip-table thead th { font-size: .7rem; font-weight: 500; color: var(--ink); text-align: center; padding: .3rem 0 .35rem;
+.strip-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.strip-blocks { display: flex; flex-wrap: wrap; gap: 1.2rem 1.8rem; }
+.strip-table { border-collapse: collapse; table-layout: fixed; }
+.strip-table thead th { font-size: .86rem; font-weight: 500; color: var(--ink); text-align: center; padding: .4rem 0 .5rem;
   border-top: 3px solid var(--rule); white-space: nowrap; }
-.strip-table thead th:first-child { border-top-color: transparent; }
-.strip-table td { padding: 0 .2rem; border-top: 1px solid var(--rule); vertical-align: middle; }
-.strip-row { font-size: .68rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
-  text-align: left; padding: 0 .7rem 0 0; white-space: nowrap; border-top: 1px solid var(--rule); }
-.strip-row .unit { text-transform: none; letter-spacing: 0; }
+.strip-table thead th:first-child { border-top-color: transparent; width: 118px; }
+.strip-table td { padding: 0; border-top: 1px solid var(--rule); vertical-align: middle; text-align: center; }
+.strip-row { font-size: .74rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
+  text-align: left; padding: 0 .7rem 0 0; border-top: 1px solid var(--rule); }
+.strip-row .unit { text-transform: none; letter-spacing: 0; font-size: .8rem; }
 .strip-grid { stroke: #e4e8ec; stroke-width: 1; }
 .strip-axis { stroke: #b9c0c8; stroke-width: 1; }
-.strip-tick { font-size: 8.5px; fill: #8a949f; font-variant-numeric: tabular-nums; }
+.strip-tick { font-size: 11.5px; fill: #6f7a86; font-variant-numeric: tabular-nums; }
 .charts-row-compact { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 .charts-row, .pair-panels { display: grid; gap: 20px;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
@@ -4363,82 +4364,92 @@ function axisNumber(v) {
 
 /**
  * How many of each structure there are, and how much of it in all, per object: a column per structure, a row
- * for each of the two, and in each cell a small plot with its own axis - a lane per group, a dot per object, a
- * tick at the group's median and a bar over its range.
+ * for each of the two, and in each cell a plot with its own axis - a lane per group, a dot per object, a tick at
+ * the group's median and a bar over its range.
  *
  * Dots and a range and not a box: an object is one value, and three or four of them have no quartiles to speak
  * of. Every plot has a scale of its own, from 0 and marked on its left, because a nucleus and a mitochondrion do
- * not fit on one axis. A mask has no count, so its first cell is left empty.
+ * not fit on one axis. A mask has no count, so its first cell is left empty. More than four structures wrap into
+ * further blocks of the same table, so every plot stays a size to read.
  */
 function structureStrips(host, o) {
   var groups = uniq(o.objects.map(function(oid){ return o.groupOf[oid]; }).filter(Boolean));
   var grouped = plotGroupBy === 'group' && groups.length > 1;
   var lanes = grouped ? groups : [null];
-  // The structures share the page's width: about 560 pixels beside the row heads.
-  var PADL = 30, PADR = 4, PADT = 9, PADB = 6, H = 100;
-  var W = Math.max(68, Math.min(112, Math.floor(560 / Math.max(1, o.entNames.length))));
+  // Plots of a size to read, and no more than four structures across: the page's column narrows when the
+  // viewer opens beside it, so what is drawn cannot be sized to the width it had a moment ago.
+  var PADL = 42, PADR = 10, PADT = 14, PADB = 10, W = 150, H = 210;
   var LANE = (W - PADL - PADR) / Math.max(2, lanes.length);
   var measures = [
     { head: 'count', unit: '', value: function(r){ return r.instance_count != null ? +r.instance_count : null; } },
     { head: 'total ' + o.terms.word, unit: o.terms.unit, value: totalExtent }
   ];
-  var swatch = function(color, round) {
-    return '<span class="strip-swatch" style="background:' + color + (round ? ';border-radius:50%' : '') + '"></span>';
+  var swatch = function(color) {
+    return '<span class="strip-swatch" style="background:' + color + ';border-radius:50%"></span>';
   };
-  var html = '<div class="strip-card"><div class="strip-legend">'
-    + (grouped ? groups.map(function(g){ return '<span>' + swatch(groupColor(g), true) + escHtml(g) + '</span>'; }).join('') : '')
-    + '<span class="strip-key">a dot is one ' + escHtml(noun()) + (grouped ? ', a tick is the median of its group' : '')
-    + '</span></div>';
-  html += '<table class="strip-table"><thead><tr><th></th>'
-    + o.entNames.map(function(e){
-        return '<th style="width:' + W + 'px;border-top-color:' + entColor(e) + '">' + escHtml(e) + '</th>';
-      }).join('')
-    + '</tr></thead><tbody>';
-  measures.forEach(function(m) {
-    html += '<tr><th class="strip-row">' + escHtml(m.head)
-      + (m.unit ? '<br><span class="unit">' + escHtml(m.unit) + '</span>' : '') + '</th>';
-    o.entNames.forEach(function(e) {
-      var points = o.entRows.filter(function(r){ return r.entity_name === e && o.objects.indexOf(r.object_id) >= 0; })
-        .map(function(r){ return { oid: r.object_id, v: m.value(r) }; })
-        .filter(function(q){ return q.v != null && isFinite(q.v); });
-      if (!points.length) { html += '<td class="strip-none"></td>'; return; }
-      var top = niceTop(Math.max.apply(null, points.map(function(q){ return q.v; })));
-      var y = function(v){ return PADT + (1 - v / top) * (H - PADT - PADB); };
-      var svg = '<svg class="strip" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
-      [0, top / 2, top].forEach(function(t) {
-        svg += '<line x1="' + PADL + '" x2="' + (W - PADR) + '" y1="' + y(t) + '" y2="' + y(t) + '" class="strip-grid"/>'
-          + '<text x="' + (PADL - 5) + '" y="' + (y(t) + 3) + '" text-anchor="end" class="strip-tick">' + axisNumber(t) + '</text>';
-      });
-      svg += '<line x1="' + PADL + '" x2="' + PADL + '" y1="' + y(top) + '" y2="' + y(0) + '" class="strip-axis"/>';
-      lanes.forEach(function(g, i) {
-        var x = PADL + (i + 0.5) * LANE;
-        var mine = points.filter(function(q){ return !grouped || o.groupOf[q.oid] === g; })
-          .sort(function(p, q){ return p.v - q.v; });
-        if (!mine.length) return;
-        var colour = grouped ? groupColor(g) : entColor(e);
-        var vs = mine.map(function(q){ return q.v; });
-        var mid = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
-        svg += '<line x1="' + x + '" x2="' + x + '" y1="' + y(vs[0]) + '" y2="' + y(vs[vs.length - 1])
-          + '" stroke="' + colour + '" stroke-opacity=".28" stroke-width="7" stroke-linecap="round"/>';
-        var side = 1, last = -Infinity;
-        mine.forEach(function(q) {
-          // Values a dot apart sit side by side and not on top of each other.
-          var jitter = Math.abs(y(q.v) - last) < 6 ? (side = -side) * 3.4 : 0;
-          last = y(q.v);
-          svg += '<circle cx="' + (x + jitter) + '" cy="' + y(q.v) + '" r="3.3" fill="' + colour
-            + '" stroke="#fff" stroke-width=".9"><title>' + escHtml(q.oid) + ': ' + escHtml(fmtValue(q.v))
-            + (m.unit ? ' ' + escHtml(m.unit) : '') + '</title></circle>';
-        });
-        if (grouped) {
-          svg += '<line x1="' + (x - Math.min(8, LANE / 2 - 2)) + '" x2="' + (x + Math.min(8, LANE / 2 - 2)) + '" y1="' + y(mid) + '" y2="' + y(mid)
-            + '" stroke="' + colour + '" stroke-width="2.4" stroke-linecap="round"/>';
-        }
-      });
-      html += '<td>' + svg + '</svg></td>';
+
+  var plot = function(e, m) {
+    var points = o.entRows.filter(function(r){ return r.entity_name === e && o.objects.indexOf(r.object_id) >= 0; })
+      .map(function(r){ return { oid: r.object_id, v: m.value(r) }; })
+      .filter(function(q){ return q.v != null && isFinite(q.v); });
+    if (!points.length) return '';
+    var top = niceTop(Math.max.apply(null, points.map(function(q){ return q.v; })));
+    var y = function(v){ return PADT + (1 - v / top) * (H - PADT - PADB); };
+    var svg = '<svg class="strip" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
+    [0, top / 2, top].forEach(function(t) {
+      svg += '<line x1="' + PADL + '" x2="' + (W - PADR) + '" y1="' + y(t) + '" y2="' + y(t) + '" class="strip-grid"/>'
+        + '<text x="' + (PADL - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end" class="strip-tick">' + axisNumber(t) + '</text>';
     });
-    html += '</tr>';
-  });
-  host.insertAdjacentHTML('beforeend', html + '</tbody></table></div>');
+    svg += '<line x1="' + PADL + '" x2="' + PADL + '" y1="' + y(top) + '" y2="' + y(0) + '" class="strip-axis"/>';
+    lanes.forEach(function(g, i) {
+      var x = PADL + (i + 0.5) * LANE;
+      var mine = points.filter(function(q){ return !grouped || o.groupOf[q.oid] === g; })
+        .sort(function(p, q){ return p.v - q.v; });
+      if (!mine.length) return;
+      var colour = grouped ? groupColor(g) : entColor(e);
+      var vs = mine.map(function(q){ return q.v; });
+      var mid = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
+      svg += '<line x1="' + x + '" x2="' + x + '" y1="' + y(vs[0]) + '" y2="' + y(vs[vs.length - 1])
+        + '" stroke="' + colour + '" stroke-opacity=".28" stroke-width="10" stroke-linecap="round"/>';
+      var side = 1, last = -Infinity;
+      mine.forEach(function(q) {
+        // Values a dot apart sit side by side and not on top of each other.
+        var jitter = Math.abs(y(q.v) - last) < 9 ? (side = -side) * 4.8 : 0;
+        last = y(q.v);
+        svg += '<circle cx="' + (x + jitter) + '" cy="' + y(q.v) + '" r="4.6" fill="' + colour
+          + '" stroke="#fff" stroke-width=".9"><title>' + escHtml(q.oid) + ': ' + escHtml(fmtValue(q.v))
+          + (m.unit ? ' ' + escHtml(m.unit) : '') + '</title></circle>';
+      });
+      if (grouped) {
+        var half = Math.min(13, LANE / 2 - 3);
+        svg += '<line x1="' + (x - half) + '" x2="' + (x + half) + '" y1="' + y(mid) + '" y2="' + y(mid)
+          + '" stroke="' + colour + '" stroke-width="3" stroke-linecap="round"/>';
+      }
+    });
+    return svg + '</svg>';
+  };
+
+  var perBlock = Math.ceil(o.entNames.length / Math.ceil(o.entNames.length / 4));
+  var html = '<div class="strip-card"><div class="strip-legend">'
+    + (grouped ? groups.map(function(g){ return '<span>' + swatch(groupColor(g)) + escHtml(g) + '</span>'; }).join('') : '')
+    + '<span class="strip-key">a dot is one ' + escHtml(noun()) + (grouped ? ', a tick is the median of its group' : '')
+    + '</span></div><div class="strip-blocks">';
+  for (var from = 0; from < o.entNames.length; from += perBlock) {
+    var names = o.entNames.slice(from, from + perBlock);
+    html += '<table class="strip-table"><thead><tr><th></th>'
+      + names.map(function(e){
+          return '<th style="width:' + W + 'px;border-top-color:' + entColor(e) + '">' + escHtml(e) + '</th>';
+        }).join('') + '</tr></thead><tbody>';
+    measures.forEach(function(m) {
+      var cells = names.map(function(e){ return plot(e, m); });
+      if (!cells.some(Boolean)) return;                      // a block of masks has no count to draw
+      html += '<tr><th class="strip-row">' + escHtml(m.head)
+        + (m.unit ? '<br><span class="unit">' + escHtml(m.unit) + '</span>' : '') + '</th>'
+        + cells.map(function(cell){ return '<td>' + cell + '</td>'; }).join('') + '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+  host.insertAdjacentHTML('beforeend', html + '</div></div>');
 }
 
 // ══════════════════════════════════════════════════════════════
