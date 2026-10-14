@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Mapping, Optional, Tuple, Union
 
 if TYPE_CHECKING:
     from organella.analysis.shapes import SkeletonParams
@@ -209,6 +209,24 @@ def parse_voxel_size(raw: Optional[str],
     return tuple(float(p) for p in parts)
 
 
+def parse_mesh_sigma(raw: Optional[str], flag: str = "--mesh-smooth-sigma") -> Optional[Union[float, Tuple[float, ...]]]:
+    """One number, or 'z,y,x': the smoothing before a mesh is cut.
+
+    One number is in samples of the finest axis and the same blur in µm along every axis; three
+    are in samples of their own axis, which is what anisotropic data needs to be smoothed along z.
+    """
+    if raw is None or not raw.strip():
+        return None
+    parts = [p for p in raw.replace(" ", "").split(",") if p]
+    try:
+        values = tuple(float(p) for p in parts)
+    except ValueError:
+        values = ()
+    if len(values) not in (1, 3) or any(v < 0 or v != v for v in values):
+        raise ValueError(f"{flag} must be one number, or 'z,y,x' of three, none negative; got {raw!r}")
+    return values[0] if len(values) == 1 else values
+
+
 @dataclass(frozen=True)
 class RunConfig:
     object_mask: Optional[str] = None
@@ -236,7 +254,7 @@ class RunConfig:
     distance_histograms: bool = False
     baseline_exclude: EntityFilter = None
     mesh_dir: Optional[str] = None
-    mesh_smooth_sigma: float = 0.7
+    mesh_smooth_sigma: Union[float, Tuple[float, ...]] = 0.7
     mesh_step_size: int = 2
     mesh_target_reduction: float = 0.8
     mesh_level: Optional[float] = None

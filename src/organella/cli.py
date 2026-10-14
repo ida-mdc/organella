@@ -16,6 +16,7 @@ from organella.config import (
     label_map_from_file,
     parse_entity_filter,
     parse_geometry_as,
+    parse_mesh_sigma,
     parse_voxel_size,
 )
 from organella import pipeline, report_io
@@ -93,8 +94,13 @@ def _skeleton_flags(fn):
 def _mesh_flags(fn):
     """The --mesh-* options, identical on `process --with-mesh` and `mesh`."""
     for option in reversed([
-        click.option("--mesh-smooth-sigma", type=float, default=None, metavar="SIGMA",
-                     help="Gaussian sigma before marching cubes (default: 0.7; 0 disables)."),
+        click.option("--mesh-smooth-sigma", type=str, default=None, metavar="SIGMA | Z,Y,X",
+                     help="Gaussian smoothing before marching cubes (default: 0.7; 0 disables). One number is "
+                          "in voxels of the finest axis, the same blur in µm along every axis, so with "
+                          "anisotropic data it is a fraction of a voxel along the coarse one. Z,Y,X gives "
+                          "each axis its own, in voxels of that axis. Whichever it is, each instance gets "
+                          "between 0.3 voxels and twice that, more the rounder and more filled it is, and "
+                          "never more than half its inscribed radius."),
         click.option("--mesh-step-size", type=int, default=None, metavar="N",
                      help="Marching-cubes step size; 1 = full resolution (default: 2)."),
         click.option("--mesh-target-reduction", type=float, default=None, metavar="F",
@@ -317,7 +323,7 @@ def process(
     distance_histograms: bool, baseline_exclude: str | None,
     colours: Path | None, no_contacts: bool, no_instances: bool,
     max_workers: int | None, resume: bool, with_mesh: bool,
-    mesh_dir: Path | None, mesh_smooth_sigma: float | None, mesh_step_size: int | None,
+    mesh_dir: Path | None, mesh_smooth_sigma: str | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
     mesh_surface_method: str | None, reuse_geometry: bool,
@@ -355,7 +361,7 @@ def process(
         distance_histograms=distance_histograms or None,
         baseline_exclude=parse_entity_filter(baseline_exclude),
         mesh_dir=str(meshes_to) if meshes_to else None,
-        mesh_smooth_sigma=mesh_smooth_sigma,
+        mesh_smooth_sigma=_given(parse_mesh_sigma, mesh_smooth_sigma),
         mesh_step_size=mesh_step_size,
         mesh_target_reduction=mesh_target_reduction,
         mesh_level=mesh_level,
@@ -660,7 +666,7 @@ def mesh(
     no_contacts: bool,
     skeleton_scale: float | None, skeleton_const_voxels: float | None,
     skeleton_prune: float | None,
-    mesh_smooth_sigma: float | None, mesh_step_size: int | None,
+    mesh_smooth_sigma: str | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
     mesh_surface_method: str | None, reuse_geometry: bool,
@@ -688,7 +694,7 @@ def mesh(
         skeleton_prune=skeleton_prune,
         geometry_as=_given(parse_geometry_as, geometry_as),
         contact_max_um=None if no_contacts else contact_max_um,
-        mesh_smooth_sigma=mesh_smooth_sigma,
+        mesh_smooth_sigma=_given(parse_mesh_sigma, mesh_smooth_sigma),
         mesh_step_size=mesh_step_size,
         mesh_target_reduction=mesh_target_reduction,
         mesh_level=mesh_level,

@@ -251,7 +251,7 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `*` stands for every structure not named (`*=mesh,vesicle=ellipsoid`); `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
 | `--mesh-dir DIR` | Where the geometry goes. Default `<output>_meshes`. |
 | `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap. |
-| `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing. |
+| `--mesh-smooth-sigma SIGMA` or `Z,Y,X` | Gaussian smoothing before marching cubes. Default 0.7; 0 disables it. One number is in voxels of the finest axis, the same blur in µm along every axis, so on anisotropic data it is a fraction of a voxel along the coarse one; `Z,Y,X` gives each axis its own, in voxels of that axis. Each instance gets from 0.3 voxels to twice that, more the rounder it is, and never more than half its inscribed radius. |
 | `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2. |
 | `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces. |
 | `--mesh-level L` | Iso-surface level on the signed distance field. Default 0. |

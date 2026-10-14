@@ -438,3 +438,35 @@ def test_the_mesh_pool_is_bounded_by_memory_not_just_cores():
     from organella.analysis.parallel import mesh_worker_budget, _WORKER_CAP
     assert mesh_worker_budget(1000) <= _WORKER_CAP
     assert mesh_worker_budget(1) == 1
+
+
+# ── --mesh-smooth-sigma ───────────────────────────────────────────────────────
+
+def test_the_smoothing_is_one_number_or_one_per_axis():
+    from organella.config import parse_mesh_sigma
+
+    assert parse_mesh_sigma("0.7") == 0.7
+    assert parse_mesh_sigma("0.5, 1, 2") == (0.5, 1.0, 2.0)
+    for bad in ("1,2", "-1", "a", "1,2,3,4"):
+        with pytest.raises(ValueError, match="mesh-smooth-sigma"):
+            parse_mesh_sigma(bad)
+
+
+def test_zero_smoothing_is_none_at_all_whatever_the_shape():
+    from organella.analysis.meshes import instance_sigma
+
+    assert instance_sigma(0.0, 0.2, 0.1) == 0.0
+    assert instance_sigma((0, 0, 0), 0.9, 0.5) == (0.0, 0.0, 0.0)
+    assert instance_sigma(0.7, 0.9, 0.5) > 0
+
+
+def test_a_sigma_per_axis_smooths_the_coarse_axis_a_single_one_leaves_alone():
+    """With samples 5x coarser in z, one sigma of 0.7 finest samples is 0.14 coarse ones: next to nothing."""
+    blocky = np.zeros((9, 40, 40), bool)
+    blocky[1:8, 8:32, 8:32] = True
+    coarse = (0.1, 0.02, 0.02)
+    scalar = generate_mesh(blocky, (0, 0, 0), coarse, smooth_sigma=0.7, target_reduction=0, step_size=1)
+    per_axis = generate_mesh(blocky, (0, 0, 0), coarse, smooth_sigma=(0.7, 0.7, 0.7), target_reduction=0, step_size=1)
+    none = generate_mesh(blocky, (0, 0, 0), coarse, smooth_sigma=(0, 0, 0), target_reduction=0, step_size=1)
+    assert none == generate_mesh(blocky, (0, 0, 0), coarse, smooth_sigma=0, target_reduction=0, step_size=1)
+    assert len({scalar, per_axis, none}) == 3

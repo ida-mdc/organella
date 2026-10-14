@@ -12,7 +12,7 @@ import math
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import fast_simplification
 import numpy as np
@@ -93,7 +93,7 @@ DECIMATION_AGGRESSION = 3
 @dataclass(frozen=True)
 class MeshOptions:
     """The knobs the --mesh-* flags set."""
-    smooth_sigma: float = 0.7
+    smooth_sigma: Union[float, Tuple[float, ...]] = 0.7    # one number, or one per axis (z, y, x); see --mesh-smooth-sigma
     step_size: int = 2
     target_reduction: float = 0.8
     level: Optional[float] = None
@@ -161,6 +161,19 @@ def sigma_for_shape(sphericity_value: float, fill_ratio: float,
     fill_score = min(1.0, fill_ratio / _SPHERE_FILL)
     blob_score = math.sqrt(sphericity_value * fill_score)  # geometric mean of both
     return sigma_min + (sigma_max - sigma_min) * blob_score
+
+
+def instance_sigma(option, sphericity_value: float, fill_ratio: float):
+    """The option's smoothing for one instance, shape-scaled: a number, or one per axis for a per-axis option.
+
+    0 is no smoothing at all, whatever the shape, which the shape scaling alone would not give.
+    """
+    def one(value):
+        return 0.0 if value <= 0 else sigma_for_shape(sphericity_value, fill_ratio,
+                                                      sigma_min=0.3, sigma_max=value * 2)
+    if isinstance(option, (int, float)):
+        return one(float(option))
+    return tuple(one(float(v)) for v in option)
 
 
 # The 12 edges of a cell, as pairs of its 8 corners. A corner is (dz, dy, dx) in {0,1}³ and
@@ -267,7 +280,7 @@ def generate_mesh(
     bbox_origin_zyx: Tuple[int, int, int],
     voxel_size_zyx: Sequence[float],
     step_size: int = 2,
-    smooth_sigma: float = 0.7,
+    smooth_sigma: Union[float, Sequence[float]] = 0.7,
     target_reduction: float = 0.8,
     level: Optional[float] = None,
     max_vertices: int = 0,
@@ -292,13 +305,17 @@ def generate_mesh(
     try:
         spacing = tuple(float(v) for v in voxel_size_zyx)
         finest, coarsest = min(spacing), max(spacing)
-        # σ is in the finest sample: the same blur in µm along every axis, which for
-        # anisotropic data is a fraction of a sample along the coarse one.
-        sigma_um = max(0.0, smooth_sigma) * finest
+        # One σ is in the finest sample: the same blur in µm along every axis, which for
+        # anisotropic data is a fraction of a sample along the coarse one. Three are each in
+        # samples of their own axis.
+        if isinstance(smooth_sigma, (int, float)):
+            sigma_um = (max(0.0, float(smooth_sigma)) * finest,) * len(spacing)
+        else:
+            sigma_um = tuple(max(0.0, float(v)) * s for v, s in zip(smooth_sigma, spacing))
         # The foreground reaches every face of its own bbox, so pad with background first;
         # with smoothing, ~3σ per axis so the field settles to "outside" before the border.
-        pads = tuple(1 if sigma_um <= 0 else int(math.ceil(3.0 * sigma_um / s)) + 1
-                     for s in spacing)
+        pads = tuple(1 if su <= 0 else int(math.ceil(3.0 * su / s)) + 1
+                     for su, s in zip(sigma_um, spacing))
         b = np.pad(binary.astype(bool), pad_width=[(p, p) for p in pads])
         # Signed distance field in µm: >0 inside, <0 outside, 0 at the boundary.
         inside = distance_transform_edt(b, sampling=spacing)
@@ -307,10 +324,10 @@ def generate_mesh(
         # its inscribed radius, and a kernel wider than half of it flattens the field to
         # nothing while a coarser step walks over it.
         radius_um = float(inside.max())
-        sigma_um = min(sigma_um, radius_um / 2.0)
+        sigma_um = tuple(min(su, radius_um / 2.0) for su in sigma_um)
         step = max(1, min(step_size, int(radius_um / coarsest) - 1))
-        if sigma_um > 0:
-            sdf = gaussian_filter(sdf, sigma=tuple(sigma_um / s for s in spacing))
+        if any(su > 0 for su in sigma_um):
+            sdf = gaussian_filter(sdf, sigma=tuple(su / s for su, s in zip(sigma_um, spacing)))
         if surface_method == "surface-nets":
             # A dual method has no step size: it is one vertex per cell either way, so the
             # coarsening a step would buy comes from the budget instead.
@@ -567,9 +584,9 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                 "surface": b"" if planar else generate_mesh(
                     binary, (0, 0, 0), sample_size,
                     step_size=options.step_size,
-                    smooth_sigma=sigma_for_shape(
-                        roundness, float(binary.sum() / extent) if extent else float("nan"),
-                        sigma_min=0.3, sigma_max=options.smooth_sigma * 2),
+                    smooth_sigma=instance_sigma(
+                        options.smooth_sigma, roundness,
+                        float(binary.sum() / extent) if extent else float("nan")),
                     target_reduction=options.target_reduction, level=options.level,
                     max_vertices=options.max_vertices,
                     surface_method=options.surface_method,
@@ -650,8 +667,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                 tasks.append((
                     image, origin, tuple(sample_size), planar,
                     options.step_size,
-                    sigma_for_shape(roundness, fill_ratio, sigma_min=0.3,
-                                    sigma_max=options.smooth_sigma * 2),
+                    instance_sigma(options.smooth_sigma, roundness, fill_ratio),
                     options.target_reduction, options.level, options.max_vertices,
                     options.surface_method,
                 ))
