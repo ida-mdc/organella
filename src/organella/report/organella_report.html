@@ -150,12 +150,24 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-title { font-family: var(--serif); font-size: 1.28rem; font-weight: 600;
   color: var(--ink); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
 .pair-picker { width: auto; margin: .3rem 0 .9rem; }
-.strip-table { border-collapse: collapse; margin: .2rem 0 .6rem; }
-.strip-table th { font-size: .7rem; font-weight: 500; color: var(--ink-3); text-align: left; padding: 2px 8px 4px 0; }
-.strip-table td { padding: 1px 8px 1px 0; border-top: 1px solid var(--rule); vertical-align: middle; }
-.strip-name { white-space: nowrap; padding-right: 1rem !important; }
-.strip-top { font-size: .72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; padding-right: 1.4rem !important; }
-.strip-key { color: var(--ink-3); font-size: .74rem; }
+.strip-card { border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); padding: .7rem 1rem .5rem;
+  margin: .4rem 0 .8rem; display: inline-block; max-width: 100%; }
+.strip-legend { display: flex; flex-wrap: wrap; gap: .2rem 1rem; align-items: center; font-size: .78rem; color: var(--ink-2);
+  margin-bottom: .35rem; }
+.strip-legend > span { display: inline-flex; align-items: center; gap: .35rem; }
+.strip-key { color: var(--ink-3); }
+.strip-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+.strip-table { border-collapse: collapse; }
+.strip-table th { font-size: .68rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
+  text-align: left; padding: 0 .6rem .3rem 0; }
+.strip-table th .unit { text-transform: none; letter-spacing: 0; }
+.strip-table td { padding: 0 .6rem 0 0; border-top: 1px solid var(--rule); vertical-align: middle; }
+.strip-table tbody tr:hover td { background: rgba(20, 30, 40, .025); }
+.strip-name { white-space: nowrap; font-size: .84rem; color: var(--ink); padding-right: 1.1rem !important; }
+.strip-name .strip-swatch { margin-right: .5rem; }
+.strip-top { font-size: .7rem; color: var(--ink-3); font-variant-numeric: tabular-nums; padding-right: 1.6rem !important; }
+.strip-none { color: var(--ink-3); opacity: .5; text-align: center; padding-right: 1.6rem !important; }
+.strip-end { stroke: #d9dee4; stroke-width: 1; }
 .charts-row-compact { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 .charts-row, .pair-panels { display: grid; gap: 20px;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
@@ -4337,68 +4349,70 @@ function renderOverview() {
 }
 
 /**
- * How many of each structure there are, and how much of it in all, per object: a strip each, one dot per
- * object and a tick at each group's median.
+ * How many of each structure there are, and how much of it in all, per object: one strip each, a lane per
+ * group in it, a dot per object, a tick at the group's median and a bar over its range.
  *
- * A dot and not a box: an object is one value, and three or four of them have no quartiles to speak of.
- * Every strip runs from 0 to its own largest value, which is printed at its end, because a nucleus and
- * a mitochondrion do not fit on one axis. A mask has no count, so its first strip is empty.
+ * Dots and a range and not a box: an object is one value, and three or four of them have no quartiles to speak
+ * of. Every strip runs from 0 to its own largest value, printed at its end, because a nucleus and a
+ * mitochondrion do not fit on one axis. A mask has no count, so its first strip is left out.
  */
 function structureStrips(host, o) {
   var groups = uniq(o.objects.map(function(oid){ return o.groupOf[oid]; }).filter(Boolean));
   var grouped = plotGroupBy === 'group' && groups.length > 1;
-  var W = 230, H = 24, PAD = 8;
+  var lanes = grouped ? groups : [null];
+  var W = 260, LANE = 14, PADX = 8, PADY = 5, H = lanes.length * LANE + 2 * PADY;
   var measures = [
     { head: 'count', unit: '', value: function(r){ return r.instance_count != null ? +r.instance_count : null; } },
     { head: 'total ' + o.terms.word, unit: o.terms.unit, value: totalExtent }
   ];
-  var dot = function(color) {
-    return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + '"></span>';
+  var swatch = function(color, round) {
+    return '<span class="strip-swatch" style="background:' + color + (round ? ';border-radius:50%' : '') + '"></span>';
   };
-  var html = '<div class="subsection-label mt-3">How many, and how much in all, in each ' + escHtml(noun()) + '</div>';
-  html += '<div class="chart-legend">'
-    + (grouped ? groups.map(function(g){
-        return '<span class="d-inline-flex align-items-center gap-1">' + dot(groupColor(g)) + escHtml(g) + '</span>';
-      }).join('') : '')
-    + '<span class="strip-key">a dot is one ' + escHtml(noun()) + (grouped ? ', a tick the median of its group' : '') + '</span></div>';
+  var html = '<div class="strip-card"><div class="strip-legend">'
+    + (grouped ? groups.map(function(g){ return '<span>' + swatch(groupColor(g), true) + escHtml(g) + '</span>'; }).join('') : '')
+    + '<span class="strip-key">a dot is one ' + escHtml(noun()) + (grouped ? ', a tick is the median of its group' : '')
+    + '</span></div>';
   html += '<table class="strip-table"><thead><tr><th></th>'
     + measures.map(function(m) {
-        return '<th>' + escHtml(m.head) + (m.unit ? ' <span class="unit">(' + escHtml(m.unit) + ')</span>' : '')
+        return '<th>' + escHtml(m.head) + (m.unit ? ' <span class="unit">' + escHtml(m.unit) + '</span>' : '')
           + '</th><th></th>';
       }).join('') + '</tr></thead><tbody>';
   o.entNames.forEach(function(e) {
     var rows = o.entRows.filter(function(r){ return r.entity_name === e && o.objects.indexOf(r.object_id) >= 0; });
-    html += '<tr><td class="strip-name">' + dot(entColor(e)) + ' ' + dataName(e) + '</td>';
+    html += '<tr><td class="strip-name">' + swatch(entColor(e)) + escHtml(e) + '</td>';
     measures.forEach(function(m) {
       var points = rows.map(function(r){ return { oid: r.object_id, v: m.value(r) }; })
         .filter(function(q){ return q.v != null && isFinite(q.v); });
-      if (!points.length) { html += '<td></td><td></td>'; return; }
+      if (!points.length) { html += '<td class="strip-none">\u2013</td><td></td>'; return; }
       var top = Math.max.apply(null, points.map(function(q){ return q.v; })) || 1;
-      var at = function(v){ return PAD + v / top * (W - 2 * PAD); };
-      var colourOf = function(oid){ return grouped ? groupColor(o.groupOf[oid]) : entColor(e); };
+      var at = function(v){ return PADX + v / top * (W - 2 * PADX); };
       var svg = '<svg class="strip" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">'
-        + '<line x1="' + PAD + '" x2="' + (W - PAD) + '" y1="' + H / 2 + '" y2="' + H / 2 + '" stroke="#d5dae0"/>'
-        + '<line x1="' + PAD + '" x2="' + PAD + '" y1="' + (H / 2 - 4) + '" y2="' + (H / 2 + 4) + '" stroke="#b9c0c8"/>';
-      if (grouped) {
-        groups.forEach(function(g) {
-          var vs = points.filter(function(q){ return o.groupOf[q.oid] === g; }).map(function(q){ return q.v; })
-            .sort(function(x, y){ return x - y; });
-          if (!vs.length) return;
-          var mid = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
-          svg += '<line x1="' + at(mid) + '" x2="' + at(mid) + '" y1="2" y2="' + (H - 2)
-            + '" stroke="' + groupColor(g) + '" stroke-width="2.5"/>';
+        + '<line x1="' + PADX + '" x2="' + PADX + '" y1="2" y2="' + (H - 2) + '" class="strip-end"/>'
+        + '<line x1="' + (W - PADX) + '" x2="' + (W - PADX) + '" y1="2" y2="' + (H - 2) + '" class="strip-end"/>';
+      lanes.forEach(function(g, i) {
+        var y = PADY + i * LANE + LANE / 2;
+        var mine = points.filter(function(q){ return !grouped || o.groupOf[q.oid] === g; });
+        if (!mine.length) return;
+        var colour = grouped ? groupColor(g) : entColor(e);
+        var vs = mine.map(function(q){ return q.v; }).sort(function(x, y2){ return x - y2; });
+        var mid = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
+        svg += '<line x1="' + at(vs[0]) + '" x2="' + at(vs[vs.length - 1]) + '" y1="' + y + '" y2="' + y
+          + '" stroke="' + colour + '" stroke-opacity=".28" stroke-width="7" stroke-linecap="round"/>';
+        mine.forEach(function(q) {
+          svg += '<circle cx="' + at(q.v) + '" cy="' + y + '" r="3.3" fill="' + colour
+            + '" stroke="#fff" stroke-width=".9"><title>' + escHtml(q.oid) + ': ' + escHtml(fmtValue(q.v))
+            + (m.unit ? ' ' + escHtml(m.unit) : '') + '</title></circle>';
         });
-      }
-      points.forEach(function(q) {
-        svg += '<circle cx="' + at(q.v) + '" cy="' + H / 2 + '" r="3.8" fill="' + colourOf(q.oid)
-          + '" fill-opacity=".85" stroke="#fff" stroke-width=".8"><title>' + escHtml(q.oid) + ': '
-          + escHtml(fmtValue(q.v)) + (m.unit ? ' ' + escHtml(m.unit) : '') + '</title></circle>';
+        if (grouped) {
+          svg += '<line x1="' + at(mid) + '" x2="' + at(mid) + '" y1="' + (y - 6) + '" y2="' + (y + 6)
+            + '" stroke="' + colour + '" stroke-width="2.4" stroke-linecap="round"/>';
+        }
       });
       html += '<td>' + svg + '</svg></td><td class="strip-top">' + escHtml(fmtValue(top)) + '</td>';
     });
     html += '</tr>';
   });
-  host.insertAdjacentHTML('beforeend', html + '</tbody></table>');
+  host.insertAdjacentHTML('beforeend', html + '</tbody></table></div>');
 }
 
 // ══════════════════════════════════════════════════════════════
