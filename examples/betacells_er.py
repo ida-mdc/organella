@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.10,<3.12"
 # dependencies = [
 #     "torch==2.14.1",
 #     "numpy<2",
