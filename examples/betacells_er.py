@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "torch",
+#     "torch==2.14.1",
 #     "numpy<2",
 #     "scipy",
 #     "scikit-image",
@@ -18,7 +18,7 @@ ER is a thin tubular network that the 16 nm data cannot resolve. ASEM (Kirchhaus
 publishes a 3D U-Net for the ER of high-pressure-frozen FIB-SEM at 4 x 4 x 4 nm. This script runs
 that network over each cell and writes the ER as an `er` mask beside the cell's other labels.
 
-    uv run examples/betacells_er.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--device cuda]
+    uv run examples/betacells_er.py DATA_DIR OUT_DIR [--cells high_c1,low_c2] [--block-k 24] [--half]
 
 uv builds the environment from the dependencies above on the first run; there is nothing to install.
 DATA_DIR is the betacells folder with `{low,high}/<cell>/<cell>_membrane_mask.tif`; where each cell sits in
@@ -26,14 +26,17 @@ its OpenOrganelle volume is in `examples/betacells_locations.json` (--locations)
 from S3 on demand. A GPU with 16 GB or more takes about 20-40 minutes a cell with the default block;
 --block-k 12 fits in 4 GB, ~10x slower.
 
-Written per cell, in OUT_DIR:
-  <cell>_er_4nm.zarr   uint8 0/1, the cell's box at 4 nm isotropic, in the volume's orientation
-  <cell>_er_mask.tif   uint8 0/1 at the 16 nm of the published masks, in their orientation
+Per cell, in OUT_DIR/<group>/<cell>/ (an `organella`-readable folder: the cell's other files are linked in):
+  <cell>_er_mask.tif   0/1 at the 16 nm of the published masks, in their orientation, the cell's own ER
+  <cell>_er_4nm.zarr   0/1 at 4 nm isotropic, in the volume's orientation: the resolution the network works at
+A killed job resumes from the last finished block when it is submitted again. `--check` builds the network and runs
+one block, which is what to do first on a new machine.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import urllib.request
 import warnings
@@ -179,57 +182,86 @@ def equalise(block, lo, hi, invert):
 
 # ── one cell ──
 
-def run_cell(cell, loc, data_dir: Path, out_dir: Path, model, device, k, half, max_blocks):
+def run_cell(cell, loc, data_dir: Path, out_dir: Path, model, device, k, half, max_blocks, workers):
+    """The cell's ER at 4 nm, block by block: reading and equalising run ahead on threads while the GPU works."""
+    import json as _json
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
+
     import tifffile
     import torch
     import zarr
 
     group = cell.split("_")[0]
-    base = data_dir / group / cell / cell
-    # Where the cell is: the published membrane mask is the cell's filled outline; it is in the
-    # local orientation, whose y runs opposite to the volume's.
-    inside = (tifffile.imread(f"{base}_membrane_mask.tif") > 0)[:, ::-1, :]
+    src, dst = data_dir / group / cell, out_dir / group / cell
+    dst.mkdir(parents=True, exist_ok=True)
+    work = out_dir / "_work" / cell
+    work.mkdir(parents=True, exist_ok=True)
     nz, ny, nx = loc["size_16nm_zyx"]
+    # The cell, from its own published masks; they run opposite to the volume in y.
+    inside = np.zeros((nz, ny, nx), bool)
+    for name in ("membrane", "nucleus"):
+        inside |= tifffile.imread(src / f"{cell}_{name}_mask.tif") > 0
+    inside_v = inside[:, ::-1, :]
     shape4 = (nz * 4, ny * 4, nx * 4)
     arr = open_volume(loc)
     invert = bool(loc["volume_contrast_inverted"])
-    rng = np.random.default_rng(0)
-    lo_v, hi_v = contrast_range(arr, loc, shape4, invert, rng)
+    lo_v, hi_v = contrast_range(arr, loc, shape4, invert, np.random.default_rng(0))
 
     n, o = in_size(k), out_size(k)
     ctx = (n - o) // 2
-    store = zarr.open(str(out_dir / f"{cell}_er_4nm.zarr"), mode="w", shape=shape4, chunks=(128, 128, 128),
-                      dtype="u1")
-    done = skipped = 0
-    t0 = time.time()
-    total = int(np.prod([-(-s // o) for s in shape4]))
+    store = zarr.open(str(dst / f"{cell}_er_4nm.zarr"), mode="a", shape=shape4, chunks=(128, 128, 128), dtype="u1")
+    state = work / "done.json"
+    done = set(map(tuple, _json.loads(state.read_text()))) if state.exists() else set()   # a killed job resumes
+
+    def cell_of(sl):
+        """The cell's voxels in a block: its 16 nm mask read at 4 nm."""
+        return inside_v[np.ix_(*[np.arange(s.start, s.stop) // 4 for s in sl])]
+
+    blocks = []
     for z in range(0, shape4[0], o):
         for y in range(0, shape4[1], o):
             for x in range(0, shape4[2], o):
                 sl = tuple(slice(a, min(a + o, s)) for a, s in zip((z, y, x), shape4))
-                m = inside[sl[0].start // 4:-(-sl[0].stop // 4), sl[1].start // 4:-(-sl[1].stop // 4),
-                           sl[2].start // 4:-(-sl[2].stop // 4)]
-                if not m.any():
-                    skipped += 1
-                    continue
-                lo = (z - ctx, y - ctx, x - ctx)
-                block = read_box(arr, loc, lo, [a + n for a in lo])
-                eq = equalise(block, lo_v, hi_v, invert)
-                t = torch.from_numpy(eq.astype(np.float32) / 255 * 2 - 1)[None, None].to(device)
-                with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=half):
-                    p = torch.softmax(model(t).float(), 1)[0, 1].cpu().numpy()
-                store[sl] = (p[:sl[0].stop - sl[0].start, :sl[1].stop - sl[1].start, :sl[2].stop - sl[2].start] > 0.5
-                             ).astype(np.uint8)
-                done += 1
-                if done % 20 == 0:
-                    print(f"{cell}: {done} blocks, {skipped} skipped of {total}, {time.time() - t0:.0f} s", flush=True)
-                if max_blocks and done >= max_blocks:
-                    break
-            if max_blocks and done >= max_blocks:
+                if cell_of(sl).any():                      # the volume holds the neighbours too
+                    blocks.append(((z, y, x), sl))
+    todo = [b for b in blocks if b[0] not in done]
+    print(f"{cell}: {len(blocks)} blocks in the cell, {len(done)} done already", flush=True)
+
+    def prepare(key):
+        lo = tuple(a - ctx for a in key)
+        return equalise(read_box(arr, loc, lo, [a + n for a in lo]), lo_v, hi_v, invert)
+
+    t0, finished = time.time(), 0
+    pending, queue = deque(), iter(todo)
+    with ThreadPoolExecutor(workers) as pool:
+        def feed():
+            nxt = next(queue, None)
+            if nxt is not None:
+                pending.append((nxt, pool.submit(prepare, nxt[0])))
+
+        for _ in range(2 * workers):
+            feed()
+        while pending:
+            (key, sl), future = pending.popleft()
+            eq = future.result()
+            feed()
+            t = torch.from_numpy(eq.astype(np.float32) / 255 * 2 - 1)[None, None].to(device)
+            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=half):
+                p = torch.softmax(model(t).float(), 1)[0, 1].cpu().numpy()
+            shape = tuple(s.stop - s.start for s in sl)
+            store[sl] = ((p[:shape[0], :shape[1], :shape[2]] > 0.5) & cell_of(sl)).astype(np.uint8)
+            done.add(key)
+            finished += 1
+            if finished % 20 == 0:
+                state.write_text(_json.dumps(sorted(done)))
+                print(f"{cell}: {len(done)}/{len(blocks)} blocks, {time.time() - t0:.0f} s", flush=True)
+            if max_blocks and finished >= max_blocks:
+                for _, f in pending:
+                    f.cancel()
                 break
-        if max_blocks and done >= max_blocks:
-            break
-    print(f"{cell}: {done} blocks done, {skipped} outside the cell, {time.time() - t0:.0f} s", flush=True)
+    state.write_text(_json.dumps(sorted(done)))
+    print(f"{cell}: {finished} blocks this run, {time.time() - t0:.0f} s", flush=True)
 
     # 16 nm in the published masks' own orientation: a voxel is ER when most of its 4 nm voxels are.
     er16 = np.zeros((nz, ny, nx), np.uint8)
@@ -237,33 +269,65 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, model, device, k, half, m
         part = np.asarray(store[z * 4:min(z + 32, nz) * 4])
         zz = part.shape[0] // 4
         er16[z:z + zz] = part[:zz * 4].reshape(zz, 4, ny, 4, nx, 4).mean((1, 3, 5)) > 0.5
-    tifffile.imwrite(out_dir / f"{cell}_er_mask.tif", er16[:, ::-1, :].copy(), compression="zlib")
-    print(f"{cell}: ER is {100 * er16[inside].mean():.2f} % of the cell volume", flush=True)
+    er16 &= inside_v
+    for f in src.iterdir():                               # the cell's other labels, linked: the folder is a whole cell
+        link = dst / f.name
+        if not link.exists():
+            os.symlink(f.resolve(), link)
+    tifffile.imwrite(dst / f"{cell}_er_mask.tif", er16[:, ::-1, :].copy(), compression="zlib")
+    fraction = 100 * er16[inside_v].mean()
+    print(f"{cell}: ER is {fraction:.2f} % of the cell volume", flush=True)
+    if not 0.3 < fraction < 25:
+        print(f"{cell}: WARNING that is outside what an ER network fills (a few percent); look at it before using it.",
+              flush=True)
+    if len(done) == len(blocks):
+        for f in work.iterdir():
+            f.unlink()
+        work.rmdir()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("data_dir", type=Path, help="the betacells folder holding low/ and high/")
-    ap.add_argument("out_dir", type=Path)
+    ap.add_argument("data_dir", type=Path, nargs="?", help="the betacells folder holding low/ and high/")
+    ap.add_argument("out_dir", type=Path, nargs="?")
     ap.add_argument("--locations", type=Path, default=Path(__file__).with_name("betacells_locations.json"))
     ap.add_argument("--cells", default="", help="comma list; default: all seven")
-    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--cpu", action="store_true", help="no GPU")
+    ap.add_argument("--check", action="store_true", help="download the weights, build the network, run one block and exit")
     ap.add_argument("--block-k", type=int, default=24, help="block size: input 8k+60 voxels, output 8k-30 (12 fits 4 GB)")
     ap.add_argument("--half", action="store_true", help="float16 inference")
+    ap.add_argument("--workers", type=int, default=4, help="threads reading and equalising the next blocks")
     ap.add_argument("--weights", type=Path, default=Path("model_checkpoint_1669_er_HPF.pt"))
     ap.add_argument("--max-blocks", type=int, default=0, help="stop after this many blocks (smoke test)")
     args = ap.parse_args()
 
+    import torch
+
+    device = "cpu" if args.cpu else "cuda"
+    if device == "cuda" and not torch.cuda.is_available():
+        # Without a word, a CPU run takes days; the usual cause is a torch built for a newer CUDA than the card.
+        raise SystemExit(f"torch {torch.__version__} (built for CUDA {torch.version.cuda}) sees no usable GPU. "
+                         "Check `nvidia-smi` on this node; --cpu runs on the CPU anyway.")
     if not args.weights.exists():
         print("downloading ASEM ER weights ->", args.weights)
         urllib.request.urlretrieve(WEIGHTS, args.weights)
+    model = load_model(args.weights, device)
+    if args.check:
+        edge = in_size(4)                                  # the smallest block: 92 voxels in, 2 out
+        with torch.no_grad():
+            shape = tuple(model(torch.zeros(1, 1, edge, edge, edge, device=device)).shape)
+        assert shape == (1, 2) + (out_size(4),) * 3, shape
+        print(f"ASEM ER network is ready; torch {torch.__version__} for CUDA {torch.version.cuda}; "
+              f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'}")
+        return
+    if not (args.data_dir and args.out_dir):
+        ap.error("data_dir and out_dir are required")
     locations = json.loads(args.locations.read_text())
     cells = [c for c in args.cells.split(",") if c] or list(locations)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    model = load_model(args.weights, args.device)
     for cell in cells:
-        run_cell(cell, locations[cell], args.data_dir, args.out_dir, model, args.device,
-                 args.block_k, args.half, args.max_blocks)
+        run_cell(cell, locations[cell], args.data_dir, args.out_dir, model, device, args.block_k, args.half,
+                 args.max_blocks, args.workers)
 
 
 if __name__ == "__main__":

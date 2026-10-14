@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mitochondria instances of the beta cells on a GPU node (see betacells_mito.py).
+# Mitochondria instances (or, with STEP=er, the ER) of the beta cells on a GPU node: betacells_mito.py, betacells_er.py.
 #
 # Submit from the root of the repository, so that the script is found:
 #
@@ -47,4 +47,10 @@ export UV_INDEX_STRATEGY=unsafe-best-match
 
 # A cell is at most 1740 x 1400 voxels at 8 nm, so TILE=2048 puts a whole cell through the network as one tile; the
 # default suits a 16-32 GB card.
-uv run examples/betacells_mito.py "$data" "$out" ${cells:+--cells "$cells"} --tile "${TILE:-1024}"
+# STEP=er runs the endoplasmic reticulum instead (betacells_er.py); BLOCK_K sets its block size and EXTRA adds
+# arguments, for instance EXTRA="--max-blocks 30" for a quick look.
+if [ "${STEP:-mito}" = er ]; then
+    uv run examples/betacells_er.py "$data" "$out" ${cells:+--cells "$cells"} --block-k "${BLOCK_K:-24}" --half ${EXTRA:-}
+else
+    uv run examples/betacells_mito.py "$data" "$out" ${cells:+--cells "$cells"} --tile "${TILE:-1024}" ${EXTRA:-}
+fi
