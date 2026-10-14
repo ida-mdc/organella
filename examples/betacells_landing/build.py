@@ -171,7 +171,9 @@ def build_cell(cell: str, mesh_dir: Path, data_dir: Path, loc: dict, blob: Blob)
         v = world(v)
         f = f[:, ::-1]                                # the mirror turns every triangle inside out
         cloud.append(v)
-        structures[name] = {"kind": "mesh", "instances": int(len(rows)), "_v": v, "_f": f}
+        # What the report counts, which includes instances too small to have a mesh; a file-level mesh is one.
+        counted = int(((table.entity_name == name) & (table.row_type == "instance")).sum())
+        structures[name] = {"kind": "mesh", "instances": counted or int(len(rows)), "_v": v, "_f": f}
 
     rows = table[(table.entity_name == "granules") & (table.surface_kind == "ellipsoid") & table.surface.notna()]
     if len(rows):
