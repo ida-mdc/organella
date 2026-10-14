@@ -157,6 +157,31 @@ def test_names_are_matched_however_they_were_capitalised():
     assert forced_surface("er", parse_geometry_as("ER=ellipsoid")) == "ellipsoid"
 
 
+def test_a_star_stands_for_every_structure_that_is_not_named():
+    told = parse_geometry_as("*=mesh,vesicle=ellipsoid")
+    assert forced_surface("mito", told) == "mesh"
+    assert forced_surface("blood", told) == "mesh"
+    assert forced_surface("Vesicle", told) == "ellipsoid"
+
+
+def test_a_name_beats_the_star_whole_and_the_star_can_carry_a_skeleton():
+    from organella.config import wants_skeletons
+
+    told = parse_geometry_as("*=mesh+skeleton,vesicle=ellipsoid")
+    assert wants_skeletons("mito", told, None)
+    assert not wants_skeletons("vesicle", told, None)       # what it was told replaces the star, it does not add to it
+
+
+def test_without_a_star_an_unnamed_structure_is_still_decided_from_its_shape():
+    assert forced_surface("mito", parse_geometry_as("vesicle=ellipsoid")) is None
+
+
+def test_a_star_turns_every_structure_into_meshes_through_the_writer():
+    """`blobs` holds two round instances that would be ellipsoids; with `*=mesh` all three are meshes."""
+    assert {r["surface_kind"] for r in _instances()} == {"ellipsoid", "mesh"}
+    assert {r["surface_kind"] for r in _instances(parse_geometry_as("*=mesh"))} == {"mesh"}
+
+
 # ── the writer and the page have to agree ─────────────────────────────────────
 
 def test_every_kind_the_writer_emits_is_one_the_page_can_draw():

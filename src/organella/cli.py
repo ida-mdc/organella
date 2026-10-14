@@ -268,7 +268,9 @@ def describe(report: Path, text: str) -> None:
               help="How each structure's surface is stored: mesh, ellipsoid or tube, e.g. "
                    "vesicle=ellipsoid. A structure not named here is decided from its "
                    "measured shape: round and compact ones become ellipsoids of 60 bytes "
-                   "instead of meshes. '+skeleton' also works here and means what --skeletons means.")
+                   "instead of meshes. '*' stands for every structure not named: "
+                   "'*=mesh,vesicle=ellipsoid'. '+skeleton' also works here and means what "
+                   "--skeletons means.")
 @click.option("--polarity-spread", is_flag=True,
               help="Also measure each instance's angular spread on the polarity sphere.")
 @click.option("--distance-histograms", is_flag=True,
@@ -644,7 +646,8 @@ def cells(
                    "its diameter.")
 @click.option("--geometry-as", "geometry_as", default=None, metavar="NAME=KIND,...",
               help="How each structure's surface is stored: mesh, ellipsoid or tube, e.g. "
-                   "vesicle=ellipsoid. Unnamed structures are decided from their shape.")
+                   "vesicle=ellipsoid. Unnamed structures are decided from their shape; '*' "
+                   "stands for all of them: '*=mesh,vesicle=ellipsoid'.")
 @click.option("--contact-max-um", type=float, default=None, metavar="T",
               help="Gap threshold for the contact rows the 3D viewer groups by (default: 0.5).")
 @click.option("--no-contacts", is_flag=True, help="Leave the contact rows out of the geometry.")

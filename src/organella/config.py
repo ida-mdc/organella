@@ -74,18 +74,27 @@ def forced_surface(entity: str, geometry_as: Mapping[str, str]) -> Optional[str]
     return None
 
 
+GEOMETRY_EVERYTHING = "*"
+
+
 def _tokens_for(entity: str, geometry_as: Mapping[str, str]) -> FrozenSet[str]:
+    """What the entity was told, by its own name or else by ``*``; a name beats ``*`` whole."""
     if not geometry_as:
         return frozenset()
     wanted = normalize_name(entity)
     for name, choice in geometry_as.items():
-        if normalize_name(name) == wanted:
+        if name != GEOMETRY_EVERYTHING and normalize_name(name) == wanted:
             return frozenset(str(choice).split("+"))
+    if GEOMETRY_EVERYTHING in geometry_as:
+        return frozenset(str(geometry_as[GEOMETRY_EVERYTHING]).split("+"))
     return frozenset()
 
 
 def parse_geometry_as(raw: Optional[str]) -> Dict[str, str]:
     """``"mito=mesh+skeleton,vesicle=ellipsoid"`` into ``{entity: choice}``.
+
+    ``*`` stands for every structure not named, so ``"*=mesh,vesicle=ellipsoid"`` is meshes
+    for everything but the vesicles.
 
     An unknown kind is an error naming the ones there are: a typo silently meaning "decide
     for me" is how a run quietly stops doing what was asked.
@@ -117,7 +126,7 @@ def parse_geometry_as(raw: Optional[str]) -> Dict[str, str]:
                 f"--geometry-as: {name} cannot be both {' and '.join(surfaces)}; "
                 "an instance has one surface."
             )
-        out[normalize_name(name)] = "+".join(tokens)
+        out[GEOMETRY_EVERYTHING if name == GEOMETRY_EVERYTHING else normalize_name(name)] = "+".join(tokens)
     return out
 
 

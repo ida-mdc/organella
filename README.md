@@ -248,7 +248,7 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 |  |  |
 | --- | --- |
 | `--with-mesh` | Write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`, or to `--mesh-dir DIR`. |
-| `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
+| `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `*` stands for every structure not named (`*=mesh,vesicle=ellipsoid`); `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
 | `--mesh-dir DIR` | Where the geometry goes. Default `<output>_meshes`. |
 | `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap. |
 | `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing. |
