@@ -45,6 +45,8 @@ echo "torch build: $TORCH_CUDA"
 export UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/$TORCH_CUDA
 export UV_INDEX_STRATEGY=unsafe-best-match
 
+# The mitochondria run along all three axes by default (EXTRA="--axes xy" for the old single-axis run): about three times the
+# work of one axis, and a cell takes one to two hours on a B300 instead of 17 minutes.
 # A cell is at most 1740 x 1400 voxels at 8 nm, so TILE=2048 puts a whole cell through the network as one tile; the
 # default suits a 16-32 GB card.
 # STEP=er runs the endoplasmic reticulum instead (betacells_er.py); BLOCK_K sets its block size and EXTRA adds

@@ -171,7 +171,30 @@ def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
     return vol
 
 
-def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256, zoverlap=32, merge_iou=0.3):
+def infer_block(engine, block, axes):
+    """The block's instances as a label volume. One axis is empanada's stack inference; several are its ortho-plane
+    inference: the block is run through MitoNet along each axis, and a voxel is a mitochondrion when two of the three
+    runs say so, and the runs' objects are matched by overlap. MitoNet looks at one slice at a time, so a mitochondrion
+    that runs along the slicing axis is a small section the model misses now and then, and its track breaks; the
+    other two axes see it as a long profile and bridge the gap."""
+    if len(axes) == 1:
+        stack, _ = engine.infer_on_axis(block, axes[0])
+        return np.asarray(stack)
+    from empanada.inference.patterns import create_instance_consensus, fill_volume, get_axis_trackers_by_class
+    from empanada.inference import filters
+
+    engine.save_panoptic = False                               # the trackers are all the consensus needs
+    trackers = {axis: engine.infer_on_axis(block, axis)[1] for axis in axes}
+    consensus = create_instance_consensus(get_axis_trackers_by_class(trackers, 1), pixel_vote_thr=2, cluster_iou_thr=0.75)
+    filters.remove_small_objects(consensus, min_size=engine.min_size)
+    filters.remove_pancakes(consensus, min_span=engine.min_extent)
+    out = np.zeros(block.shape, np.uint32)
+    fill_volume(out, consensus.instances)
+    return out
+
+
+def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256, zoverlap=32, merge_iou=0.3,
+                  axes=("xy", "xz", "yz")):
     """MitoNet on blocks of the volume; instances that two blocks share are one mitochondrion.
 
     The blocks are xy tiles of `tile` voxels, each cut in z every `zblock` slices. The z cut is not about
@@ -212,8 +235,7 @@ def segment_tiled(engine, vol, inside_xy, tile, overlap, work: Path, zblock=256,
     for k, (za, zb, ya, yb, xa, xb) in enumerate(boxes):
         if (za, ya, xa) in done or not inside_xy[ya:yb, xa:xb].any():
             continue
-        stack, _ = engine.infer_on_axis(np.ascontiguousarray(vol[za:zb, ya:yb, xa:xb]), "xy")
-        stack = np.asarray(stack)
+        stack = infer_block(engine, np.ascontiguousarray(vol[za:zb, ya:yb, xa:xb]), axes)
         ids = np.unique(stack[stack > 0])
         remap = np.zeros(int(stack.max()) + 1, np.uint32)
         remap[ids] = np.arange(nextid, nextid + len(ids), dtype=np.uint32)
@@ -282,7 +304,8 @@ def to_16nm(inst8):
     return lab.astype(np.uint16 if lab.max() < 65535 else np.uint32)
 
 
-def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zblock=256, zoverlap=32):
+def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zblock=256, zoverlap=32,
+             axes=("xy", "xz", "yz")):
     import tifffile
 
     group = cell.split("_")[0]
@@ -303,7 +326,7 @@ def run_cell(cell, loc, data_dir: Path, out_dir: Path, engine, tile, overlap, zb
     from scipy import ndimage as ndi
     column = ndi.binary_dilation(column, iterations=24)
 
-    inst8 = segment_tiled(engine, vol, column, tile, overlap, work, zblock, zoverlap)
+    inst8 = segment_tiled(engine, vol, column, tile, overlap, work, zblock, zoverlap, axes=axes)
     del vol
     print(f"{cell}: {int(inst8.max())} mitochondria", flush=True)
 
@@ -345,6 +368,8 @@ def main():
     ap.add_argument("--overlap", type=int, default=64, help="xy overlap of neighbouring tiles")
     ap.add_argument("--zblock", type=int, default=256, help="slices per block; empanada loses objects past ~1000 per stack")
     ap.add_argument("--zoverlap", type=int, default=32)
+    ap.add_argument("--axes", default="xy,xz,yz", help="planes MitoNet runs along, comma list; one is a plain stack, "
+                    "three are the ortho-plane consensus (about three times the work, far fewer broken mitochondria)")
     ap.add_argument("--cpu", action="store_true", help="no GPU")
     ap.add_argument("--check", action="store_true", help="download the weights, build the engine and exit")
     ap.add_argument("--weights", type=Path, default=Path("MitoNet_v1.pth"))
@@ -365,7 +390,7 @@ def main():
     cells = [c for c in args.cells.split(",") if c] or list(locations)
     for cell in cells:
         run_cell(cell, locations[cell], args.data_dir, args.out_dir, engine, args.tile, args.overlap,
-                 args.zblock, args.zoverlap)
+                 args.zblock, args.zoverlap, tuple(args.axes.split(",")))
 
 
 if __name__ == "__main__":
