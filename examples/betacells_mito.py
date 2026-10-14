@@ -104,7 +104,7 @@ def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
     The box is read as the stored data, in z-slabs that line up with the stored chunks (a slab that cuts a chunk
     fetches and unpacks it again for every cut), several at a time. Then the contrast mapping is worked out over
     all of it (clip at the 1st and 99th percentile, then mean 128 and standard deviation 43), and the uint8
-    volume is made slab by slab, resampling a 6.8 nm volume to 8 nm on the way: nothing larger than a few slabs
+    volume is made slab by slab, resampling a volume whose slices are not 8 nm thick (3.4 or 4.24 nm at full resolution) on the way: nothing larger than a few slabs
     is ever float32. With `cache` the finished volume is kept there and a resumed run reads it back."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -119,10 +119,11 @@ def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
     cz = arr.chunks[0]
     z0, y0, x0 = loc["offset_s0_zyx"]
     nz, ny, nx = loc["size_16nm_zyx"]
-    iso = loc["s0_voxel_nm_zyx"][0] == 4.0                # else 6.8 nm slices to be resampled to 8 nm
+    slice_nm = 2 * loc["s0_voxel_nm_zyx"][0]                # a slice of s1: 6.8 nm (high glucose), 8.48 nm (low glucose)
+    iso = slice_nm == 8.0                                  # else resampled to 8 nm
     y1, x1, ys, xs = y0 // 2, x0 // 2, ny * 2, nx * 2
     zbase, depth = z0 // 2, nz * 2
-    stored = depth if iso else min(int(np.ceil(depth * 8 / 6.8)) + 2, arr.shape[0] - zbase)
+    stored = depth if iso else min(int(np.ceil(depth * 8 / slice_nm)) + 2, arr.shape[0] - zbase)
     sign = -1.0 if loc["volume_contrast_inverted"] else 1.0   # the 16-bit volume is stored with opposite contrast
 
     raw = np.empty((stored, ys, xs), arr.dtype)
@@ -142,7 +143,7 @@ def read_cell_8nm(loc, cache: Path | None = None, threads: int = 8):
         """Output slices [z, z + 64) at 8 nm, float32 and not yet inverted."""
         if iso:
             return raw[z:z + 64].astype(np.float32)
-        pos = np.arange(z, min(z + 64, depth)) * 8 / 6.8
+        pos = np.arange(z, min(z + 64, depth)) * 8 / slice_nm
         lo = np.floor(pos).astype(int)
         w = (pos - lo).astype(np.float32)[:, None, None]
         return raw[lo].astype(np.float32) * (1 - w) + raw[np.minimum(lo + 1, stored - 1)].astype(np.float32) * w

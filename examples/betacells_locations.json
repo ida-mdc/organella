@@ -116,12 +116,12 @@
     "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
     "array": "em/fibsem-uint8",
     "offset_16nm_zyx": [
-      91,
+      134,
       471,
       525
     ],
     "offset_s0_zyx": [
-      364,
+      506,
       1884,
       2100
     ],
@@ -133,23 +133,24 @@
     "crop_y_flipped": true,
     "volume_contrast_inverted": false,
     "s0_voxel_nm_zyx": [
-      4.0,
+      4.24,
       4.0,
       4.0
     ],
-    "correlation": 0.397
+    "correlation": 0.956,
+    "note": "z step is the native 4.24 nm of jrc_mus-pancreas-2; position from template matching at 32 and 16 nm"
   },
   "low_c2": {
     "dataset": "jrc_mus-pancreas-2",
     "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
     "array": "em/fibsem-uint8",
     "offset_16nm_zyx": [
-      428,
+      473,
       0,
       292
     ],
     "offset_s0_zyx": [
-      1712,
+      1785,
       0,
       1168
     ],
@@ -161,23 +162,24 @@
     "crop_y_flipped": true,
     "volume_contrast_inverted": false,
     "s0_voxel_nm_zyx": [
-      4.0,
+      4.24,
       4.0,
       4.0
     ],
-    "correlation": 0.444
+    "correlation": 0.823,
+    "note": "z step is the native 4.24 nm of jrc_mus-pancreas-2; position from template matching at 32 and 16 nm"
   },
   "low_c3": {
     "dataset": "jrc_mus-pancreas-2",
     "store": "s3://janelia-cosem-datasets/jrc_mus-pancreas-2/jrc_mus-pancreas-2.n5",
     "array": "em/fibsem-uint8",
     "offset_16nm_zyx": [
-      980,
+      1094,
       366,
       0
     ],
     "offset_s0_zyx": [
-      3920,
+      4128,
       1464,
       0
     ],
@@ -189,10 +191,11 @@
     "crop_y_flipped": true,
     "volume_contrast_inverted": false,
     "s0_voxel_nm_zyx": [
-      4.0,
+      4.24,
       4.0,
       4.0
     ],
-    "correlation": 0.192
+    "correlation": 0.92,
+    "note": "z step is the native 4.24 nm of jrc_mus-pancreas-2; position from template matching at 32 and 16 nm"
   }
 }
