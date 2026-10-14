@@ -182,6 +182,26 @@ def test_a_star_turns_every_structure_into_meshes_through_the_writer():
     assert {r["surface_kind"] for r in _instances(parse_geometry_as("*=mesh"))} == {"mesh"}
 
 
+def test_a_structure_that_got_no_surface_at_all_is_reported(monkeypatch, caplog):
+    """Labels that cannot be meshed used to leave a report with no geometry and no word about it."""
+    import logging
+    from organella.analysis import meshes
+
+    monkeypatch.setattr(meshes, "_instance_geometry", lambda task: (b"", b""))
+    with caplog.at_level(logging.WARNING, logger="organella"):
+        _instances(parse_geometry_as("*=mesh"))
+    warned = [r.getMessage() for r in caplog.records if "got a surface" in r.getMessage()]
+    assert len(warned) == 1 and "blobs" in warned[0] and "3 instances" in warned[0]
+
+
+def test_a_structure_with_some_surfaces_is_not_reported(monkeypatch, caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="organella"):
+        _instances(parse_geometry_as("*=mesh"))
+    assert not [r for r in caplog.records if "got a surface" in r.getMessage()]
+
+
 # ── the writer and the page have to agree ─────────────────────────────────────
 
 def test_every_kind_the_writer_emits_is_one_the_page_can_draw():

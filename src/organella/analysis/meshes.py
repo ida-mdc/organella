@@ -597,6 +597,7 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
         # What this structure's instances are stored as: forced for the whole entity, or
         # decided per instance from its own measured shape.
         told = forced_surface(name, options.geometry_as)
+        to_mesh = meshed = 0
         # In batches, so the pool always has work but the cropped masks in flight never add
         # up to another copy of the object.
         for batch in batched(props, _GEOMETRY_BATCH):
@@ -669,7 +670,17 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
             for task_index, payloads in enumerate(geometry):
                 row = pending[task_rows[task_index]]
                 row["surface"], row["outline"] = payloads
+            to_mesh += len(geometry)
+            meshed += sum(1 for payloads in geometry if payloads[0] or payloads[1])
             rows.extend(pending)
+        # A few instances failing to mesh is ordinary (too small to enclose a surface), but a structure
+        # with no surface at all usually means its file was not read as the labels it was meant to be.
+        if to_mesh and not meshed:
+            logger.warning(
+                "organella: %s: none of the %d instances of %s got a surface, so the 3D view will show nothing "
+                "for it. Check that the file holds one label per object (a label that is several separate pieces "
+                "is one instance, and a very thin one cannot be meshed); the reason for each is logged at "
+                "debug level.", object_id, to_mesh, name)
 
     if options.contact_max_um is not None:
         rows.extend(_contact_rows(volumes, kinds, sample_size, object_id, group_id,
