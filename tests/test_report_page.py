@@ -934,3 +934,14 @@ def test_every_test_on_the_page_counts_objects(by_group):
     for note in notes:
         # A pair that could not be tested says so in place of its counts.
         assert "objects)" in note or "cells)" in note or "not tested" in note, note
+
+
+def test_each_label_structure_gets_a_count_panel_beside_its_total_extent(report_path, drawn):
+    """How many there are is drawn next to how much there is; masks, which have no count, get none."""
+    rows = rows_of(report_path)
+    without = [{**r, "instance_count": None} for r in rows]
+    bare = run_page({"rows": without, "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
+    labels = {r["entity_name"] for r in rows
+              if r.get("row_type") == "entity" and r.get("entity_kind") == "label" and r.get("instance_count") is not None}
+    assert labels, "the fixture should hold a label structure"
+    assert drawn["plots"] - bare["plots"] == len(labels)

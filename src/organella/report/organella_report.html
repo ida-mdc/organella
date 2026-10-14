@@ -4372,6 +4372,23 @@ function renderOverview() {
           + 'background:' + entColor(e) + '"></span>')
         + dataName(e) + ' total ' + escHtml(terms.word)
     });
+    // How many there are, beside how much: two groups can differ in one and not the other. A mask
+    // is one shape and has no count, so it has no panel.
+    var counted = forStructure.filter(function(r){ return r.instance_count != null; });
+    if (!counted.length) return;
+    var countSeries = extentFacets.split(counted, { name: e, color: entColor(e) })
+      .map(function(f) {
+        var values = f.rows.map(function(r){ return +r.instance_count; });
+        return { name: f.name, label: f.label, color: f.color, values: values, units: values };
+      }).filter(function(f){ return f.values.length; });
+    distributionPanel(row, {
+      series: countSeries, unit: null, noun: noun(), width: 200, height: 150,
+      showFacetTicks: false, noSizeLine: true,
+      heading: (extentFacets.many ? '' :
+          '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
+          + 'background:' + entColor(e) + '"></span>')
+        + dataName(e) + ' count'
+    });
   });
 }
 
