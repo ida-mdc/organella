@@ -235,10 +235,19 @@ def main():
     ap.add_argument("--report-url", default="https://ida-mdc.github.io/organella/")
     ap.add_argument("--cells", default="", help="comma list; default: every cell in the locations file")
     ap.add_argument("--reuse", type=Path, help="a page built before: keep its geometry and only put it in the current template")
+    ap.add_argument("--report", type=Path, help="with --reuse: take every structure's instance count from this report's entity rows")
     args = ap.parse_args()
     if args.reuse:
         old = args.reuse.read_text()
         described = json.loads(old.split("const SCENE = ", 1)[1].split(";\nconst PACKED", 1)[0])
+        if args.report:
+            import pyarrow.parquet as pq
+            rows = pq.read_table(args.report, columns=["row_type", "object_id", "entity_name", "instance_count"]).to_pandas()
+            rows = rows[rows.row_type == "entity"].set_index(["object_id", "entity_name"]).instance_count
+            for cell in described["cells"]:
+                for name, structure in cell["structures"].items():
+                    if (cell["id"], name) in rows.index and rows[(cell["id"], name)] == rows[(cell["id"], name)]:
+                        structure["instances"] = int(rows[(cell["id"], name)])
         for cell in described["cells"]:
             for name, structure in cell["structures"].items():
                 structure["colour"] = COLOURS[name]
