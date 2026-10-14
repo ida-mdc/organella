@@ -158,13 +158,13 @@ def test_a_group_of_one_cell_is_a_pair_that_says_so_instead_of_vanishing():
     assert all(c["label"] is None and c["why"].startswith("1 ") for c in pairs[1:])
 
 
-def test_the_p_is_always_in_the_label_whether_or_not_it_could_reach_significance():
-    """Four against three cannot go below 0.057, so its p was shown; a roomy pair's was not."""
-    pairs = compared([1, 2, 3, 4], [5, 6, 7], list(range(10, 30)))
+def test_a_pair_that_cannot_reach_significance_says_nothing_and_a_roomy_one_gives_its_stars_and_p():
+    """Four against three cannot go below 0.057: not "ns", which reads as "no difference", and not the p."""
+    pairs = compared([1, 2, 3, 4], [5, 6, 7], [2, 3, 4], list(range(10, 30)))
 
     labels = [c["label"] for c in pairs]
-    assert all(" \u00b7 p " in label for label in labels), labels
-    assert labels[0].startswith("ns") and labels[2].startswith("*")
+    assert labels[0] == "" and labels[1] == "" and labels[3] == "", labels      # 4 v 3, 4 v 3, 3 v 3
+    assert labels[2].startswith("*") and " \u00b7 p " in labels[2], labels      # 4 v 20
 
 
 def test_the_pairs_that_could_not_be_tested_are_one_line_and_cost_one_rung():

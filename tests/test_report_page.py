@@ -390,19 +390,33 @@ def as_histograms(report_path):
                      "plotStyle": "histogram"})["render"]
 
 
-def test_brackets_are_drawn_between_groups(by_group):
-    assert by_group["bracketedPanels"] > 0
-    for bracket in by_group["brackets"]:
-        # Stars where they could be earned; the p itself beside them where too few cells make
-        # them impossible, which is what the synthetic batch of two against two is.
-        assert bracket["stars"] in ("*", "**", "***", "****", "ns") \
-            or bracket["stars"].startswith("ns \u00b7 p "), bracket["stars"]
+@pytest.fixture(scope="module")
+def roomy_by_group(report_path):
+    """The same report with every object twice over, so a group has four and a star is possible (2 + 2 cannot)."""
+    rows = rows_of(report_path)
+    copies = [{**r, "object_id": f"{r['object_id']}_{k}"} if r.get("object_id") else dict(r)
+              for k in ("a", "b") for r in rows]
+    return run_page({"rows": copies, "columnHelp": help_of(report_path), "structure": "mito", "render": True,
+                     "groupBy": "group", "significance": True})["render"]
+
+
+def test_brackets_are_drawn_between_groups(roomy_by_group):
+    assert roomy_by_group["bracketedPanels"] > 0
+    for bracket in roomy_by_group["brackets"]:
+        assert bracket["stars"].split(" ")[0] in ("*", "**", "***", "****", "ns"), bracket["stars"]
         assert "Mann-Whitney U" in bracket["detail"]
         assert "control vs treated" in bracket["detail"]
 
 
-def test_a_bracket_carries_the_p_value_and_the_n_it_used(by_group):
-    detail = by_group["brackets"][0]["detail"]
+def test_two_cells_against_two_get_neither_a_bracket_nor_a_line_about_one(by_group):
+    """Nothing can come out below 0.05 with 2 against 2: a bracket would only say "ns", and a p that no data
+    could have lowered says nothing, so there is neither, and no text under the panel either."""
+    assert by_group["brackets"] == []
+    assert not [n for n in by_group["notes"] if "Mann-Whitney" in n or "p = " in n or "p 0." in n], by_group["notes"]
+
+
+def test_a_bracket_carries_the_p_value_and_the_n_it_used(roomy_by_group):
+    detail = roomy_by_group["brackets"][0]["detail"]
     assert "p = " in detail or "p < " in detail
     assert "n = " in detail
 
@@ -419,15 +433,15 @@ def test_one_object_per_box_leaves_nothing_to_test(drawn):
     assert "nothing to test" in (drawn["caveats"].get("sig-hint") or "")
 
 
-def test_a_comparison_between_groups_counts_objects_not_instances(by_group):
+def test_a_comparison_between_groups_counts_objects_not_instances(roomy_by_group):
     """The n a bracket reports is a count of objects, because that is what it compared."""
-    detail = by_group["brackets"][0]["detail"]
+    detail = roomy_by_group["brackets"][0]["detail"]
 
     assert "cells" in detail or "objects" in detail
-    # Four objects in this batch, two per group: nothing bigger than that can be the n.
+    # Eight objects in this batch, four per group: nothing bigger than that can be the n.
     numbers = [int(part) for part in detail.replace(",", " ").split()
                if part.isdigit()]
-    assert max(numbers) <= 4, detail
+    assert max(numbers) <= 8, detail
 
 
 def test_turning_significance_off_removes_them(report_path):
@@ -936,12 +950,23 @@ def test_every_test_on_the_page_counts_objects(by_group):
         assert "objects)" in note or "cells)" in note or "not tested" in note, note
 
 
-def test_each_label_structure_gets_a_count_panel_beside_its_total_extent(report_path, drawn):
-    """How many there are is drawn next to how much there is; masks, which have no count, get none."""
+def test_the_overview_has_a_strip_of_dots_for_how_many_and_how_much_of_each_structure(report_path, by_group):
+    """One dot per cell, never a box: a cell is one value. A mask has no count, so only its total gets dots."""
+    import re
+
     rows = rows_of(report_path)
-    without = [{**r, "instance_count": None} for r in rows]
-    bare = run_page({"rows": without, "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
+    cells = {r["object_id"] for r in rows if r.get("row_type") == "object"}
+    html = by_group["stripsHtml"]
+    assert "strip-table" in html
+    strips = re.findall(r'<svg class="strip".*?</svg>', html, flags=re.S)
     labels = {r["entity_name"] for r in rows
               if r.get("row_type") == "entity" and r.get("entity_kind") == "label" and r.get("instance_count") is not None}
-    assert labels, "the fixture should hold a label structure"
-    assert drawn["plots"] - bare["plots"] == len(labels)
+    structures = {r["entity_name"] for r in rows if r.get("row_type") == "entity"}
+    assert len(strips) == len(structures) + len(labels)
+    assert all(strip.count("<circle") == len(cells) for strip in strips)
+
+
+def test_a_single_cell_has_no_strips_to_draw(report_path):
+    rows = [r for r in rows_of(report_path) if r.get("object_id") in (None, "", rows_of(report_path)[0].get("object_id"))]
+    out = run_page({"rows": rows, "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
+    assert "strip-table" not in out["stripsHtml"]

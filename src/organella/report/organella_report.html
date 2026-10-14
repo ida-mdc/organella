@@ -150,6 +150,12 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-title { font-family: var(--serif); font-size: 1.28rem; font-weight: 600;
   color: var(--ink); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
 .pair-picker { width: auto; margin: .3rem 0 .9rem; }
+.strip-table { border-collapse: collapse; margin: .2rem 0 .6rem; }
+.strip-table th { font-size: .7rem; font-weight: 500; color: var(--ink-3); text-align: left; padding: 2px 8px 4px 0; }
+.strip-table td { padding: 1px 8px 1px 0; border-top: 1px solid var(--rule); vertical-align: middle; }
+.strip-name { white-space: nowrap; padding-right: 1rem !important; }
+.strip-top { font-size: .72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; padding-right: 1.4rem !important; }
+.strip-key { color: var(--ink-3); font-size: .74rem; }
 .charts-row-compact { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 .charts-row, .pair-panels { display: grid; gap: 20px;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
@@ -3193,13 +3199,13 @@ function renderDifferences() {
     var width = Math.min(50, Math.abs(t.delta) * 50);
     var bar = t.delta >= 0 ? 'left:50%;width:' + width + '%' : 'right:50%;width:' + width + '%';
     return '<div class="diff-row" data-ent="' + escHtml(item.ent) + '" data-col="' + escHtml(item.col)
-      + '" role="button" tabindex="0" title="' + escHtml('Go to the chart. ' + labelFor(item.col) + ': ' + A + ' vs ' + B + ', '
-        + formatP(t.p) + ', ' + t.n1 + ' vs ' + t.n2 + ' ' + noun(true)) + '">'
+      + '" role="button" tabindex="0" title="' + escHtml('Go to the chart. ' + labelFor(item.col) + ': ' + A + ' vs ' + B
+        + (t.floor ? '' : ', ' + formatP(t.p) + ', ' + t.n1 + ' vs ' + t.n2 + ' ' + noun(true))) + '">'
       + '<span class="diff-label">' + escHtml(diffLabel(item.col))
       + (unit ? ' <span class="unit">(' + unit + ')</span>' : '') + '</span>'
       + '<span class="diff-bar"><span style="' + bar + ';background:' + groupColor(side) + '"></span></span>'
       + '<span class="diff-num">' + (t.delta >= 0 ? '+' : '−') + Math.abs(t.delta).toFixed(2)
-      + ' · ' + escHtml(significanceLabel(t)) + '</span></div>';
+      + (significanceLabel(t) ? ' · ' + escHtml(significanceLabel(t)) : '') + '</span></div>';
   };
   host.onclick = host.onkeydown = function(event) {
     if (event.type === 'keydown' && event.key !== 'Enter') return;
@@ -3690,6 +3696,9 @@ function formatP(p, compact) {
  * as if some comparisons had a p and others had not.
  */
 function significanceLabel(test) {
+  // Nothing where this many cells cannot reach 0.05 at all: "ns" would read as "no difference", and a
+  // p that no data could have lowered says nothing either.
+  if (test.floor) return '';
   return significanceStars(test.p) + ' \u00b7 ' + formatP(test.p, true);
 }
 
@@ -3841,6 +3850,8 @@ function significanceNote(container, comparisons, unit) {
   if (!comparisons.length) return;
   var note = document.createElement('div');
   note.className = 'sig-note';
+  comparisons = comparisons.filter(function(c){ return !(c.test && c.test.floor); });
+  if (!comparisons.length) return;
   note.innerHTML = comparisons.map(function(c) {
     // The short labels, not the full names: object ids are long shared paths, and set
     // inline they broke across the stars and the p-value until the three parts read as
@@ -4317,79 +4328,77 @@ function renderOverview() {
     objects: rowObjects, entNames: entNames, entRows: entRows, terms: terms,
   });
 
-  // Below it, one small plot per structure, each on its own scale - a nucleus and a
-  // mitochondrion do not fit on one axis. Only worth drawing when there is a distribution
-  // to draw: for a single object each panel is one bar, which is the composition above
-  // told worse, eight times, on eight scales that cannot be compared.
+  // Below it, how many of each structure and how much of it, one value per object. For a single object
+  // that is the composition above told again.
   if (rowObjects.length < 2) return;
-
-  // One legend above the row, and none under each plot of it.
-  var groups = uniq(filteredObjects().map(function(r){ return r.group_id; }).filter(Boolean));
-  var legendDot = function(color) {
-    return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'
-      + color + '"></span>';
-  };
-  var keys = plotGroupBy === 'group' && groups.length > 1
-    ? groups.map(function(g){ return [g, groupColor(g)]; })
-    : (objects.length > 1 ? objects.map(function(c){ return [c, objectColor(c)]; }) : []);
-  if (keys.length) {
-    volContainer.insertAdjacentHTML('beforeend', '<div class="chart-legend">'
-      + keys.map(function(k){ return '<span class="d-inline-flex align-items-center gap-1">'
-          + legendDot(k[1]) + escHtml(k[0]) + '</span>'; }).join('') + '</div>');
-  }
-
-  var row = document.createElement('div');
-  row.className = 'charts-row charts-row-compact';
-  volContainer.appendChild(row);
-
-  // One small panel per structure, so each keeps its own scale: a nucleus and a
-  // mitochondrion do not fit on one axis, so they do not share one. Through the same panel
-  // as every other population, so the Charts switch applies here too.
-  var extentFacets = facetsOf(entRows);
-  entNames.forEach(function(e) {
-    var forStructure = entRows.filter(function(r) {
-      return r.entity_name === e && totalExtent(r) != null;
-    });
-    if (!forStructure.length) return;
-    var series = extentFacets.split(forStructure, { name: e, color: entColor(e) })
-      .map(function(f) {
-        // One row per object here, so the values *are* the units a test compares - said
-        // and not left to be guessed, which is how a panel of one bar per object came
-        // to carry a p-value between two single numbers.
-        var values = f.rows.map(totalExtent);
-        return { name: f.name, label: f.label, color: f.color,
-                 values: values, units: values };
-      }).filter(function(f){ return f.values.length; });
-    distributionPanel(row, {
-      series: series, unit: terms.unit, noun: noun(), width: 200, height: 150,
-      showFacetTicks: false, noSizeLine: true,
-      // The swatch only where the bars are actually drawn in the structure's colour. Split
-      // by facet they are drawn in the facet's, and a structure-coloured dot beside them
-      // was a key to nothing - it said "this panel is about tumour" in a colour that
-      // appeared nowhere in the panel.
-      heading: (extentFacets.many ? '' :
-          '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
-          + 'background:' + entColor(e) + '"></span>')
-        + dataName(e) + ' total ' + escHtml(terms.word)
-    });
-    // How many there are, beside how much: two groups can differ in one and not the other. A mask
-    // is one shape and has no count, so it has no panel.
-    var counted = forStructure.filter(function(r){ return r.instance_count != null; });
-    if (!counted.length) return;
-    var countSeries = extentFacets.split(counted, { name: e, color: entColor(e) })
-      .map(function(f) {
-        var values = f.rows.map(function(r){ return +r.instance_count; });
-        return { name: f.name, label: f.label, color: f.color, values: values, units: values };
-      }).filter(function(f){ return f.values.length; });
-    distributionPanel(row, {
-      series: countSeries, unit: null, noun: noun(), width: 200, height: 150,
-      showFacetTicks: false, noSizeLine: true,
-      heading: (extentFacets.many ? '' :
-          '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;'
-          + 'background:' + entColor(e) + '"></span>')
-        + dataName(e) + ' count'
-    });
+  structureStrips(volContainer, {
+    objects: rowObjects, groupOf: groupOf, entNames: entNames, entRows: entRows, terms: terms
   });
+}
+
+/**
+ * How many of each structure there are, and how much of it in all, per object: a strip each, one dot per
+ * object and a tick at each group's median.
+ *
+ * A dot and not a box: an object is one value, and three or four of them have no quartiles to speak of.
+ * Every strip runs from 0 to its own largest value, which is printed at its end, because a nucleus and
+ * a mitochondrion do not fit on one axis. A mask has no count, so its first strip is empty.
+ */
+function structureStrips(host, o) {
+  var groups = uniq(o.objects.map(function(oid){ return o.groupOf[oid]; }).filter(Boolean));
+  var grouped = plotGroupBy === 'group' && groups.length > 1;
+  var W = 230, H = 24, PAD = 8;
+  var measures = [
+    { head: 'count', unit: '', value: function(r){ return r.instance_count != null ? +r.instance_count : null; } },
+    { head: 'total ' + o.terms.word, unit: o.terms.unit, value: totalExtent }
+  ];
+  var dot = function(color) {
+    return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + '"></span>';
+  };
+  var html = '<div class="subsection-label mt-3">How many, and how much in all, in each ' + escHtml(noun()) + '</div>';
+  html += '<div class="chart-legend">'
+    + (grouped ? groups.map(function(g){
+        return '<span class="d-inline-flex align-items-center gap-1">' + dot(groupColor(g)) + escHtml(g) + '</span>';
+      }).join('') : '')
+    + '<span class="strip-key">a dot is one ' + escHtml(noun()) + (grouped ? ', a tick the median of its group' : '') + '</span></div>';
+  html += '<table class="strip-table"><thead><tr><th></th>'
+    + measures.map(function(m) {
+        return '<th>' + escHtml(m.head) + (m.unit ? ' <span class="unit">(' + escHtml(m.unit) + ')</span>' : '')
+          + '</th><th></th>';
+      }).join('') + '</tr></thead><tbody>';
+  o.entNames.forEach(function(e) {
+    var rows = o.entRows.filter(function(r){ return r.entity_name === e && o.objects.indexOf(r.object_id) >= 0; });
+    html += '<tr><td class="strip-name">' + dot(entColor(e)) + ' ' + dataName(e) + '</td>';
+    measures.forEach(function(m) {
+      var points = rows.map(function(r){ return { oid: r.object_id, v: m.value(r) }; })
+        .filter(function(q){ return q.v != null && isFinite(q.v); });
+      if (!points.length) { html += '<td></td><td></td>'; return; }
+      var top = Math.max.apply(null, points.map(function(q){ return q.v; })) || 1;
+      var at = function(v){ return PAD + v / top * (W - 2 * PAD); };
+      var colourOf = function(oid){ return grouped ? groupColor(o.groupOf[oid]) : entColor(e); };
+      var svg = '<svg class="strip" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">'
+        + '<line x1="' + PAD + '" x2="' + (W - PAD) + '" y1="' + H / 2 + '" y2="' + H / 2 + '" stroke="#d5dae0"/>'
+        + '<line x1="' + PAD + '" x2="' + PAD + '" y1="' + (H / 2 - 4) + '" y2="' + (H / 2 + 4) + '" stroke="#b9c0c8"/>';
+      if (grouped) {
+        groups.forEach(function(g) {
+          var vs = points.filter(function(q){ return o.groupOf[q.oid] === g; }).map(function(q){ return q.v; })
+            .sort(function(x, y){ return x - y; });
+          if (!vs.length) return;
+          var mid = vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2;
+          svg += '<line x1="' + at(mid) + '" x2="' + at(mid) + '" y1="2" y2="' + (H - 2)
+            + '" stroke="' + groupColor(g) + '" stroke-width="2.5"/>';
+        });
+      }
+      points.forEach(function(q) {
+        svg += '<circle cx="' + at(q.v) + '" cy="' + H / 2 + '" r="3.8" fill="' + colourOf(q.oid)
+          + '" fill-opacity=".85" stroke="#fff" stroke-width=".8"><title>' + escHtml(q.oid) + ': '
+          + escHtml(fmtValue(q.v)) + (m.unit ? ' ' + escHtml(m.unit) : '') + '</title></circle>';
+      });
+      html += '<td>' + svg + '</svg></td><td class="strip-top">' + escHtml(fmtValue(top)) + '</td>';
+    });
+    html += '</tr>';
+  });
+  host.insertAdjacentHTML('beforeend', html + '</tbody></table>');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -8977,8 +8986,11 @@ function distributionPanel(host, opts) {
     // Brackets belong on boxes, where there is a top to hang them above, and only while
     // they fit. A bracket sets the range itself, to make room for the rungs, so a panel
     // given an explicit range keeps it and says the comparison in text instead.
-    if (!layout.yaxis.range && comparisons.length && bracketRungs(comparisons) <= MAX_BRACKETS) {
-      bracketLayout(layout, comparisons, span);
+    // Not the comparisons that cannot reach 0.05 with this many cells: a bracket says "tested, and this
+    // is what came out", and there is nothing to say.
+    var forBrackets = comparisons.filter(function(c){ return !(c.test && c.test.floor); });
+    if (!layout.yaxis.range && forBrackets.length && bracketRungs(forBrackets) <= MAX_BRACKETS) {
+      bracketLayout(layout, forBrackets, span);
       bracketed = true;
     }
   }
