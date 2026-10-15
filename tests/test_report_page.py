@@ -950,23 +950,21 @@ def test_every_test_on_the_page_counts_objects(by_group):
         assert "objects)" in note or "cells)" in note or "not tested" in note, note
 
 
-def test_the_overview_has_a_strip_of_dots_for_how_many_and_how_much_of_each_structure(report_path, by_group):
-    """One dot per cell, never a box: a cell is one value. A mask has no count, so only its total gets dots."""
-    import re
-
+def test_the_overview_draws_a_panel_for_how_many_and_how_much_of_each_structure(report_path, by_group):
+    """The page's own panels: a volume for every structure, a count only for those with instances (a mask is one
+    shape and has none), so taking the counts away takes one panel per structure that has them."""
     rows = rows_of(report_path)
-    cells = {r["object_id"] for r in rows if r.get("row_type") == "object"}
-    html = by_group["stripsHtml"]
-    assert "strip-table" in html
-    strips = re.findall(r'<svg class="strip".*?</svg>', html, flags=re.S)
+    bare = run_page({"rows": [{**r, "instance_count": None} for r in rows], "columnHelp": help_of(report_path),
+                     "structure": "mito", "render": True, "groupBy": "group", "significance": True})["render"]
     labels = {r["entity_name"] for r in rows
-              if r.get("row_type") == "entity" and r.get("entity_kind") == "label" and r.get("instance_count") is not None}
-    structures = {r["entity_name"] for r in rows if r.get("row_type") == "entity"}
-    assert len(strips) == len(structures) + len(labels)
-    assert all(strip.count("<circle") == len(cells) for strip in strips)
+              if r.get("row_type") == "entity" and r.get("instance_count") is not None}
+    assert labels
+    assert by_group["plots"] - bare["plots"] == len(labels)
 
 
-def test_a_single_cell_has_no_strips_to_draw(report_path):
-    rows = [r for r in rows_of(report_path) if r.get("object_id") in (None, "", rows_of(report_path)[0].get("object_id"))]
-    out = run_page({"rows": rows, "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
-    assert "strip-table" not in out["stripsHtml"]
+def test_a_single_cell_has_no_totals_to_draw(report_path):
+    first = rows_of(report_path)[0].get("object_id")
+    rows = [r for r in rows_of(report_path) if r.get("object_id") in (None, "", first)]
+    one = run_page({"rows": rows, "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
+    many = run_page({"rows": rows_of(report_path), "columnHelp": help_of(report_path), "structure": "mito", "render": True})["render"]
+    assert many["plots"] - one["plots"] >= len({r["entity_name"] for r in rows_of(report_path) if r.get("row_type") == "entity"})

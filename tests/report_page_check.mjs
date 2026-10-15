@@ -680,8 +680,8 @@ if (job.render) {
     // draw can be checked for saying why. Taken as the markup each node was given,
     // not by class: a block builds its headings by setting innerHTML in one go, so in this
     // stub they are that string and not nodes of their own.
-    // The overview's per-structure strips, as drawn.
-    stripsHtml: (() => {
+    // The overview's per-structure totals, as drawn.
+    totalsHtml: (() => {
       const host = globalThis.document.getElementById('overview-volumes');
       return host ? host.innerHTML : '';
     })(),
