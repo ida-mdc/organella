@@ -150,19 +150,16 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
 .entity-title { font-family: var(--serif); font-size: 1.28rem; font-weight: 600;
   color: var(--ink); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
 .pair-picker { width: auto; margin: .3rem 0 .9rem; }
-.totals-card { margin: .4rem 0 .8rem; }
+.totals-card { margin: .4rem 0 .8rem; overflow-x: auto; }
 .totals-legend { display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; font-size: .86rem; color: var(--ink-2); margin-bottom: .5rem; }
 .totals-legend span { display: inline-flex; align-items: center; gap: .4rem; }
 .totals-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
-.totals-blocks { display: flex; flex-wrap: wrap; gap: 1rem 1.6rem; }
-.totals-table { border-collapse: separate; border-spacing: 6px; table-layout: fixed; }
-.totals-table thead th:not(:first-child), .totals-table td { width: 212px; max-width: 212px; overflow: hidden; }
-.totals-table thead th { font-size: .86rem; font-weight: 500; color: var(--ink); text-align: center; padding: .4rem 0 .1rem;
+.totals-grid { display: grid; gap: 8px; align-items: stretch; }
+.totals-cell { min-width: 0; }
+.totals-head { min-width: 0; font-size: .86rem; font-weight: 500; color: var(--ink); text-align: center; padding: .4rem 0 .1rem;
   border-top: 3px solid var(--rule); white-space: nowrap; }
-.totals-table thead th:first-child { border-top-color: transparent; width: 90px; }
-.totals-table td { padding: 0; vertical-align: top; }
 .totals-row { font-size: .74rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
-  text-align: left; padding: 0 .5rem 0 0; vertical-align: middle; width: 90px; }
+  display: flex; flex-direction: column; justify-content: center; }
 .totals-row .unit { text-transform: none; letter-spacing: 0; font-size: .8rem; }
 .charts-row-compact { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 .charts-row, .pair-panels { display: grid; gap: 20px;
@@ -4346,11 +4343,10 @@ function renderOverview() {
 
 /**
  * How many of each structure there are, and how much of it in all, per object: the page's own box panels, in
- * a table with a column per structure and a row for each measure.
+ * two rows - the count, and the total - with a column per structure.
  *
- * Structures with instances have both rows; a mask is one shape and has no count, so masks have their own
- * table with the volume row alone and there are no empty cells. A table holds at most three columns, so every
- * panel stays a size to read when the viewer takes the room beside the page.
+ * A mask is one shape and has no count, so those columns come last and are empty in the first row. The columns
+ * share the width and no narrower than a panel can be read; below that the table scrolls sideways.
  */
 function structureTotals(host, o) {
   var groups = uniq(o.objects.map(function(oid){ return o.groupOf[oid]; }).filter(Boolean));
@@ -4362,10 +4358,7 @@ function structureTotals(host, o) {
   var counted = o.entNames.filter(function(e) {
     return inObjects.some(function(r){ return r.entity_name === e && r.instance_count != null; });
   });
-  var sets = [
-    { names: counted, measures: [count, total] },
-    { names: o.entNames.filter(function(e){ return counted.indexOf(e) < 0; }), measures: [total] }
-  ];
+  var names = counted.concat(o.entNames.filter(function(e){ return counted.indexOf(e) < 0; }));
 
   var container = document.createElement('div');
   container.className = 'totals-card';
@@ -4374,42 +4367,38 @@ function structureTotals(host, o) {
       return '<span><i style="background:' + groupColor(g) + '"></i>' + escHtml(g) + '</span>';
     }).join('') + '</div>');
   }
-  var blocks = document.createElement('div');
-  blocks.className = 'totals-blocks';
-  container.appendChild(blocks);
+  var grid = document.createElement('div');
+  grid.className = 'totals-grid';
+  grid.style.gridTemplateColumns = '92px repeat(' + names.length + ', minmax(170px, 1fr))';
+  container.appendChild(grid);
 
-  sets.forEach(function(set) {
-    if (!set.names.length) return;
-    var perTable = Math.ceil(set.names.length / Math.ceil(set.names.length / 3));
-    for (var from = 0; from < set.names.length; from += perTable) {
-      var names = set.names.slice(from, from + perTable);
-      var table = document.createElement('table');
-      table.className = 'totals-table';
-      table.innerHTML = '<thead><tr><th></th>' + names.map(function(e) {
-          return '<th style="border-top-color:' + entColor(e) + '">' + escHtml(e) + '</th>';
-        }).join('') + '</tr></thead>';
-      var body = document.createElement('tbody');
-      set.measures.forEach(function(m) {
-        var row = document.createElement('tr');
-        row.innerHTML = '<th class="totals-row">' + escHtml(m.head)
-          + (m.unit ? '<br><span class="unit">' + escHtml(m.unit) + '</span>' : '') + '</th>';
-        names.forEach(function(e) {
-          var cell = document.createElement('td');
-          row.appendChild(cell);
-          var have = inObjects.filter(function(r){ return r.entity_name === e && m.value(r) != null; });
-          // One row per object, so these values are the units a test compares.
-          var series = facets.split(have, { name: e, color: entColor(e) }).map(function(f) {
-            var values = f.rows.map(m.value);
-            return { name: f.name, label: f.label, color: f.color, values: values, units: values };
-          }).filter(function(f){ return f.values.length; });
-          distributionPanel(cell, { series: series, unit: m.unit || null, noun: noun(), width: 200, height: 160,
-                                    showFacetTicks: false, noSizeLine: true });
-        });
-        body.appendChild(row);
-      });
-      table.appendChild(body);
-      blocks.appendChild(table);
-    }
+  var cellOf = function(html) {
+    var cell = document.createElement('div');
+    cell.className = 'totals-cell';
+    if (html) cell.innerHTML = html;
+    grid.appendChild(cell);
+    return cell;
+  };
+  cellOf('');
+  names.forEach(function(e) {
+    var head = cellOf(escHtml(e));
+    head.className = 'totals-head';
+    head.style.borderTopColor = entColor(e);
+  });
+  [count, total].forEach(function(m) {
+    var head = cellOf(escHtml(m.head) + (m.unit ? '<br><span class="unit">' + escHtml(m.unit) + '</span>' : ''));
+    head.className = 'totals-row';
+    names.forEach(function(e) {
+      var cell = cellOf('');
+      var have = inObjects.filter(function(r){ return r.entity_name === e && m.value(r) != null; });
+      // One row per object, so these values are the units a test compares.
+      var series = facets.split(have, { name: e, color: entColor(e) }).map(function(f) {
+        var values = f.rows.map(m.value);
+        return { name: f.name, label: f.label, color: f.color, values: values, units: values };
+      }).filter(function(f){ return f.values.length; });
+      distributionPanel(cell, { series: series, unit: m.unit || null, noun: noun(), width: 200, height: 170,
+                                showFacetTicks: false, noSizeLine: true });
+    });
   });
   host.appendChild(container);
 }
