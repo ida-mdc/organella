@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>organella: the reports</title>
+<!-- build.py fills in the list of cards below: one entry per report, with its counts and one object's geometry. -->
+<style>
+:root { --paper: #fcfbf7; --surface: #fff; --ink: #14181d; --ink-2: #3e4650; --ink-3: #6a727c;
+  --rule: #e8e5db; --rule-2: #d3cfc2; --accent: #2563d4;
+  --serif: "Source Serif 4", "Iowan Old Style", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink-2); font: 14px/1.5 var(--sans); }
+header { max-width: 1200px; margin: 0 auto; padding: 32px 24px 8px; }
+h1 { font: 500 1.8rem/1.2 var(--serif); letter-spacing: -.02em; margin: 0 0 .4rem; color: var(--ink); }
+header p { margin: 0; color: var(--ink-3); }
+main { max-width: 1200px; margin: 0 auto; padding: 16px 24px 48px; display: grid; gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column; box-shadow: 0 4px 18px rgba(20, 24, 29, .05); }
+.view { position: relative; height: 200px; background: radial-gradient(ellipse at 50% 40%, #fff 0%, #f3f1ea 75%, #e9e6dc 100%); }
+.view canvas { display: block; width: 100%; height: 100%; }
+.view .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
+.view .what { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--ink-3); }
+.body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+h2 { font: 500 1.1rem/1.25 var(--serif); margin: 0; color: var(--ink); }
+.sample { margin: 0; color: var(--ink-3); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.chips span { font-size: 11px; border: 1px solid var(--rule-2); border-radius: 9px; padding: 0 7px; color: var(--ink-2); }
+.foot { margin-top: auto; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; }
+.foot small { color: var(--ink-3); }
+a.btn { font: 600 13px var(--sans); border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  border-radius: 9px; padding: 6px 12px; text-decoration: none; }
+a.btn:hover { background: #1b4fb8; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<header>
+  <h1>organella: the reports</h1>
+  <p>One card per report. Each 3D view is one whole object with all its structures, from the report's own geometry; drag to turn it. A card opens
+    its report in the viewer.</p>
+</header>
+<main id="cards"></main>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const CARDS = __CARDS__;
+
+const bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+const link = c => `/organella_report.html?data=${encodeURIComponent('/r/' + c.id + '/' + c.stem)}`
+  + `&geometry=${encodeURIComponent('/r/' + c.id + '/g')}`;
+const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+
+for (const c of CARDS) {
+  const card = h('div', 'card'), view = h('div', 'view'), body = h('div', 'body');
+  card.append(view, body);
+  body.append(h('h2', '', c.title), h('p', 'sample', c.sample));
+  const chips = h('div', 'chips');
+  for (const s of c.structures) chips.append(h('span', '', s));
+  body.append(chips);
+  const foot = h('div', 'foot'), a = h('a', 'btn', 'Open report');
+  a.href = link(c);
+  foot.append(h('small', '', c.objects + (c.objects === 1 ? ' object' : ' objects')), a);
+  body.append(foot);
+  document.getElementById('cards').append(card);
+
+  if (!c.layers.length) { view.append(h('div', 'none', 'no geometry in this report')); continue; }
+  view.append(h('div', 'what', 'one ' + (c.objects === 1 ? 'object' : 'object of ' + c.objects) + ', every structure'));
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  view.prepend(renderer.domElement);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
+  const f32 = s => new Float32Array(bytes(s)), u32 = s => new Uint32Array(bytes(s));
+  for (const L of c.layers) {
+    const color = new THREE.Color(L.colour);
+    if (L.type === 'mesh') {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(f32(L.v), 3));
+      geo.setIndex(new THREE.BufferAttribute(u32(L.f), 1));
+      geo.computeVertexNormals();
+      scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color, roughness: .55, metalness: .05, side: THREE.DoubleSide,
+        transparent: L.outline, opacity: L.outline ? .16 : 1, depthWrite: !L.outline })));
+    } else if (L.type === 'spheres') {
+      const centres = f32(L.c), radii = f32(L.r), n = radii.length;
+      const inst = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1),
+        new THREE.MeshStandardMaterial({ color, roughness: .5 }), n);
+      const m = new THREE.Matrix4();
+      for (let i = 0; i < n; i++) {
+        m.makeScale(radii[i], radii[i], radii[i]).setPosition(centres[3 * i], centres[3 * i + 1], centres[3 * i + 2]);
+        inst.setMatrixAt(i, m);
+      }
+      scene.add(inst);
+    } else {
+      const v = f32(L.v), e = u32(L.e), pos = new Float32Array(e.length * 3);
+      for (let i = 0; i < e.length; i++) pos.set(v.subarray(3 * e[i], 3 * e[i] + 3), 3 * i);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color })));
+    }
+  }
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9a9486, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(1, 2, 3); scene.add(key);
+  const r = 0.62;                                   // the object's longest side is 1, centred on the origin
+  camera.position.set(0, 0, r * 3.4); camera.near = 0.05; camera.far = 20; camera.updateProjectionMatrix();
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableZoom = false; controls.enablePan = false; controls.autoRotate = true; controls.autoRotateSpeed = 2;
+  const size = () => { const w = view.clientWidth, hh = view.clientHeight; renderer.setSize(w, hh, false); camera.aspect = w / hh; camera.updateProjectionMatrix(); };
+  size(); addEventListener('resize', size);
+  let visible = true;
+  new IntersectionObserver(e => { visible = e[0].isIntersecting; }).observe(view);
+  (function loop() { requestAnimationFrame(loop); if (!visible) return; controls.update(); renderer.render(scene, camera); })();
+}
+</script>
+</body>
+</html>

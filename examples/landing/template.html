@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<!-- build.py fills in the title, the text, the cells' description and their geometry (zlib, base64). -->
+<style>
+:root { --paper: #fcfbf7; --surface: #ffffff; --ink: #14181d; --ink-2: #3e4650; --ink-3: #6a727c;
+  --rule: #e8e5db; --rule-2: #d3cfc2; --accent: #2563d4;
+  --serif: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink-2); font: 14px/1.5 var(--sans); }
+#stage { position: fixed; inset: 0;
+  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, #f3f1ea 70%, #e9e6dc 100%); }
+canvas { display: block; width: 100%; height: 100%; outline: none; }
+.tag { position: fixed; left: 0; top: 0; pointer-events: none; font-size: 11px; letter-spacing: .03em; color: var(--ink-2);
+  background: rgba(252, 251, 247, .82); padding: 1px 6px; border-radius: 9px; border: 1px solid var(--rule); white-space: nowrap;
+  transform: translate(-50%, -50%); transition: opacity .2s; }
+.tag.group { font-family: var(--serif); font-size: 15px; padding: 3px 12px; color: var(--ink); background: rgba(252, 251, 247, .9); }
+.tag.dim { opacity: .25; }
+.panel { position: fixed; top: 18px; left: 18px; width: 300px; max-height: calc(100% - 36px); overflow-y: auto;
+  background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border: 1px solid var(--rule); border-radius: 14px;
+  padding: 18px 20px 16px; box-shadow: 0 8px 30px rgba(20, 24, 29, .08); }
+h1 { font: 500 1.45rem/1.2 var(--serif); letter-spacing: -.02em; margin: 0 0 .5rem; color: var(--ink); }
+.sub { color: var(--ink-3); margin: 0 0 1rem; font-size: 13px; }
+h2 { font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin: 1.1rem 0 .4rem; }
+label.row { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; user-select: none; }
+label.row .n { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 12px; }
+.chip { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+button, a.btn { font: 600 13px var(--sans); border: 1px solid var(--rule-2); background: var(--surface); color: var(--ink);
+  border-radius: 9px; padding: 6px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, a.btn:hover { border-color: var(--accent); color: var(--accent); }
+a.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+a.btn.primary:hover { background: #1b4fb8; color: #fff; }
+.cells { display: flex; flex-wrap: wrap; gap: 6px; }
+.cells button { padding: 3px 9px; font-weight: 500; font-size: 12px; }
+.cells button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.stats { font-size: 13px; }
+.stats td { padding: 1px 0; }
+.stats td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.hint { color: var(--ink-3); font-size: 12px; margin-top: .8rem; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; font: 500 1.2rem var(--serif); color: var(--ink-3);
+  background: var(--paper); z-index: 5; }
+@media (max-width: 760px) { .panel { width: calc(100% - 36px); max-height: 46%; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="loading">Unpacking the cells…</div>
+<div id="stage"></div>
+<div class="panel" id="panel">
+  <h1>__TITLE__</h1>
+  <p class="sub">__SUB__</p>
+  <a class="btn primary" id="report" href="__REPORT_URL__" target="_blank" rel="noopener">Open the full report →</a>
+
+  <h2>Structures</h2>
+  <div id="structures"></div>
+
+  <h2>Cells</h2>
+  <div class="cells" id="cells"></div>
+  <div class="stats" id="stats"></div>
+
+  <h2>View</h2>
+  <label class="row" style="display:block">Spread the cells apart
+    <input type="range" id="spread" min="1" max="2.4" step="0.02" value="1"></label>
+  <label class="row"><input type="checkbox" id="spin"> Turn the groups slowly</label>
+  <button id="reset" style="margin:.3rem 0 .2rem">Reset the view</button>
+  <div class="hint">Drag a group of cells to turn it on its own, drag the background to move the camera, scroll to zoom. Click a cell to look at it.</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const SCENE = __SCENE__;
+const PACKED = "__BLOB__";
+
+// ── the geometry, unpacked ──────────────────────────────────────────────
+async function unpack(b64) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+const TYPES = { '<u2': Uint16Array, '<u4': Uint32Array, '<f4': Float32Array };
+let DATA;
+const array = s => new TYPES[s.type](DATA.buffer, DATA.byteOffset + s.at, s.n);
+const decode = (q, min, span) => {
+  const out = new Float32Array(q.length);
+  for (let i = 0; i < q.length; i++) out[i] = min[i % 3] + q[i] * span[i % 3] / 65535;
+  return out;
+};
+const fmt = (v, d = 0) => v == null ? '–' : v.toLocaleString('en', { maximumFractionDigits: d, minimumFractionDigits: d });
+
+// ── the stage ──────────────────────────────────────────────────────────
+const host = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Self-shadowing is what makes a pile of blobs read as a pile: nothing else says which one is in front.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 5000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// The light of the report's own scene. Depth comes from the light falling off, so the ambient term stays low and
+// the rest is directional: a key from above and ahead, a weak fill so the shadow side is not black, and a rim from
+// behind to lift each surface off the one behind it. All three ride with the camera, so whatever is being looked at
+// is lit while the shadows still move across it as the cells turn.
+const STAGE = { ambient: 0.95, sky: 0xffffff, ground: 0x9c9caa, hemisphere: 0.6, key: 2.15, fill: 0.34, rim: 0.28, paper: 0xf3f1ea };
+scene.add(new THREE.AmbientLight(0xffffff, STAGE.ambient), new THREE.HemisphereLight(STAGE.sky, STAGE.ground, STAGE.hemisphere));
+const key = new THREE.DirectionalLight(0xffffff, STAGE.key), keyAt = new THREE.Object3D();
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.target = keyAt;
+const fill = new THREE.DirectionalLight(0xffffff, STAGE.fill), rim = new THREE.DirectionalLight(0xffffff, STAGE.rim);
+scene.add(key, keyAt, fill, rim);
+scene.fog = new THREE.Fog(STAGE.paper, 100, 300);
+const LIGHT_OFFSET = 35 * Math.PI / 180;
+let sceneSize = 100;                       // the diagonal of everything drawn, which the shadow frustum has to cover
+function fitShadow(size) {
+  sceneSize = size;
+  const s = key.shadow.camera;
+  s.left = -size * 0.75; s.right = size * 0.75; s.top = size * 0.75; s.bottom = -size * 0.75;
+  s.near = size * 0.05; s.far = size * 6; s.updateProjectionMatrix();
+  key.shadow.bias = -0.0008; key.shadow.normalBias = size * 0.003;       // acne otherwise, at grazing angles
+}
+const toward = new THREE.Vector3(), right = new THREE.Vector3(), upward = new THREE.Vector3();
+function lightRig() {
+  toward.copy(camera.position).sub(controls.target);
+  const distance = toward.length();
+  toward.normalize();
+  const azimuth = Math.atan2(toward.y, toward.x) + LIGHT_OFFSET, lift = Math.min(Math.asin(toward.z) + 0.45, 1.3);
+  const reach = sceneSize * 2;             // above and to the side of the camera, never straight overhead
+  key.position.set(reach * Math.cos(lift) * Math.cos(azimuth), reach * Math.cos(lift) * Math.sin(azimuth), reach * Math.sin(lift));
+  right.setFromMatrixColumn(camera.matrixWorld, 0); upward.setFromMatrixColumn(camera.matrixWorld, 1);
+  fill.position.set(0, 0, 0).addScaledVector(right, -1).addScaledVector(upward, -0.5).addScaledVector(toward, 0.5);
+  rim.position.set(0, 0, 0).addScaledVector(right, -0.6).addScaledVector(upward, 0.4).addScaledVector(toward, -1.6);
+  // The far side of what is looked at fades into the paper; it starts behind the near face.
+  scene.fog.near = distance * 0.85; scene.fog.far = distance * 2.8;
+}
+
+// ── where the cells stand: each volume centred, the two side by side ────
+const groups = {};
+for (const c of SCENE.cells) (groups[c.group] ||= []).push(c);
+const order = SCENE.groups.map(g => g.id).filter(g => groups[g]);
+const GROUP_NAME = Object.fromEntries(SCENE.groups.map(g => [g.id, g.name]));
+const GROUP_COLOUR = Object.fromEntries(SCENE.groups.map(g => [g.id, g.colour]));
+const footprint = cs => {
+  const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (const c of cs) for (let k = 0; k < 3; k++) {
+    lo[k] = Math.min(lo[k], c.centre[k] - c.extent[k] / 2); hi[k] = Math.max(hi[k], c.centre[k] + c.extent[k] / 2);
+  }
+  return { lo, hi, mid: lo.map((v, k) => (v + hi[k]) / 2), size: lo.map((v, k) => hi[k] - v) };
+};
+const GAP = 12;
+let cursor = 0;
+const layout = {};
+for (const g of order) {
+  const f = footprint(groups[g]);
+  layout[g] = { mid: f.mid, x: cursor + f.size[0] / 2, size: f.size };
+  cursor += f.size[0] + GAP;
+}
+const shiftAll = cursor / 2 - GAP / 2;
+for (const g of order) layout[g].x -= shiftAll;
+
+// ── the cells ──────────────────────────────────────────────────────────
+const MESH_OPACITY = { cell: 0.16 };       // the cell's own surface is a ghost; everything else is solid
+const cells = [];
+const visible = {};
+function material(name, colour) {
+  // A grey specular makes a saturated surface look chalky; nearly black keeps the sheen and the colour.
+  const m = new THREE.MeshPhongMaterial({ color: colour, side: THREE.DoubleSide, shininess: 14, specular: 0x0d0d10 });
+  if (name in MESH_OPACITY) { m.transparent = true; m.opacity = MESH_OPACITY[name]; m.depthWrite = false; }
+  m.userData = { base: m.opacity, transparent: name in MESH_OPACITY };
+  return m;
+}
+function buildStructure(name, s) {
+  let object;
+  if (s.kind === 'mesh') {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(decode(array(s.pos), s.min, s.span), 3));
+    g.setIndex(new THREE.BufferAttribute(array(s.index), 1));
+    g.computeVertexNormals();
+    object = new THREE.Mesh(g, material(name, s.colour));
+    if (name === 'cell') object.renderOrder = 3;
+    else { object.castShadow = true; object.receiveShadow = true; }
+  } else {
+    const c = array(s.centres), r = array(s.radii), n = r.length;
+    object = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), material(name, s.colour), n);
+    object.castShadow = true; object.receiveShadow = true;
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < n; i++) { m.makeScale(r[i], r[i], r[i]).setPosition(c[3 * i], c[3 * i + 1], c[3 * i + 2]); object.setMatrixAt(i, m); }
+  }
+  object.userData = { name };
+  return object;
+}
+const pivots = {};          // one per volume: turning it turns that volume's cells about their own centre
+function build() {
+  for (const g of order) { pivots[g] = new THREE.Group(); pivots[g].position.set(layout[g].x, 0, 0); scene.add(pivots[g]); }
+  for (const c of SCENE.cells) {
+    const node = new THREE.Group();
+    const parts = {};
+    for (const [name, s] of Object.entries(c.structures)) {
+      parts[name] = buildStructure(name, s); node.add(parts[name]);
+      visible[name] = !SCENE.hidden.includes(name);   // the profile's many small structures start off; one click brings them back
+      parts[name].visible = visible[name];
+    }
+    pivots[c.group].add(node);
+    const L = layout[c.group];
+    const rel = c.centre.map((v, k) => v - L.mid[k]);
+    const tag = Object.assign(document.createElement('div'), { className: 'tag', textContent: c.short });
+    document.body.appendChild(tag);
+    cells.push({ ...c, node, parts, rel, tag, radius: Math.max(...c.extent) / 2 });
+  }
+  for (const g of order) {
+    const L = layout[g];
+    const tag = Object.assign(document.createElement('div'), { className: 'tag group', textContent: `${GROUP_NAME[g]} · ${groups[g].length} ${groups[g].length === 1 ? 'cell' : 'cells'}` });
+    tag.style.borderLeft = `5px solid ${GROUP_COLOUR[g]}`;
+    document.body.appendChild(tag);
+    L.tag = tag;
+  }
+}
+let spread = 1;
+const worldOf = c => c.node.getWorldPosition(new THREE.Vector3());
+const place = () => {
+  for (const c of cells) c.node.position.set(c.rel[0] * spread, c.rel[1] * spread, c.rel[2] * spread);
+};
+
+// ── what the panel offers ───────────────────────────────────────────────
+function panel() {
+  const names = SCENE.order.filter(n => cells.some(c => n in c.structures));
+  const box = document.getElementById('structures');
+  for (const n of names) {
+    const first = cells.find(c => n in c.structures).structures[n];
+    const total = cells.reduce((a, c) => a + ((c.structures[n] || {}).instances || 0), 0);
+    const row = document.createElement('label');
+    row.className = 'row';
+    row.innerHTML = `<input type="checkbox" ${visible[n] ? "checked" : ""}><span class="chip" style="background:${first.colour}"></span>${first.label}` +
+      `<span class="n">${first.kind === 'mesh' && total <= cells.length ? '' : fmt(total)}</span>`;
+    row.querySelector('input').addEventListener('change', e => {
+      visible[n] = e.target.checked;
+      for (const c of cells) if (c.parts[n]) c.parts[n].visible = visible[n];
+    });
+    box.appendChild(row);
+  }
+  const list = document.getElementById('cells');
+  const all = Object.assign(document.createElement('button'), { textContent: 'All' });
+  all.className = 'on'; all.onclick = () => focus(null);
+  list.appendChild(all);
+  for (const c of cells) {
+    const b = Object.assign(document.createElement('button'), { textContent: c.short });
+    b.style.borderLeft = `4px solid ${GROUP_COLOUR[c.group]}`;
+    b.onclick = () => focus(c); c.button = b; list.appendChild(b);
+  }
+  all.id = 'all';
+  document.getElementById('spread').addEventListener('input', e => { spread = +e.target.value; place(); });
+  document.getElementById('spin').addEventListener('change', e => { spinning = e.target.checked; });
+  document.getElementById('reset').addEventListener('click', () => { for (const g of order) pivots[g].quaternion.identity(); focus(null); });
+}
+
+// ── looking at one cell ─────────────────────────────────────────────────
+let selected = null, tween = null, spinning = false, drag = null;
+function stats(c) {
+  const el = document.getElementById('stats');
+  if (!c) { el.innerHTML = ''; return; }
+  el.innerHTML = `<h2>${c.title}</h2><table style="width:100%">` +
+    c.stats.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('') + '</table>' +
+    (c.note ? `<div class="hint">${c.note}</div>` : '');
+}
+function dim(c, amount) {
+  c.node.traverse(o => {
+    const m = o.material; if (!m) return;
+    m.transparent = m.userData.transparent || amount < 1;
+    m.opacity = m.userData.base * amount;
+    m.depthWrite = !m.transparent;
+    m.needsUpdate = true;
+  });
+  c.tag.classList.toggle('dim', amount < 1);
+}
+function focus(c) {
+  selected = c;
+  for (const k of cells) { dim(k, !c || k === c ? 1 : 0.1); if (k.button) k.button.classList.toggle('on', k === c); }
+  document.getElementById('all').classList.toggle('on', !c);
+  stats(c);
+  const to = c ? worldOf(c) : sceneCentre();
+  const dist = c ? c.radius * 2.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.62 : fitDistance();
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  tween = { start: performance.now(), from: { target: controls.target.clone(), pos: camera.position.clone() },
+            to: { target: to, pos: to.clone().add(dir.multiplyScalar(dist)) } };
+}
+function sceneCentre() { return new THREE.Vector3(0, 0, 0); }
+// How far back the camera has to be for every cell to fit the scene area, whichever way that area is shaped.
+function fitDistance() {
+  const half = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfWide = Math.atan(Math.tan(half) * Math.max((host.clientWidth - panelWidth()) / host.clientHeight, 0.3));
+  const width = cursor - GAP, height = Math.max(...order.map(g => Math.max(layout[g].size[1], layout[g].size[2])));
+  return 1.08 * Math.max(width / 2 / Math.tan(halfWide), height / 2 / Math.tan(half)) + height * 0.2;
+}
+
+// ── picking: a click, not a drag ────────────────────────────────────────
+const ray = new THREE.Raycaster(); let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hits = ray.intersectObjects(cells.flatMap(c => c.parts.cell ? [c.parts.cell] : []));
+  const hit = hits.length ? cells.find(c => c.parts.cell === hits[0].object) : null;
+  focus(hit && hit !== selected ? hit : null);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape') focus(null); });
+const UP = new THREE.Vector3(0, 0, 1);
+function pick(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hits = ray.intersectObjects(cells.flatMap(c => c.parts.cell ? [c.parts.cell] : []));
+  return hits.length ? cells.find(c => c.parts.cell === hits[0].object) : null;
+}
+// Capturing on the container, so this sees the press before the camera's controls do.
+host.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const hit = pick(e);
+  if (!hit) return;                       // empty space: the camera orbits as usual
+  drag = { group: hit.group, x: e.clientX, y: e.clientY };
+  controls.enabled = false;
+}, true);
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  const pivot = pivots[drag.group], right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  pivot.rotateOnWorldAxis(UP, dx * 0.006);       // across: turn about the vertical through the group's centre
+  pivot.rotateOnWorldAxis(right, dy * 0.006);    // up and down: tip it towards or away from you
+});
+addEventListener('pointerup', () => { if (drag) { drag = null; controls.enabled = true; } });
+
+// ── the loop ───────────────────────────────────────────────────────────
+// The panel floats over the left of the stage, so the scene is centred in what is left of it: the camera's view is
+// shifted, not the canvas, which leaves one unbroken backdrop behind both.
+const panelWidth = () => innerWidth > 760 ? 340 : 0;
+function resize() {
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h;
+  camera.setViewOffset(w, h, -panelWidth() / 2, 0, w, h);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+const v = new THREE.Vector3();
+function project(tag, p, lift = 0) {
+  v.copy(p); v.z += lift; v.project(camera);
+  const r = host.getBoundingClientRect();
+  tag.style.display = v.z < 1 ? '' : 'none';
+  tag.style.left = (r.left + (v.x + 1) / 2 * r.width) + 'px'; tag.style.top = (r.top + (1 - v.y) / 2 * r.height) + 'px';
+}
+let last = performance.now();
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (spinning && !drag && !selected) order.forEach((g, i) => pivots[g].rotateOnWorldAxis(UP, (i % 2 ? -1 : 1) * 0.14 * dt));
+  if (tween) {
+    const t = Math.min(1, (performance.now() - tween.start) / 700);
+    const e = t * t * (3 - 2 * t);
+    controls.target.lerpVectors(tween.from.target, tween.to.target, e);
+    camera.position.lerpVectors(tween.from.pos, tween.to.pos, e);
+    if (t === 1) tween = null;
+  }
+  controls.update();
+  scene.updateMatrixWorld();
+  lightRig();
+  for (const c of cells) project(c.tag, worldOf(c));
+  for (const g of order) project(layout[g].tag, new THREE.Vector3(layout[g].x, 0, 0), layout[g].size[2] / 2 + 3);
+  renderer.render(scene, camera);
+}
+
+if (!document.getElementById('report').getAttribute('href')) document.getElementById('report').remove();
+DATA = await unpack(PACKED);
+build(); place(); panel(); resize();
+fitShadow(Math.hypot(cursor - GAP, ...order.map(g => Math.max(layout[g].size[1], layout[g].size[2]))));
+camera.position.set(0, -0.88, 0.47).multiplyScalar(fitDistance());
+controls.target.copy(sceneCentre());
+document.getElementById('loading').remove();
+frame();
+window.__landing = { cells, focus, camera, controls, renderer, pivots };   // for the page's own tests
+</script>
+</body>
+</html>
