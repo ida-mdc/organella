@@ -64,10 +64,11 @@ jrc_hela-2|jrc_hela-3)
     mask_scale=${MASK_SCALE:-s3}
     # The cells are derived: the membrane and the space around bound a cell, the nucleus seeds it, a watershed cuts
     # touching ones apart. The label arrays are instance maps, except the nucleus' own, which holds one id: that
-    # one is a mask, a whole structure, since a window cannot split a binary array into its pieces.
+    # one is a mask, a whole structure, since a window cannot split a binary array into its pieces. The seed size is 2 um3:
+    # at the default of 40 the fragments of a neighbouring cell's nucleus are merged into the cell beside it.
     $uvrun organella cells "$bucket/$dataset/$dataset.n5" "$out/$dataset/cells" --prefix "${dataset#jrc_}" \
         --source em/fibsem-uint16 --membrane labels/pm_seg --outside labels/ecs_seg --seed labels/nucleus_seg \
-        --scale "$scale" --mask-scale "$mask_scale" \
+        --scale "$scale" --mask-scale "$mask_scale" --min-seed-um3 2 \
         --entity mito=labels/mito_seg --entity mito-mem=labels/mito-mem_seg --entity er=labels/er_seg \
         --entity golgi=labels/golgi_seg --entity lyso=labels/lyso_seg --entity ld=labels/ld_seg \
         --entity endo=labels/endo_seg --entity vesicle=labels/vesicle_seg --entity nucleus=labels/nucleus_seg \

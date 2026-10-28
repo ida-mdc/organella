@@ -1,7 +1,7 @@
 [
   {"id": "alpha", "title": "Alpha cells", "sample": "8 pancreatic alpha cells, FIB-SEM", "report": "alphacells-report-pre0.3.0.parquet"},
   {"id": "beta", "title": "Beta cells", "sample": "7 pancreatic beta cells, high and low glucose (Müller et al.)", "report": "reports/betacells-empanada.parquet"},
-  {"id": "hela", "title": "HeLa cell", "sample": "1 HeLa cell, OpenOrganelle jrc_hela-2", "report": "public_datasets/hela_full.parquet"},
+  {"id": "hela", "title": "HeLa cells", "sample": "2 HeLa cells, OpenOrganelle jrc_hela-2, measured a window at a time at 16 nm", "report": "public_datasets/hela_s2.parquet"},
   {"id": "cells", "title": "HeLa and macrophage", "sample": "OpenOrganelle jrc_hela-2 and jrc_macrophage-2, a grouped comparison", "report": "public_datasets/cells.parquet"},
   {"id": "asem", "title": "SVG-A cell", "sample": "1 glial cell line cell, ASEM cell 79", "report": "public_datasets/asem_79_fixed.parquet"},
   {"id": "allen", "title": "Allen hiPSC", "sample": "15 human stem cells, one tagged organelle per cell line", "report": "public_datasets/allen.parquet"},
