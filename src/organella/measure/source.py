@@ -59,6 +59,8 @@ class ObjectSource:
 
     def __init__(self, object_dir: Path, config: RunConfig | None = None) -> None:
         cfg = config or RunConfig()
+        # Enough to open the same object again, in another process.
+        self.folder, self.config = object_dir, cfg
         self.object_id = object_dir.name
         self._clip = cfg.clip
         if cfg.label_map:
@@ -163,12 +165,14 @@ class ObjectSource:
         hold: the stack ``load_object`` would build, at ``factor`` times the voxel size. Ids are kept
         as stored, so a label stays the label it was; a structure thinner than ``factor`` voxels may
         miss the voxels that were kept. With ``factor`` 1 it is the object ``load_object`` returns.
-        The boundary's centre is the one found at full resolution, not recomputed from what is kept.
+        The boundary's centre is the one found at full resolution, not recomputed from what is kept, and
+        ``foreground_voxels`` holds how many voxels each structure has there, counted on the way.
         """
         if factor < 1:
             raise ValueError(f"a coarse stack keeps every factor-th voxel, and {factor} is not a whole number")
         shape = tuple(-(-n // factor) for n in self.shape)
         kept = {key: np.zeros(shape, dtype=self._dtypes[key]) for key in self._keys}
+        self.foreground_voxels: Dict[str, int] = {name: 0 for name in self.names}
         # Slabs of whole multiples of factor along the first axis, so that the voxels kept are the
         # ones a stride over the whole object would keep.
         per_row = int(np.prod(self.shape[1:]))
@@ -177,6 +181,7 @@ class ObjectSource:
             box = (slice(start, min(start + rows, self.shape[0])),) + tuple(slice(0, n) for n in self.shape[1:])
             read = self.window(box)
             for key, name in zip(self._keys, self.names):
+                self.foreground_voxels[name] += int(np.count_nonzero(read[name]))
                 piece = read[name][::factor, ::factor, ::factor]
                 kept[key][start // factor:start // factor + piece.shape[0]] = piece
             del read

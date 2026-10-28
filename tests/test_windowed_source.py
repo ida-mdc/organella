@@ -324,13 +324,15 @@ def test_a_coarse_stack_is_every_nth_voxel_of_the_object(tmp_path, factor):
     folder = _object(tmp_path)
     cfg = RunConfig(object_mask="cell")
     dense = load_object(folder, cfg)
-    coarse = ObjectSource(folder, cfg).coarse_stack(factor)
+    source = ObjectSource(folder, cfg)
+    coarse = source.coarse_stack(factor)
 
     assert np.array_equal(coarse.data, dense.data[:, ::factor, ::factor, ::factor])
     assert coarse.entity_names == dense.entity_names
     assert coarse.kinds == dense.kinds
     assert coarse.sample_size == pytest.approx(tuple(size * factor for size in dense.sample_size))
     assert coarse.center == pytest.approx(dense.center)          # the full-resolution centre, not one recomputed
+    assert source.foreground_voxels == {n: int((dense.volumes()[n] > 0).sum()) for n in dense.entity_names}
 
 
 def test_the_coarse_factor_is_the_smallest_that_fits(tmp_path):
@@ -368,8 +370,9 @@ def test_an_instance_measured_from_a_tile_has_the_numbers_it_has_from_its_own_wi
     dense, source = _dense_and_source(tmp_path)
     boxes = {"mito": module.instance_boxes(source, "mito")}
     margin = module.margin_voxels(0.03, source.sample_size)
-    readers = {type(reader).__name__ for reader, _ in module.tiles(source, boxes, margin)}
-    assert readers == {"_Tile", "ObjectSource"}, "the fixture should have one small instance and one large"
+    regions = [region for region, _ in module.tiles(source, boxes, margin)]
+    assert any(r is None for r in regions) and any(r is not None for r in regions), \
+        "the fixture should have one small instance and one large"
 
     got = module.measure_instances(source, boxes, 0.03, 0.1)
 
@@ -381,3 +384,39 @@ def test_an_instance_measured_from_a_tile_has_the_numbers_it_has_from_its_own_wi
             if key != "ellipsoid_axes":
                 assert np.allclose(got.stats["mito"][label][key], value), (label, key)
         assert got.distances[("mito", label)] == module.instance_distances(source, "mito", instance, 0.03)
+
+
+def test_tiles_measured_by_a_pool_of_processes_give_the_numbers_they_give_in_one(tmp_path, monkeypatch):
+    """The pool is forced open (its first task is measured here and the rest in a worker), and a worker opens the
+    object itself: what comes back is what the one process finds."""
+    from functools import partial
+
+    from organella.analysis import parallel
+    from organella.measure import instance_windows as module
+
+    monkeypatch.setattr(module, "TILE", 4)
+    monkeypatch.setattr(module, "SMALL", 12)
+    monkeypatch.setattr(parallel, "_SAMPLE", 1)
+    dense, source = _dense_and_source(tmp_path)
+    boxes = {"mito": module.instance_boxes(source, "mito")}
+    one = module.measure_instances(source, boxes, 0.03, 0.1, workers=1)
+
+    monkeypatch.setattr(module, "WorkPool", partial(parallel.WorkPool, min_seconds=0.0))
+    sent = []
+
+    class Watching(parallel.ProcessPoolExecutor):
+        def map(self, fn, tasks, **kwargs):
+            sent.append(len(tasks))
+            return super().map(fn, tasks, **kwargs)
+
+    monkeypatch.setattr(parallel, "ProcessPoolExecutor", Watching)
+    many = module.measure_instances(source, boxes, 0.03, 0.1, workers=2)
+
+    assert sent == [1], "the pool was meant to measure the task the first one left"
+
+    assert many.contacts == one.contacts
+    assert many.distances == one.distances
+    for label, found in one.stats["mito"].items():
+        assert many.stats["mito"][label].keys() == found.keys()
+        for key, value in found.items():
+            assert np.allclose(many.stats["mito"][label][key], value), (label, key)

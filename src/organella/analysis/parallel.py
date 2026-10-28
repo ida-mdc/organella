@@ -96,13 +96,17 @@ class WorkPool:
     Below `min_seconds` it never opens one, and a wrong guess costs the one batch it
     measured.
 
-    `what` names the work in the warning a broken pool logs. It falls back, never
+    `initializer(*initargs)` runs once in each worker as it starts, for what every task needs and a task should
+    not carry. `what` names the work in the warning a broken pool logs. It falls back, never
     raising: serial is slow, not wrong, where losing an object's geometry to a dead pool is
     the worse outcome.
     """
 
     def __init__(self, workers: int, total: int = 0, what: str = "work",
-                 min_seconds: float = 4.0) -> None:
+                 min_seconds: float = 4.0, initializer: Optional[Callable[..., None]] = None,
+                 initargs: tuple = ()) -> None:
+        self._initializer = initializer
+        self._initargs = initargs
         self._workers = workers
         self._total = total
         self._what = what
@@ -162,6 +166,7 @@ class WorkPool:
             self._pool = ProcessPoolExecutor(
                 max_workers=self._workers,
                 mp_context=multiprocessing.get_context("spawn"),
+                initializer=self._initializer, initargs=self._initargs,
             )
         return self._pool
 

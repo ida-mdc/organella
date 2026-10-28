@@ -255,8 +255,16 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2. |
 | `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces. |
 | `--mesh-level L` | Iso-surface level on the signed distance field. Default 0. |
-| `--mesh-workers N` | Processes used for meshing. Default: the cores the object pool is not using. |
+| `--mesh-workers N` | Processes working on the instances of one object: meshing and, with `--windowed`, measuring. Default: the cores the object pool is not using. |
 | `--reuse-geometry` | Keep any `geometry.parquet` an object already has. |
+
+**Objects too big to hold**
+
+|  |  |
+| --- | --- |
+| `--windowed` | Measure each instance in a window around it, read a tile at a time, and the rest of the object on a coarse view, so memory no longer grows with the object. The instance, distance and contact rows and the meshes of instances are the full-resolution ones; chance distributions, how deep a structure sits, the shape of a whole-structure mask (its volume is exact) and any distance past the window are read off the coarse view, and `coarse_factor` on the object row says how coarse. Not available with `--skeletons` or `--distance-histograms`; needs `--object-mask`; a label array holding one id (a binary mask) must be declared a mask. |
+| `--coarse-voxels N` | With `--windowed`, the most voxels a structure has in the coarse view, which keeps every nth voxel. Default 200000000. |
+| `--window-reach-um D` | With `--windowed`, how far from an instance its window sees, in µm: a distance to another structure is exact up to this. Default 1. |
 
 **The run**
 

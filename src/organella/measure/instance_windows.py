@@ -16,7 +16,6 @@ window gives the dense answer: the tests hold the two equal.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -202,11 +201,11 @@ class _Tile:
 
 
 def tiles(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], margin: Sequence[int]):
-    """Every instance, with something to read its window from: ``(reader, [(structure, instance), ...])``.
+    """Every instance, grouped by what to read for it: ``(region, [(structure, instance), ...])``.
 
-    Instances whose windows (their box and ``margin``) are small are grouped by where they start and read together
-    as one tile covering all their windows, in order, so neighbours share a read. One whose window is large is its
-    own group and is read from the source itself, a structure at a time.
+    Instances whose windows (their box and ``margin``) are small are grouped by where they start, and ``region``
+    is the box covering all their windows, in order, so neighbours share a read. One whose window is large is its
+    own group, and its ``region`` is ``None``: it is read from the source itself, a structure at a time.
     """
     shape = source.shape
     groups: Dict[Tuple[int, ...], List[Tuple[str, InstanceBox, Box]]] = {}
@@ -222,9 +221,14 @@ def tiles(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], 
         members = groups[key]
         region = tuple(slice(min(w[axis].start for *_, w in members), max(w[axis].stop for *_, w in members))
                        for axis in range(len(shape)))
-        yield _Tile(source, region), [(name, instance) for name, instance, _ in members]
+        yield region, [(name, instance) for name, instance, _ in members]
     for name, instance in alone:
-        yield source, [(name, instance)]
+        yield None, [(name, instance)]
+
+
+def _reader(source: ObjectSource, region: Box | None):
+    """What a measurement reads from: the tile of ``source`` over ``region``, or the source for ``None``."""
+    return source if region is None else _Tile(source, region)
 
 
 @dataclass
@@ -236,30 +240,72 @@ class Measured:
     contacts: List[Contact]
 
 
+# The object a worker measures in. A process of the pool opens it once as it starts (the task then carries only the
+# instances), and the process that measures in itself sets it directly.
+_SOURCE: ObjectSource | None = None
+
+
+def _use_source(source: ObjectSource) -> None:
+    global _SOURCE
+    _SOURCE = source
+
+
+def _open_source(folder, config) -> None:
+    _use_source(ObjectSource(folder, config))
+
+
+def _measure_tile(task) -> list:
+    """Measure the instances of one tile: ``(structure, label, shape, distances, gaps)`` for each of them."""
+    region, members, reach_um, gap_um = task
+    source = _SOURCE
+    reader = _reader(source, region)
+    anisotropy = tuple(float(v) for v in source.sample_size)
+    gap_reach = reach_voxels(gap_um, anisotropy) if gap_um is not None else None
+    found = []
+    for name, instance in members:
+        distances = instance_distances(reader, name, instance, reach_um) if reach_um is not None else None
+        gaps: Dict[Tuple[int, int], float] = {}
+        if gap_um is not None:
+            near = reader.read(name, expanded(instance.box, gap_reach, source.shape))
+            # One thread: the parallelism of a windowed run is across tiles, not inside a transform.
+            gaps_around(near, instance.label, anisotropy, 1, gap_um, gaps)
+        found.append((name, instance.label, instance_shape(reader, name, instance), distances, gaps))
+    return found
+
+
 def measure_instances(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]],
-                      reach_um: float | None, gap_um: float | None, num_threads: int = 0) -> Measured:
+                      reach_um: float | None, gap_um: float | None, workers: int = 1) -> Measured:
     """Shape of every instance, and, unless ``None``, its distance to each other structure and its gap to neighbours.
 
     ``reach_um`` is how far a distance is exact (``instance_distances``) and ``gap_um`` the largest gap between two
-    instances of a structure that is a contact. Each region of the object is read once for every instance in it.
+    instances of a structure that is a contact. Each region of the object is read once for every instance in it,
+    and ``workers`` processes measure regions side by side.
     """
     anisotropy = tuple(float(v) for v in source.sample_size)
-    threads = num_threads if num_threads and num_threads > 0 else (os.cpu_count() or 1)
     gap_reach = reach_voxels(gap_um, anisotropy) if gap_um is not None else [0] * len(anisotropy)
     reach = margin_voxels(reach_um, anisotropy) if reach_um is not None else (0,) * len(anisotropy)
     margin = tuple(max(1, a, b) for a, b in zip(reach, gap_reach))
 
+    tasks = [(region, members, reach_um, gap_um) for region, members in tiles(source, boxes, margin)]
+    _use_source(source)
+    pool = WorkPool(workers, total=len(tasks), what="measuring instances",
+                    initializer=_open_source, initargs=(source.folder, source.config))
+    try:
+        results = pool.map(_measure_tile, tasks)
+    finally:
+        pool.shutdown()
+
     stats: Dict[str, Dict[int, Dict[str, Any]]] = {name: {} for name in boxes}
     distances: Dict[Tuple[str, int], Dict[str, Dict[str, Any]]] = {}
     closest: Dict[str, Dict[Tuple[int, int], float]] = {name: {} for name in boxes}
-    for reader, members in tiles(source, boxes, margin):
-        for name, instance in members:
-            stats[name][instance.label] = instance_shape(reader, name, instance)
-            if reach_um is not None:
-                distances[(name, instance.label)] = instance_distances(reader, name, instance, reach_um)
-            if gap_um is not None:
-                near = reader.read(name, expanded(instance.box, gap_reach, source.shape))
-                gaps_around(near, instance.label, anisotropy, threads, gap_um, closest[name])
+    for found in results:
+        for name, label, shape, nearest, gaps in found:
+            stats[name][label] = shape
+            if nearest is not None:
+                distances[(name, label)] = nearest
+            for pair, gap in gaps.items():
+                if pair not in closest[name] or gap < closest[name][pair]:
+                    closest[name][pair] = gap
     contacts = sorted((name, low, high, gap) for name, pairs in closest.items() for (low, high), gap in pairs.items())
     return Measured({name: dict(sorted(found.items())) for name, found in stats.items()}, distances, contacts)
 
@@ -337,7 +383,8 @@ class _InstancesOf:
         return len(self._instances)
 
     def __iter__(self):
-        for reader, members in tiles(self._source, {self._name: self._instances}, (0,) * len(self._source.shape)):
+        for region, members in tiles(self._source, {self._name: self._instances}, (0,) * len(self._source.shape)):
+            reader = _reader(self._source, region)
             for _, instance in members:
                 yield SimpleNamespace(
                     label=instance.label, area=instance.voxels,

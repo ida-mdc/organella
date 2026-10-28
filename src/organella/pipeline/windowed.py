@@ -29,6 +29,7 @@ import numpy as np
 import polars as pl
 
 from organella.analysis.meshes import MeshOptions
+from organella.analysis.parallel import worker_share
 from organella.config import RunConfig, wants_skeletons
 from organella.measure import ContactMeasurer, GeometryWriter, InstanceMeasurer, MorphologyMeasurer
 from organella.measure.contacts import contact_measurement
@@ -65,7 +66,7 @@ def measure_windowed(folder, group: str, excluded: Sequence[str], cfg: RunConfig
     about = what_the_object_is(folder, source.meta, coarse.dim_order, (len(source.names), *source.shape))
     morphology = MorphologyMeasurer()
     rows = entity_rows(coarse, morphology, about, group)
-    _exact_counts_of_labels(rows, boxes, source.sample_size)
+    _exact_sizes(rows, boxes, source)
 
     columns: Dict[str, Any] = {"coarse_factor": factor}
     per_entity: Dict[str, Dict[str, Any]] = {}
@@ -84,7 +85,7 @@ def measure_windowed(folder, group: str, excluded: Sequence[str], cfg: RunConfig
     with_geometry = "organella-mesh" not in skip and bool(cfg.mesh_dir)
     measured = measure_instances(
         source, boxes, cfg.window_reach_um if with_instances else None,
-        cfg.contact_max_um if (with_contacts or with_geometry) else None, cfg.edt_threads)
+        cfg.contact_max_um if (with_contacts or with_geometry) else None, worker_share(cfg.mesh_workers))
 
     metrics: Mapping[tuple, Mapping[str, Any]] = {}
     if with_instances:
@@ -126,18 +127,21 @@ def _refuse_binary_labels(source: ObjectSource, boxes: Boxes) -> None:
                              "declare it a mask, or give it an id per instance")
 
 
-def _exact_counts_of_labels(rows: Sequence[Dict[str, Any]], boxes: Boxes, sample_size: Sequence[float]) -> None:
-    """Put the full-resolution count and total volume on the entity row of every label structure.
+def _exact_sizes(rows: Sequence[Dict[str, Any]], boxes: Boxes, source: ObjectSource) -> None:
+    """Put the full-resolution size of every structure on its entity row.
 
-    The row was measured on the coarse view, which has fewer of the instances; the boxes have all of them.
+    The rows were measured on the coarse view. A label structure's count and total volume come from its boxes, which
+    have every instance; a mask's volume from the voxels counted as the view was built. The shape of a mask
+    (surface, sphericity, axes) stays the view's.
     """
-    voxel = float(np.prod(sample_size))
+    voxel = float(np.prod(source.sample_size))
     for row in rows:
-        instances = boxes.get(row["entity_name"])
-        if instances is None:
-            continue
-        row["instance_count"] = len(instances)
-        row["total_volume_um3"] = null_if_not_finite(float(sum(i.voxels for i in instances.values()) * voxel))
+        name = row["entity_name"]
+        if name in boxes:
+            row["instance_count"] = len(boxes[name])
+            row["total_volume_um3"] = null_if_not_finite(float(sum(i.voxels for i in boxes[name].values()) * voxel))
+        elif source.foreground_voxels[name]:
+            row["volume_um3"] = row["total_volume_um3"] = float(source.foreground_voxels[name] * voxel)
 
 
 def _instances(source: ObjectSource, coarse, boxes: Boxes, measured: Measured,

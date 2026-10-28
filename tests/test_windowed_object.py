@@ -131,11 +131,12 @@ def test_the_rows_that_come_from_windows_stay_exact_on_a_coarse_view(tmp_path):
     for key, row in want.items():
         for column, value in row.items():
             _same(got[key][column], value, (key, column))
-    # An instance is at full resolution on the object row too.
+    # What is counted at full resolution is, on the structure's row, whatever the view: the instances of a label
+    # structure, and the volume of a mask.
     for got_row, want_row in zip(coarse.entity_rows, whole.entity_rows):
         if want_row["entity_kind"] == "label":
             _same(got_row["instance_count"], want_row["instance_count"], "count")
-            _same(got_row["total_volume_um3"], want_row["total_volume_um3"], "total volume")
+        _same(got_row["total_volume_um3"], want_row["total_volume_um3"], "total volume")
 
 
 def test_a_distance_past_the_window_is_read_off_the_coarse_view_and_is_not_under_the_reach(tmp_path):

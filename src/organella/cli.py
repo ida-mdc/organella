@@ -64,13 +64,22 @@ def _stacked_mb(object_dir: Path, wanted: EntityFilter = None) -> float:
     return voxels * entities * 4 / 1024 / 1024
 
 
-def estimate_peak_gb(object_dir: Path, wanted: EntityFilter = None) -> float:
+# What a tile of a windowed run holds beyond the coarse view: the structures over a cube a few hundred voxels
+# across, and the windows measured in it.
+_TILE_GB = 2.0
+
+
+def estimate_peak_gb(object_dir: Path, wanted: EntityFilter = None, coarse_voxels: int | None = None) -> float:
     """Rough peak resident memory for processing one object, in GB.
 
     The stack (2 bytes per voxel per entity) plus one whole-volume float32 distance
-    transform - the measurers keep only one alive - times measured overhead.
+    transform - the measurers keep only one alive - times measured overhead. A run that measures a
+    window at a time (``coarse_voxels``, its budget for the coarse view) holds that view instead of
+    the whole object, and a tile.
     """
     voxels, entities = _object_extent(object_dir, wanted)
+    if coarse_voxels is not None:
+        return min(voxels, coarse_voxels) * (2 * entities + 4) * _PEAK_OVERHEAD / 1024**3 + _TILE_GB
     return voxels * (2 * entities + 4) * _PEAK_OVERHEAD / 1024**3
 
 
@@ -387,7 +396,8 @@ def process(
     if no_instances:
         excluded.add("organella-instances")
 
-    peak = max((estimate_peak_gb(d, cfg.entities) for d in objects), default=0.0)
+    peak = max((estimate_peak_gb(d, cfg.entities, cfg.coarse_voxels if cfg.windowed else None) for d in objects),
+               default=0.0)
     workers = pipeline.worker_count(max_workers, len(objects), peak)
     click.echo(f"{len(objects)} object folder(s); {workers} worker(s) "
                f"(largest object needs ~{peak:.1f} GB each)")
