@@ -16,13 +16,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy import ndimage
+from scipy.spatial import cKDTree
 
-from organella.analysis.distances import distance_target, distance_transform_um
-from organella.analysis.shapes import label_metrics
+from organella.analysis.distances import distance_target, distance_transform_um, polarity_from_offset
+from organella.analysis.shapes import METRICS_3D, label_metrics
 from organella.measure.source import ObjectSource
 
 Box = Tuple[slice, ...]
@@ -162,3 +163,62 @@ def instance_distances(source: ObjectSource, name: str, instance: InstanceBox, r
             found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, source.sample_size, threshold)
         out[target] = found
     return out
+
+
+def instance_tables(source: ObjectSource, reach_um: float, entities: Optional[Sequence[str]] = None,
+                    polarity_spread: bool = False):
+    """The instance rows and the distance rows of ``InstanceMeasurer``, built from windows, for the default settings.
+
+    Returns ``(instances, distances)``, each a dict of column lists like the dense measurer's. Not what the dense
+    measurer gives where it needs more than a window: skeletons and their tip distances, distance histograms, the
+    chance distributions and the depth of a centre are not here, and a distance beyond ``reach_um`` is ``inf``.
+    ``entities`` limits the structures whose instances are measured; every structure is still a target.
+    """
+    from organella.measure.instances import _INSTANCE_COLUMNS, _POLARITY_COLUMNS, _UNMEASURED_SHAPE, _polar_spread_deg
+
+    if source.center is None:
+        raise ValueError(f"{source.object_id}: windowed instance tables need a boundary mask, which polarity is "
+                         "measured from")
+    center = source.center
+    sample = np.array(source.sample_size)
+    names = [n for n in source.names if source.kinds[n] == "label" and (entities is None or n in entities)]
+    inst: Dict[str, List[Any]] = {col: [] for col in _INSTANCE_COLUMNS}
+    dist: Dict[str, List[Any]] = {c: [] for c in ("distance_entity", "distance_label", "distance_target", "distance_um")}
+    unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
+    for name in names:
+        boxes = instance_boxes(source, name)
+        centroids = []
+        for label, instance in boxes.items():
+            stats = instance_shape(source, name, instance)
+            inst["instance_entity"].append(name)
+            inst["instance_label"].append(label)
+            for key in METRICS_3D:
+                inst[f"instance_{key}"].append(stats.get(key, float("nan")))
+            for key in _UNMEASURED_SHAPE[3]:
+                inst[f"instance_{key}"].append(float("nan"))
+            for key, value in unmeasured.items():
+                inst[f"instance_{key}"].append(value)
+            centroid = np.array(stats["centroid_um"])
+            centroids.append(centroid)
+            polar = polarity_from_offset(centroid - np.array(center))
+            for key in _POLARITY_COLUMNS:
+                inst[f"instance_{key}"].append(polar.get(key, float("nan")))
+            if polarity_spread:
+                window = expanded(instance.box, 1, source.shape)
+                at = np.argwhere(source.read(name, window) == label) + np.array([s.start for s in window])
+                inst["instance_polar_spread_deg"].append(_polar_spread_deg(at, sample, center))
+            else:
+                inst["instance_polar_spread_deg"].append(float("nan"))
+        if len(centroids) > 1:
+            points = np.vstack(centroids)
+            nearest = cKDTree(points).query(points, k=2)[0][:, 1].tolist()
+        else:
+            nearest = [float("nan")] * len(centroids)
+        inst["instance_distance_to_closest_same_type_um"].extend(nearest)
+        for label, instance in boxes.items():
+            for target, found in instance_distances(source, name, instance, reach_um).items():
+                dist["distance_entity"].append(name)
+                dist["distance_label"].append(label)
+                dist["distance_target"].append(target)
+                dist["distance_um"].append(found["distance_um"])
+    return inst, dist

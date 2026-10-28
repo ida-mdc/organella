@@ -96,6 +96,15 @@ class ObjectSource:
 
     # ── what the object is ────────────────────────────────────────────────────
 
+    @property
+    def center(self) -> Optional[Tuple[float, ...]]:
+        """The boundary's centroid in µm, the origin of every polarity metric; None for an object with no boundary."""
+        if self._mask is None:
+            return None
+        from organella.analysis.distances import object_center_um
+
+        return object_center_um(self._mask, self.sample_size)
+
     def declared_labels(self) -> List[str]:
         """The label structures a manifest declared: ``load_object`` splits one of these that holds a single id.
 

@@ -262,3 +262,42 @@ def test_the_area_on_the_edge_of_a_window_does_not_wrap_round():
 
     # Two big faces of 16 and four side strips of 4 each, with nothing counted across the edge.
     assert contact_area_um2(instance, near, (1.0, 1.0, 1.0), 1.0) == 16 + 16 + 4 * 4
+
+
+# ── the same rows as the dense measurer ──────────────────────────────────────
+
+def _as_float(value):
+    return float("nan") if value is None else float(value)
+
+
+def test_the_instance_and_distance_rows_from_windows_are_the_dense_ones(tmp_path):
+    from organella.measure.instance_windows import instance_tables
+    from organella.measure.instances import DISTANCE_ROW, INSTANCE_ROW, InstanceMeasurer
+
+    dense, source = _dense_and_source(tmp_path)
+    tables = InstanceMeasurer(RunConfig(object_mask="cell")).measure(dense).tables
+    want_inst, want_dist = tables[INSTANCE_ROW], tables[DISTANCE_ROW]
+
+    got_inst, got_dist = instance_tables(source, reach_um=100.0)
+
+    def keyed(table, keys):
+        columns = list(table)
+        rows = {}
+        for i in range(len(table[keys[0]])):
+            rows[tuple(table[k][i] for k in keys)] = {c: table[c][i] for c in columns}
+        return rows
+
+    a = keyed(want_inst, ["instance_entity", "instance_label"])
+    b = keyed(got_inst, ["instance_entity", "instance_label"])
+    assert sorted(a) == sorted(b)
+    for key in a:
+        for column, value in a[key].items():
+            if column in ("instance_entity",):
+                continue
+            assert np.isclose(_as_float(b[key][column]), _as_float(value), equal_nan=True, rtol=1e-6), (key, column)
+
+    keys = ["distance_entity", "distance_label", "distance_target"]
+    a, b = keyed(want_dist, keys), keyed(got_dist, keys)
+    assert sorted(a) == sorted(b)
+    for key in a:
+        assert b[key]["distance_um"] == pytest.approx(a[key]["distance_um"], rel=1e-5), key
