@@ -392,18 +392,31 @@ def load_volume(path: Path) -> np.ndarray:
 
 
 def clip_to_object_mask(arr: np.ndarray, inside: np.ndarray) -> np.ndarray:
-    """Zero everything outside the object: what the mask does not enclose is not measured."""
-    out = arr.copy()
+    """Zero everything outside the object: what the mask does not enclose is not measured.
+
+    In place where the array is ours to change, which a freshly read volume is: a copy is a
+    second volume the size of the first. A read-only array (a memory map) is copied.
+    """
+    out = arr if arr.flags.writeable else arr.copy()
     out[~inside] = 0
     return out
 
 
 def crop_to_object_bbox(volumes: Dict[str, np.ndarray], object_mask_key: str) -> Dict[str, np.ndarray]:
+    """Cut every volume down to the box the object fills, in place in the dict, and return it.
+
+    Each is copied out of the full-size array, which is then released: a view would keep the
+    whole of it alive for as long as the crop is. A box that is the whole volume is left alone.
+    """
     bounds = foreground_bounds(volumes[object_mask_key] > 0)
     if bounds is None:
         return volumes
     sl = tuple(slice(lo, hi) for lo, hi in bounds)
-    return {k: v[sl] for k, v in volumes.items()}
+    for key in list(volumes):
+        whole = all(s.start == 0 and s.stop == n for s, n in zip(sl, volumes[key].shape))
+        if not whole:
+            volumes[key] = np.array(volumes[key][sl])
+    return volumes
 
 
 def promote_multicomponent_masks(
@@ -457,8 +470,11 @@ def label_declared_instances(volumes: Dict[str, np.ndarray], entities: Dict[str,
         if not (entity.declared and entity.kind == "label") or key not in volumes:
             continue
         vol = volumes[key]
-        if int(vol.max()) > 1 or not vol.any():
+        # Several ids is the instances already; one id of any value is a binary array, and a
+        # stored 255 (the usual foreground of an 8-bit mask) is as binary as a 1.
+        ids = vol[vol > 0]
+        if not ids.size or ids.min() != ids.max():
             continue
         labelled, n = nd_label(vol > 0, structure=connected)
-        volumes[key] = labelled.astype(np.int32)
+        volumes[key] = labelled.astype(np.int32, copy=False)
         logger.info("organella: '%s' declared as labels: %d components", entity.name, n)

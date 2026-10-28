@@ -253,3 +253,58 @@ def test_naming_an_entity_that_is_not_there_as_instances_is_an_error(tmp_path):
         "--instances", "b"])
 
     assert result.exit_code != 0 and "not one of the --entity names" in result.output
+
+
+def test_a_declared_binary_array_is_split_whatever_its_foreground_value():
+    """An 8-bit mask stores 255, and that is one id, not several: its pieces are the instances.
+
+    A foreground value above 1 used to read as "already labelled", so a manifest that declared a
+    binary 0/255 array as labels got a single instance with id 255, however many pieces it had.
+    """
+    from organella.measure.discovery import Entity, label_declared_instances
+
+    binary = np.zeros((1, 8, 8), np.uint8)
+    binary[0, 1:3, 1:3] = 255
+    binary[0, 5:7, 5:7] = 255
+    already = np.zeros((1, 8, 8), np.uint8)
+    already[0, 1:3, 1:3] = 3
+    already[0, 5:7, 5:7] = 7
+    volumes = {"a": binary, "b": already}
+    entities = {k: Entity(name=k, kind="label", path=Path(k), declared=True) for k in volumes}
+
+    label_declared_instances(volumes, entities)
+
+    assert sorted(np.unique(volumes["a"]).tolist()) == [0, 1, 2]
+    assert sorted(np.unique(volumes["b"]).tolist()) == [0, 3, 7]
+
+
+def test_clipping_to_the_object_is_done_in_place_unless_the_array_is_read_only():
+    from organella.measure.discovery import clip_to_object_mask
+
+    inside = np.zeros((4, 4), bool)
+    inside[1:3, 1:3] = True
+    ours = np.ones((4, 4), np.uint8)
+    assert clip_to_object_mask(ours, inside) is ours
+    assert ours.sum() == 4
+
+    theirs = np.ones((4, 4), np.uint8)
+    theirs.flags.writeable = False
+    clipped = clip_to_object_mask(theirs, inside)
+    assert clipped is not theirs and clipped.sum() == 4 and theirs.sum() == 16
+
+
+def test_cropping_to_the_object_copies_so_the_full_size_array_is_not_kept_alive():
+    from organella.measure.discovery import crop_to_object_bbox
+
+    mask = np.zeros((6, 6, 6), np.uint8)
+    mask[2:4, 1:5, 2:3] = 1
+    other = np.arange(216, dtype=np.uint16).reshape(6, 6, 6)
+    volumes = {"cell": mask, "mito": other}
+
+    cropped = crop_to_object_bbox(volumes, "cell")
+
+    assert cropped["mito"].shape == (2, 4, 1)
+    assert cropped["mito"].base is None
+    assert np.array_equal(cropped["mito"], other[2:4, 1:5, 2:3])
+    whole = {"cell": np.ones((3, 3, 3), np.uint8)}
+    assert crop_to_object_bbox(whole, "cell")["cell"] is whole["cell"]

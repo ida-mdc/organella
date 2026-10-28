@@ -87,9 +87,12 @@ def _stack_narrowest(volumes: Dict[str, np.ndarray], keys: List[str], object_id:
     dtype = _label_dtype(volumes, object_id)
     first = volumes[keys[0]]
     stack = np.empty((len(keys), *first.shape), dtype=dtype)
-    for i, key in enumerate(keys):
-        np.copyto(stack[i], volumes[key], casting="unsafe")
-        volumes[key] = np.empty((0,) * first.ndim, dtype=dtype)  # release the source volume
+    # The widest sources first. A source narrower than the stack grows when it is copied in, a
+    # wider one shrinks, so the shrinking ones go first and free what the growing ones then take;
+    # copied in channel order, the wide ones wait to the end with the whole stack already written.
+    for i in sorted(range(len(keys)), key=lambda i: -volumes[keys[i]].dtype.itemsize):
+        np.copyto(stack[i], volumes[keys[i]], casting="unsafe")
+        volumes[keys[i]] = np.empty((0,) * first.ndim, dtype=dtype)  # release the source volume
     return stack
 
 
@@ -110,6 +113,18 @@ def _config_voxel_size(configured: Tuple[float, ...], ndim: int, object_dir: Pat
         f"{object_dir.name}: images are {ndim}D, so --voxel-size-um needs '{wanted}', "
         f"got {len(configured)} value(s): {','.join(str(v) for v in configured)}"
     )
+
+
+def voxel_size_of(dataset: Dataset, cfg: RunConfig, object_dir: Path, ndim: int) -> Tuple[Tuple[float, ...], str]:
+    """The size of one voxel in µm, and where that came from: the run, the manifest, or the source itself."""
+    if cfg.voxel_size_um is not None:
+        return _config_voxel_size(cfg.voxel_size_um, ndim, object_dir), "config"
+    if dataset.voxel_size_um is not None:
+        # A manifest may state the size outright, which is the only record for a store that
+        # does not carry one - and it travels with the crop it describes.
+        return _config_voxel_size(dataset.voxel_size_um, ndim, object_dir), "manifest"
+    return (infer_voxel_size_um_from_source(dataset.source, ndim),
+            _voxel_size_source(dataset.source))
 
 
 def resolve_auto_kinds(
@@ -321,17 +336,7 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     source_shape, _ = read_header(dataset.source)
     ndim = len(source_shape)
 
-    if cfg.voxel_size_um is not None:
-        voxel_size = _config_voxel_size(cfg.voxel_size_um, ndim, object_dir)
-        voxel_size_source = "config"
-    elif dataset.voxel_size_um is not None:
-        # A manifest may state the size outright, which is the only record for a store that
-        # does not carry one - and it travels with the crop it describes.
-        voxel_size = _config_voxel_size(dataset.voxel_size_um, ndim, object_dir)
-        voxel_size_source = "manifest"
-    else:
-        voxel_size = infer_voxel_size_um_from_source(dataset.source, ndim)
-        voxel_size_source = _voxel_size_source(dataset.source)
+    voxel_size, voxel_size_source = voxel_size_of(dataset, cfg, object_dir, ndim)
 
     # None when no mask was named: nothing bounds the object, so it is measured as it
     # lies and the columns that need a boundary go unfilled.

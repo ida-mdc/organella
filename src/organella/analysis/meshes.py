@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
+import edt
 import fast_simplification
 import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter
@@ -275,6 +276,21 @@ def surface_nets(field: np.ndarray, level: float = 0.0):
     return vertices, np.vstack(faces).astype(np.int64)
 
 
+def _distance_to_background(mask: np.ndarray, spacing: Sequence[float]) -> np.ndarray:
+    """Distance in µm from every True sample of ``mask`` to the nearest False one, as float32.
+
+    ``edt`` needs about 5 bytes a sample where scipy's transform needs about 60 (an int32
+    feature array of shape (3, *shape), an int32 index grid and a float64 result), which is
+    the difference between a whole-cell mask meshing in 2.5 GB and in 11 GB. scipy answers
+    where edt cannot, as in ``distances.distance_transform_um``.
+    """
+    try:
+        return edt.edt(np.ascontiguousarray(mask), anisotropy=tuple(float(v) for v in spacing),
+                       black_border=False)
+    except Exception:
+        return distance_transform_edt(mask, sampling=spacing).astype(np.float32)
+
+
 def generate_mesh(
     binary: np.ndarray,
     bbox_origin_zyx: Tuple[int, int, int],
@@ -318,8 +334,8 @@ def generate_mesh(
                      for su, s in zip(sigma_um, spacing))
         b = np.pad(binary.astype(bool), pad_width=[(p, p) for p in pads])
         # Signed distance field in µm: >0 inside, <0 outside, 0 at the boundary.
-        inside = distance_transform_edt(b, sampling=spacing)
-        sdf = (inside - distance_transform_edt(~b, sampling=spacing)).astype(np.float32)
+        inside = _distance_to_background(b, spacing)
+        sdf = inside - _distance_to_background(~b, spacing)
         # Neither knob may exceed what the instance can carry: the largest value inside is
         # its inscribed radius, and a kernel wider than half of it flattens the field to
         # nothing while a coarser step walks over it.
