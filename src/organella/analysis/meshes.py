@@ -117,12 +117,6 @@ class MeshOptions:
     # field of shards. A fixed decimation fraction is the proportionate way to thin a mesh;
     # --mesh-max-vertices is there for someone who needs the files small.
     max_vertices: int = 0
-    # Marching cubes by default, on the measurements: on one ER sheet the two methods came
-    # out 0.16% apart on vertex count (5,584,555 against 5,575,347), not the "far fewer" a
-    # dual method promises, because a surface has about as many crossing cells as edges.
-    # Surface nets buys smoothness - 30% less radius noise on a sphere of known radius - for
-    # 66% more time, and couples the axes, which shows on 5x-anisotropic alpha cells.
-    surface_method: str = "marching-cubes"
 
     @classmethod
     def from_config(cls, cfg: "RunConfig") -> "MeshOptions":
@@ -144,7 +138,6 @@ class MeshOptions:
             contact_max_um=cfg.contact_max_um,
             mesh_workers=cfg.mesh_workers,
             max_vertices=cfg.mesh_max_vertices,
-            surface_method=cfg.mesh_surface_method,
         )
 
 
@@ -177,105 +170,6 @@ def instance_sigma(option, sphericity_value: float, fill_ratio: float):
     return tuple(one(float(v)) for v in option)
 
 
-# The 12 edges of a cell, as pairs of its 8 corners. A corner is (dz, dy, dx) in {0,1}³ and
-# an edge joins two that differ in exactly one of them.
-_CELL_EDGES = tuple(
-    (a, b)
-    for a in ((0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1),
-              (1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1))
-    for b in ((0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1),
-              (1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1))
-    if sum(abs(x - y) for x, y in zip(a, b)) == 1 and a < b
-)
-
-
-def surface_nets(field: np.ndarray, level: float = 0.0):
-    """The isosurface as one vertex per cell, joined across the edges that cross it.
-
-    Marching cubes puts a vertex on every crossing *edge*, so a staircase boundary becomes a
-    staircase of triangles. This puts one vertex per *cell* at the average of its crossings
-    and joins the four cells around each crossing edge into a quad, which comes out smoother
-    and better spread for the same field.
-
-    Returns (vertices in ZYX index coordinates, triangles) - the shapes marching_cubes gives,
-    so the caller scales and reorders them identically.
-    """
-    f = np.asarray(field, dtype=np.float32) - float(level)
-    if min(f.shape) < 2:
-        return np.zeros((0, 3), np.float32), np.zeros((0, 3), np.int64)
-    nz, ny, nx = (n - 1 for n in f.shape)
-
-    corner = {}
-    for a in range(2):
-        for b in range(2):
-            for c in range(2):
-                corner[(a, b, c)] = f[a:a + nz, b:b + ny, c:c + nx]
-
-    total = np.zeros((nz, ny, nx, 3), np.float32)
-    count = np.zeros((nz, ny, nx), np.float32)
-    for a, b in _CELL_EDGES:
-        fa, fb = corner[a], corner[b]
-        crosses = (fa > 0) != (fb > 0)
-        if not crosses.any():
-            continue
-        denominator = fa - fb
-        t = np.where(np.abs(denominator) > 1e-12, fa / np.where(denominator == 0, 1, denominator), 0.5)
-        t = np.clip(t, 0.0, 1.0).astype(np.float32)
-        for axis in range(3):
-            step = b[axis] - a[axis]
-            position = a[axis] + (t * step if step else 0.0)
-            total[..., axis] += np.where(crosses, position, 0.0)
-        count += crosses
-    active = count > 0
-    if not active.any():
-        return np.zeros((0, 3), np.float32), np.zeros((0, 3), np.int64)
-
-    index = np.full((nz, ny, nx), -1, np.int64)
-    index[active] = np.arange(int(active.sum()))
-    cells = np.argwhere(active)
-    vertices = (cells + total[active] / count[active][:, None]).astype(np.float32)
-
-    # One quad per crossing edge of the grid, from the four cells that share it.
-    inside = f > 0
-    faces = []
-    for axis in range(3):
-        lo = [slice(1, n - 1) for n in f.shape]
-        hi = [slice(1, n - 1) for n in f.shape]
-        lo[axis] = slice(0, f.shape[axis] - 1)
-        hi[axis] = slice(1, f.shape[axis])
-        a_in, b_in = inside[tuple(lo)], inside[tuple(hi)]
-        crossing = np.argwhere(a_in != b_in)
-        if not len(crossing):
-            continue
-        # The four cells around this edge. `crossing` indexes into slices that already start
-        # at 1 on the two axes the edge does not run along, so those coordinates are already
-        # the lower of the two cells sharing it - stepping back again misses by one cell.
-        others = [ax for ax in range(3) if ax != axis]
-        base = crossing.copy()
-        offsets = [(0, 0), (1, 0), (1, 1), (0, 1)]
-        quad = []
-        for d0, d1 in offsets:
-            here = base.copy()
-            here[:, others[0]] += d0
-            here[:, others[1]] += d1
-            quad.append(index[here[:, 0], here[:, 1], here[:, 2]])
-        quad = np.stack(quad, axis=1)
-        ok = (quad >= 0).all(axis=1)
-        quad = quad[ok]
-        if not len(quad):
-            continue
-        # Wind so the normal points out of the solid, which flips with the edge's direction.
-        forward = a_in[tuple(crossing[:, i] for i in range(3))][ok]
-        flip = ~forward if axis == 1 else forward
-        first = np.where(flip[:, None], quad[:, [0, 1, 2]], quad[:, [0, 2, 1]])
-        second = np.where(flip[:, None], quad[:, [0, 2, 3]], quad[:, [0, 3, 2]])
-        faces.append(first)
-        faces.append(second)
-    if not faces:
-        return vertices, np.zeros((0, 3), np.int64)
-    return vertices, np.vstack(faces).astype(np.int64)
-
-
 def _distance_to_background(mask: np.ndarray, spacing: Sequence[float]) -> np.ndarray:
     """Distance in µm from every True sample of ``mask`` to the nearest False one, as float32.
 
@@ -300,7 +194,6 @@ def generate_mesh(
     target_reduction: float = 0.8,
     level: Optional[float] = None,
     max_vertices: int = 0,
-    surface_method: str = "marching-cubes",
 ) -> bytes:
     """Mesh a (Z,Y,X) binary mask via marching cubes on a signed distance field.
 
@@ -344,16 +237,9 @@ def generate_mesh(
         step = max(1, min(step_size, int(radius_um / coarsest) - 1))
         if any(su > 0 for su in sigma_um):
             sdf = gaussian_filter(sdf, sigma=tuple(su / s for su, s in zip(sigma_um, spacing)))
-        if surface_method == "surface-nets":
-            # A dual method has no step size: it is one vertex per cell either way, so the
-            # coarsening a step would buy comes from the budget instead.
-            verts, faces = surface_nets(sdf, level=0.0 if level is None else level)
-            if not len(faces):
-                return b""
-        else:
-            verts, faces, _, _ = marching_cubes(
-                sdf, level=0.0 if level is None else level, step_size=step
-            )
+        verts, faces, _, _ = marching_cubes(
+            sdf, level=0.0 if level is None else level, step_size=step
+        )
         verts = verts - np.asarray(pads)  # undo padding offset → local voxel coords
         oz, oy, ox = bbox_origin_zyx
         sz, sy, sx = (float(v) for v in voxel_size_zyx)
@@ -535,13 +421,12 @@ def _instance_geometry(task: Tuple[Any, ...]) -> Tuple[bytes, bytes]:
     decimation.
     """
     (image, origin, sample_size, planar, step_size, sigma, target_reduction, level,
-     max_vertices, surface_method) = task
+     max_vertices) = task
     if planar:
         return b"", generate_outline(image, origin, sample_size)
     return generate_mesh(image, origin, sample_size, step_size=step_size,
                          smooth_sigma=sigma, target_reduction=target_reduction,
-                         level=level, max_vertices=max_vertices,
-                         surface_method=surface_method), b""
+                         level=level, max_vertices=max_vertices), b""
 
 
 def mesh_rows_for_object(
@@ -605,7 +490,6 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                         float(binary.sum() / extent) if extent else float("nan")),
                     target_reduction=options.target_reduction, level=options.level,
                     max_vertices=options.max_vertices,
-                    surface_method=options.surface_method,
                 ),
                 "outline": generate_outline(binary, (0, 0), sample_size) if planar else b"",
                 "skeleton": b"",
@@ -685,7 +569,6 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
                     options.step_size,
                     instance_sigma(options.smooth_sigma, roundness, fill_ratio),
                     options.target_reduction, options.level, options.max_vertices,
-                    options.surface_method,
                 ))
                 oversized.append(image.size > _INLINE_INSTANCE_SAMPLES)
 

@@ -303,15 +303,12 @@ def test_every_mesh_setting_reaches_the_writer():
     """One mapping from the run's settings, or a flag goes quiet.
 
     There were two, and they had drifted: the writer's copy set mesh_workers and not
-    max_vertices or surface_method, so `process --with-mesh --mesh-surface-method
-    surface-nets` meshed with marching cubes and said nothing.
+    max_vertices, so a flag was read and then ignored.
     """
     options = MeshOptions.from_config(RunConfig(
-        mesh_surface_method="surface-nets", mesh_max_vertices=999,
-        mesh_workers=3, mesh_step_size=1,
+        mesh_max_vertices=999, mesh_workers=3, mesh_step_size=1,
     ))
 
-    assert options.surface_method == "surface-nets"
     assert options.max_vertices == 999
     assert options.mesh_workers == 3
     assert options.step_size == 1
@@ -324,15 +321,14 @@ def test_every_mesh_setting_reaches_the_writer():
     assert settings == {
         "smooth_sigma", "step_size", "target_reduction", "level", "geometry_as",
         "skeletons", "max_skeleton_voxels", "skeleton_params", "contact_max_um",
-        "mesh_workers", "max_vertices", "surface_method",
+        "mesh_workers", "max_vertices",
     }, "a new mesh setting needs a line in MeshOptions.from_config and this list"
-    assert defaults.surface_method != options.surface_method
+    assert defaults.max_vertices != options.max_vertices
 
 
-def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypatch):
+def test_the_writer_meshes_with_the_settings_the_run_asked_for(tmp_path, monkeypatch):
     """The end of the same wire: what GeometryWriter hands the mesher."""
-    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"),
-                    mesh_surface_method="surface-nets", mesh_max_vertices=999)
+    cfg = RunConfig(mesh_dir=str(tmp_path / "meshes"), mesh_max_vertices=999)
     volumes, kinds = _object_volumes()
 
     handed = {}
@@ -345,7 +341,6 @@ def test_the_writer_meshes_with_the_method_the_run_asked_for(tmp_path, monkeypat
     monkeypatch.setattr(geometry_module, "mesh_rows_for_object", spy)
     GeometryWriter(cfg).measure(_record(volumes, kinds))
 
-    assert handed["options"].surface_method == "surface-nets"
     assert handed["options"].max_vertices == 999
 
 

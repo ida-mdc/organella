@@ -255,7 +255,6 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2. |
 | `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces. |
 | `--mesh-level L` | Iso-surface level on the signed distance field. Default 0. |
-| `--mesh-surface-method` | `marching-cubes` or `surface-nets`. The dual method has less staircase noise, no fewer vertices, and is slower. |
 | `--mesh-workers N` | Processes used for meshing. Default: the cores the object pool is not using. |
 | `--reuse-geometry` | Keep any `geometry.parquet` an object already has. |
 

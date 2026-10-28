@@ -71,7 +71,7 @@ def test_a_flag_left_off_keeps_the_one_default_there_is():
     """None means "whatever the default is", and the default is written on the field.
 
     Spelling them out at the command line too would be a second copy of every one, and the
-    copies drift: that is how --mesh-surface-method came to be read and then dropped.
+    copies drift: that is how a mesh flag came to be read and then dropped.
     """
     cfg = _settings(object_mask="pm", max_skeleton_voxels=None, contact_max_um=None,
                     auto_label_masks=None)

@@ -107,11 +107,6 @@ def _mesh_flags(fn):
                      help="Decimation fraction (default: 0.8, keeping ~20% of faces)."),
         click.option("--mesh-level", type=float, default=None, metavar="L",
                      help="Iso-surface level on the signed distance field (default: 0)."),
-        click.option("--mesh-surface-method",
-                     type=click.Choice(["marching-cubes", "surface-nets"]), default=None,
-                     help="How the isosurface is extracted (default: marching-cubes). "
-                          "surface-nets creates less staircase noise, no fewer vertices, and "
-                          "can be slower."),
         click.option("--mesh-max-vertices", type=int, default=None, metavar="N",
                      help="Most vertices any one surface keeps (default: 0, no cap). A cap "
                           "falls hardest on a large connected network such as the ER."),
@@ -132,7 +127,7 @@ def _settings(**given: Any) -> RunConfig:
     A flag that was left off is None, and None here means "whatever the default is" - which
     is the one written on the field in config.RunConfig. Spelling the defaults out again
     would be a second copy of every one of them, and the copies drift: that is how
-    --mesh-surface-method came to be parsed and then dropped.
+    a mesh flag came to be parsed and then dropped.
     """
     return RunConfig(**{name: value for name, value in given.items() if value is not None})
 
@@ -326,7 +321,7 @@ def process(
     mesh_dir: Path | None, mesh_smooth_sigma: str | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
-    mesh_surface_method: str | None, reuse_geometry: bool,
+    reuse_geometry: bool,
 ) -> None:
     """Analyse every object folder under OBJECT_DIR and write one report."""
     objects = find_object_dirs(object_dir)
@@ -367,7 +362,6 @@ def process(
         mesh_level=mesh_level,
         mesh_workers=mesh_workers,
         mesh_max_vertices=mesh_max_vertices,
-        mesh_surface_method=mesh_surface_method,
         reuse_geometry=reuse_geometry or None,
     )
 
@@ -669,7 +663,7 @@ def mesh(
     mesh_smooth_sigma: str | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
-    mesh_surface_method: str | None, reuse_geometry: bool,
+    reuse_geometry: bool,
 ) -> None:
     """Write per-object geometry for the 3D views and the Blender export.
 
@@ -700,7 +694,6 @@ def mesh(
         mesh_level=mesh_level,
         mesh_workers=mesh_workers,
         mesh_max_vertices=mesh_max_vertices,
-        mesh_surface_method=mesh_surface_method,
         reuse_geometry=reuse_geometry or None,
     )
     # --no-contacts is the one setting that is not "leave it at the default": None means

@@ -260,7 +260,6 @@ class RunConfig:
     mesh_level: Optional[float] = None
     mesh_workers: int = 0
     mesh_max_vertices: int = 0
-    mesh_surface_method: str = "marching-cubes"
     reuse_geometry: bool = False
 
     _RESULT_AFFECTING = (
