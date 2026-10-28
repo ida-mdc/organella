@@ -96,6 +96,9 @@ class WorkPool:
     Below `min_seconds` it never opens one, and a wrong guess costs the one batch it
     measured.
 
+    `sample=0` opens the pool at once: for a few tasks that each take seconds, where a sample of the first ones
+    would be most of the work, run here with the pool idle.
+
     `initializer(*initargs)` runs once in each worker as it starts, for what every task needs and a task should
     not carry. `what` names the work in the warning a broken pool logs. It falls back, never
     raising: serial is slow, not wrong, where losing an object's geometry to a dead pool is
@@ -104,7 +107,8 @@ class WorkPool:
 
     def __init__(self, workers: int, total: int = 0, what: str = "work",
                  min_seconds: float = 4.0, initializer: Optional[Callable[..., None]] = None,
-                 initargs: tuple = ()) -> None:
+                 initargs: tuple = (), sample: int = _SAMPLE) -> None:
+        self._sample = sample
         self._initializer = initializer
         self._initargs = initargs
         self._workers = workers
@@ -112,7 +116,7 @@ class WorkPool:
         self._what = what
         self._min_seconds = min_seconds
         self._pool: Optional[ProcessPoolExecutor] = None
-        self._decided = workers <= 1     # one worker: nothing to decide
+        self._decided = workers <= 1 or sample == 0     # one worker: nothing to decide; no sample: decided
 
     def map(self, fn: Callable[[T], R], tasks: Sequence[T],
             total: Optional[int] = None) -> List[R]:
@@ -121,6 +125,8 @@ class WorkPool:
             return []
         if self._pool is None and not self._decided:
             return self._measure(fn, tasks, total)
+        if self._pool is None and self._workers > 1:
+            self._open()                  # decided without a sample
         if self._pool is None:
             return [fn(task) for task in tasks]
         try:
@@ -141,7 +147,7 @@ class WorkPool:
         A sample, not the whole batch: it is serial work that could have been shared, so
         timing 256 instances to decide about 400 spends the gain finding out it was there.
         """
-        sample = tasks[:_SAMPLE]
+        sample = tasks[:self._sample]
         started = time.perf_counter()
         results = list(map(fn, sample))
         elapsed = time.perf_counter() - started

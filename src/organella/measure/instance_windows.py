@@ -5,8 +5,8 @@ over all its labels are each as large as the cell. An instance needs a box aroun
 
 - :func:`instance_boxes` finds, in one pass over a structure in blocks, the box and the voxel count of every
   instance. Nothing larger than a block is in memory.
-- :func:`instance_shape`, :func:`instance_distances` and the gap search measure one instance in its own box and a
-  margin, with the same code the dense path uses, so the numbers are the dense ones.
+- :func:`instance_shape`, :func:`distances_in` and the gap search measure an instance in its own box and a
+  margin (``distances_in`` the instances of a region at once), with the same code the dense path uses, so the numbers are the dense ones.
 - :func:`tiles` decides what is read: instances that sit near each other are measured from one read of the
   region around them, so a chunk of the store is read once for all of them and not once for each.
 
@@ -145,33 +145,47 @@ def contact_area_um2(instance: np.ndarray, distance: np.ndarray, sample_size: Se
     return area
 
 
+def distances_in(reader, region: Box, members: Sequence[Tuple[str, InstanceBox]], reach_um: float,
+                 contact_um: Sequence[float] = ()) -> List[Dict[str, Dict[str, Any]]]:
+    """How near each member gets to every other structure, and how much of it is that near, from one transform per target.
+
+    For each member and each other structure: the smallest distance from the member to it, exact where it is at
+    most ``reach_um`` and ``inf`` where it is farther, and the area of the member within each of ``contact_um`` of
+    it. The target of a structure is the union of its instances; the target of the object's boundary is the outside,
+    so that distance is the depth under the surface.
+
+    ``region`` is a box that holds every member and ``reach_um`` around it, ``reader`` an ``ObjectSource`` or a tile
+    of one that holds the region. A structure is read and transformed once for the whole region, not once for each
+    member, and one at a time, so a region holds a structure and its transform and not every structure at once. A
+    distance within reach does not depend on the region, only on there being no less than the reach around the member.
+    """
+    local = [tuple(slice(b.start - r.start, b.stop - r.start) for b, r in zip(instance.box, region))
+             for _, instance in members]
+    own = [reader.read(name, instance.box) == instance.label for name, instance in members]
+    out: List[Dict[str, Dict[str, Any]]] = [{} for _ in members]
+    for target in reader.names:
+        measured = [i for i, (name, _) in enumerate(members) if name != target]
+        if not measured:
+            continue
+        mask = distance_target(reader.read(target, region), target, reader.kinds[target], reader.object_mask_name)
+        # A target with no voxel in the region is nowhere near anything in it.
+        distance = distance_transform_um(mask, reader.sample_size, num_threads=1) if mask.any() else None
+        for i in measured:
+            near = distance[local[i]] if distance is not None else None
+            nearest = float(near[own[i]].min()) if near is not None else float("inf")
+            found: Dict[str, Any] = {"distance_um": nearest if nearest <= reach_um else float("inf")}
+            for threshold in contact_um:
+                found[f"contact_um2_{threshold:g}"] = (
+                    contact_area_um2(own[i], near, reader.sample_size, threshold) if near is not None else 0.0)
+            out[i][target] = found
+    return out
+
+
 def instance_distances(reader, name: str, instance: InstanceBox, reach_um: float,
                        contact_um: Sequence[float] = ()) -> Dict[str, Dict[str, Any]]:
-    """How near an instance gets to every other structure, and how much of it is that near, in its own window.
-
-    For each other structure: the smallest distance from the instance to it, exact where it is at most
-    ``reach_um`` and ``inf`` where it is farther (the window does not see further), and the area of the
-    instance within each of ``contact_um`` of it. The target of a structure is the union of its instances; the
-    target of the object's boundary is the outside, so that distance is the depth under the surface.
-
-    ``reader`` is an ``ObjectSource`` or a tile of one. Structures are read one at a time, so an instance too
-    large for a tile holds two windows and one distance transform, not every structure at once.
-    """
+    """``distances_in`` for one instance, in its own box and ``reach_um`` around it."""
     window = expanded(instance.box, margin_voxels(reach_um, reader.sample_size), reader.shape)
-    own = reader.read(name, window) == instance.label
-    out: Dict[str, Dict[str, Any]] = {}
-    for target in reader.names:
-        if target == name:
-            continue
-        distance = distance_transform_um(
-            distance_target(reader.read(target, window), target, reader.kinds[target], reader.object_mask_name),
-            reader.sample_size, num_threads=1)
-        nearest = float(distance[own].min())
-        found: Dict[str, Any] = {"distance_um": nearest if nearest <= reach_um else float("inf")}
-        for threshold in contact_um:
-            found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, reader.sample_size, threshold)
-        out[target] = found
-    return out
+    return distances_in(reader, window, [(name, instance)], reach_um, contact_um)[0]
 
 
 # ── what is read: tiles ──────────────────────────────────────────────────────
@@ -266,9 +280,15 @@ def _measure_tile(task) -> list:
     reader = _reader(source, region)
     anisotropy = tuple(float(v) for v in source.sample_size)
     gap_reach = reach_voxels(gap_um, anisotropy) if gap_um is not None else None
+    # One transform per target for the whole tile; a lone large instance (region None) is its own region.
+    if reach_um is None:
+        nearest = [None] * len(members)
+    elif region is None:
+        nearest = [instance_distances(reader, name, instance, reach_um) for name, instance in members]
+    else:
+        nearest = distances_in(reader, region, members, reach_um)
     found = []
-    for name, instance in members:
-        distances = instance_distances(reader, name, instance, reach_um) if reach_um is not None else None
+    for (name, instance), distances in zip(members, nearest):
         gaps: Dict[Tuple[int, int], float] = {}
         if gap_um is not None:
             near = reader.read(name, expanded(instance.box, gap_reach, source.shape))
@@ -291,10 +311,12 @@ def measure_instances(source: ObjectSource, boxes: Mapping[str, Mapping[int, Ins
     reach = margin_voxels(reach_um, anisotropy) if reach_um is not None else (0,) * len(anisotropy)
     margin = tuple(max(1, a, b) for a, b in zip(reach, gap_reach))
 
-    tasks = [(region, members, reach_um, gap_um) for region, members in tiles(source, boxes, margin)]
+    # The instances read alone are the longest tasks: first, so they start together and the small tiles fill in round them.
+    tasks = sorted(((region, members, reach_um, gap_um) for region, members in tiles(source, boxes, margin)),
+                   key=lambda task: task[0] is not None)
     _use_source(source)
     pool = WorkPool(workers, total=len(tasks), what="measuring instances",
-                    initializer=_open_source, initargs=(source.folder, source.config))
+                    initializer=_open_source, initargs=(source.folder, source.config), sample=0)
     results = []
     try:
         for start in range(0, len(tasks), _PROGRESS):

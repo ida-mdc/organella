@@ -387,21 +387,17 @@ def test_an_instance_measured_from_a_tile_has_the_numbers_it_has_from_its_own_wi
 
 
 def test_tiles_measured_by_a_pool_of_processes_give_the_numbers_they_give_in_one(tmp_path, monkeypatch):
-    """The pool is forced open (its first task is measured here and the rest in a worker), and a worker opens the
+    """The regions are measured by a pool of processes, each of which opens the
     object itself: what comes back is what the one process finds."""
-    from functools import partial
-
     from organella.analysis import parallel
     from organella.measure import instance_windows as module
 
     monkeypatch.setattr(module, "TILE", 4)
     monkeypatch.setattr(module, "SMALL", 12)
-    monkeypatch.setattr(parallel, "_SAMPLE", 1)
     dense, source = _dense_and_source(tmp_path)
     boxes = {"mito": module.instance_boxes(source, "mito")}
     one = module.measure_instances(source, boxes, 0.03, 0.1, workers=1)
 
-    monkeypatch.setattr(module, "WorkPool", partial(parallel.WorkPool, min_seconds=0.0))
     sent = []
 
     class Watching(parallel.ProcessPoolExecutor):
@@ -412,7 +408,7 @@ def test_tiles_measured_by_a_pool_of_processes_give_the_numbers_they_give_in_one
     monkeypatch.setattr(parallel, "ProcessPoolExecutor", Watching)
     many = module.measure_instances(source, boxes, 0.03, 0.1, workers=2)
 
-    assert sent == [1], "the pool was meant to measure the task the first one left"
+    assert len(sent) == 1 and sent[0] > 1, "every region was meant to go to the pool, none measured here first"
 
     assert many.contacts == one.contacts
     assert many.distances == one.distances

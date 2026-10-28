@@ -89,12 +89,18 @@ def open_store(store: str):
     return zarr.open(store, mode="r")
 
 
-def _array(ref: ArrayRef):
-    node = open_store(ref.store)
+@lru_cache(maxsize=256)
+def _open_array(store: str, path: str):
+    """One array of a store, opened once per process: opening one over S3 is round trips for its metadata."""
     try:
-        return node[ref.path]
+        return open_store(store)[path]
     except KeyError as exc:
-        raise FileNotFoundError(f"{ref.store} has no array '{ref.path}'") from exc
+        raise FileNotFoundError(f"{store} has no array '{path}'") from exc
+
+
+def _array(ref: ArrayRef):
+    return _open_array(ref.store, ref.path)
+
 
 TIFF_SUFFIXES = (".tif", ".tiff")
 
