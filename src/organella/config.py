@@ -260,6 +260,12 @@ class RunConfig:
     mesh_level: Optional[float] = None
     mesh_workers: int = 0
     mesh_max_vertices: int = 0
+    # Measuring an object a window of it at a time, for one too big to hold: see pipeline/windowed.py.
+    windowed: bool = False
+    # The most voxels a structure may have in the coarse view the whole-object measurements run on.
+    coarse_voxels: int = 200_000_000
+    # How far from an instance a window sees, so how far a distance to another structure is exact.
+    window_reach_um: float = 1.0
     reuse_geometry: bool = False
 
     _RESULT_AFFECTING = (
@@ -268,6 +274,7 @@ class RunConfig:
         "max_skeleton_voxels", "skeleton_scale", "skeleton_const_voxels", "skeleton_prune",
         "contact_max_um", "polarity_spread", "distance_histograms", "baseline_exclude",
         "mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level",
+        "windowed", "coarse_voxels", "window_reach_um",
     )
 
     def skeleton_params(self) -> SkeletonParams:

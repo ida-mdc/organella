@@ -297,6 +297,18 @@ def describe(report: Path, text: str) -> None:
               help="Skip objects already measured by an interrupted run. Each object's rows "
                    "are kept in <output>_parts/ as it finishes and removed once the report "
                    "is written, so this only has anything to reuse after a run that died.")
+@click.option("--windowed", is_flag=True,
+              help="Measure each instance in a window around it and the rest of the object on a coarse "
+                   "view, for an object too big to hold: how big a window and a view are is "
+                   "--window-reach-um and --coarse-voxels.")
+@click.option("--coarse-voxels", type=int, default=None, metavar="N",
+              help="With --windowed, the most voxels one structure has in the coarse view the whole-object "
+                   "measurements (chance distributions, how deep a structure sits, a mask's shape) run on "
+                   "(default: 200000000). The view keeps every nth voxel, as few n as fit.")
+@click.option("--window-reach-um", type=float, default=None, metavar="D",
+              help="With --windowed, how far from an instance its window sees, in µm: a distance to "
+                   "another structure is exact up to this and read off the coarse view beyond it "
+                   "(default: 1).")
 @click.option("--with-mesh", is_flag=True,
               help="Also write per-object geometry for the 3D views and Blender: meshes "
                    "and skeletons for a volume, outlines and skeletons for a plane. It goes "
@@ -317,7 +329,8 @@ def process(
     skeletons: str | None, geometry_as: str | None, polarity_spread: bool,
     distance_histograms: bool, baseline_exclude: str | None,
     colours: Path | None, no_contacts: bool, no_instances: bool,
-    max_workers: int | None, resume: bool, with_mesh: bool,
+    max_workers: int | None, resume: bool, windowed: bool, coarse_voxels: int | None,
+    window_reach_um: float | None, with_mesh: bool,
     mesh_dir: Path | None, mesh_smooth_sigma: str | None, mesh_step_size: int | None,
     mesh_target_reduction: float | None, mesh_level: float | None,
     mesh_workers: int | None, mesh_max_vertices: int | None,
@@ -363,6 +376,9 @@ def process(
         mesh_workers=mesh_workers,
         mesh_max_vertices=mesh_max_vertices,
         reuse_geometry=reuse_geometry or None,
+        windowed=windowed or None,
+        coarse_voxels=coarse_voxels,
+        window_reach_um=window_reach_um,
     )
 
     excluded = {"organella-contacts"} if no_contacts else set()

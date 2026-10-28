@@ -113,11 +113,31 @@ class GeometryWriter:
         self._config = config if config is not None else RunConfig()
 
     def measure(self, stack: ObjectStack) -> ObjectMeasurement:
+        def rows():
+            # What the instance measurer already worked out, so the geometry carries the same
+            # metrics without measuring them twice. Empty when that measurer is off.
+            metrics = CACHE.get_or_compute(stack.object_id, ("instance_metrics",), stack.data, dict)
+            return mesh_rows_for_object(
+                stack.volumes(),
+                stack.kinds,
+                stack.sample_size,
+                object_id=stack.object_id,
+                object_mask_name=stack.object_mask_name,
+                options=MeshOptions.from_config(self._config),
+                metrics=metrics,
+            )
+
+        return self.write(stack.object_id, stack.spatial_dims, rows)
+
+    def write(self, object_id: str, spatial_dims: int, make_rows) -> ObjectMeasurement:
+        """The object's geometry file, written from ``make_rows()`` unless an earlier run left a usable one.
+
+        ``make_rows`` is called only when there is something to write: it is where the meshing is.
+        """
         cfg = self._config
         if not cfg.mesh_dir:
             return ObjectMeasurement(columns={"mesh_geometry_file": None})
 
-        object_id = stack.object_id
         destination = Path(cfg.mesh_dir) / object_id / GEOMETRY_FILENAME
         fingerprint = cfg.fingerprint()
         if cfg.reuse_geometry:
@@ -127,24 +147,13 @@ class GeometryWriter:
                             object_id, rows_already, destination)
                 return ObjectMeasurement(
                     columns={"mesh_geometry_file": str(destination.resolve())})
-        # What the instance measurer already worked out, so the geometry carries the same
-        # metrics without measuring them twice. Empty when that measurer is off.
-        metrics = CACHE.get_or_compute(object_id, ("instance_metrics",), stack.data, dict)
-        rows = mesh_rows_for_object(
-            stack.volumes(),
-            stack.kinds,
-            stack.sample_size,
-            object_id=object_id,
-            object_mask_name=stack.object_mask_name,
-            options=MeshOptions.from_config(cfg),
-            metrics=metrics,
-        )
+        rows = make_rows()
         path = write_geometry(Path(cfg.mesh_dir) / object_id, rows)
         _record_settings(path.parent, fingerprint)
         # Counted by kind, each kind on its own: at 42 nm most instances of a whole
         # HeLa cell are a voxel or two, too small to mesh and too collapsed for an
         # ellipsoid, and one total hides that.
-        drawable = "outline" if stack.spatial_dims == 2 else "surface"
+        drawable = "outline" if spatial_dims == 2 else "surface"
         drawn = [row for row in rows if row.get(drawable)]
         by_kind: Dict[str, int] = {}
         for row in drawn:

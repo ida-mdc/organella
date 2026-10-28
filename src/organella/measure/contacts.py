@@ -18,13 +18,14 @@ morphology should do: finding the pairs is minutes on a large object.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
 from organella.config import RunConfig
 from organella.model import CONTACT_ROW, ObjectMeasurement, ObjectStack
 from organella.analysis.cache import contacts_for
+from organella.analysis.gaps import Contact
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +82,15 @@ class ContactMeasurer:
             "organella: %s: %d instance pairs within %.3g µm",
             stack.object_id, len(contacts), self._config.contact_max_um,
         )
-        table = {
-            "contact_entity": [c[0] for c in contacts],
-            "contact_label_a": [c[1] for c in contacts],
-            "contact_label_b": [c[2] for c in contacts],
-            "contact_gap_um": [c[3] for c in contacts],
-        }
-        return ObjectMeasurement(columns={"contact_count": len(contacts)},
-                                 tables={CONTACT_ROW: table})
+        return contact_measurement(contacts)
+
+
+def contact_measurement(contacts: Sequence[Contact]) -> ObjectMeasurement:
+    """The object row's count and the contact rows of a list of (entity, label a, label b, gap) pairs."""
+    table = {
+        "contact_entity": [c[0] for c in contacts],
+        "contact_label_a": [c[1] for c in contacts],
+        "contact_label_b": [c[2] for c in contacts],
+        "contact_gap_um": [c[3] for c in contacts],
+    }
+    return ObjectMeasurement(columns={"contact_count": len(contacts)}, tables={CONTACT_ROW: table})
