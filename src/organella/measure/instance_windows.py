@@ -190,14 +190,20 @@ def instance_contacts(source: ObjectSource, boxes: Mapping[str, Mapping[int, Ins
     return contacts
 
 
-def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], reach_um: float,
+def shape_stats(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]]) -> Dict[str, Dict[int, Dict[str, Any]]]:
+    """The full shape measurement of every instance, ``{structure: {label: metrics}}``, each in its own window."""
+    return {name: {label: instance_shape(source, name, instance) for label, instance in instances.items()}
+            for name, instances in boxes.items()}
+
+
+def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]],
+                    stats: Mapping[str, Mapping[int, Mapping[str, Any]]], reach_um: float,
                     polarity_spread: bool = False):
     """The instance rows and the distance rows of ``InstanceMeasurer``, built from windows, for the default settings.
 
-    ``boxes`` are the instances of each label structure to measure, as ``instance_boxes`` found them; every
-    structure of the object is still a target. Returns ``(instances, distances, stats)``: the first two are dicts
-    of column lists like the dense measurer's, and ``stats`` is the full shape measurement of each instance,
-    ``{structure: {label: metrics}}``, which a surface is chosen and drawn from. Not what the dense measurer gives
+    ``boxes`` are the instances of each label structure to measure, as ``instance_boxes`` found them, and ``stats``
+    what ``shape_stats`` measured of them; every structure of the object is still a target. Returns
+    ``(instances, distances)``, dicts of column lists like the dense measurer's. Not what the dense measurer gives
     where it needs more than a window: skeletons and their tip distances, distance histograms, the chance
     distributions and the depth of a centre are not here, and a distance beyond ``reach_um`` is ``inf``.
     """
@@ -210,13 +216,11 @@ def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, Insta
     sample = np.array(source.sample_size)
     inst: Dict[str, List[Any]] = {col: [] for col in _INSTANCE_COLUMNS}
     dist: Dict[str, List[Any]] = {c: [] for c in ("distance_entity", "distance_label", "distance_target", "distance_um")}
-    stats: Dict[str, Dict[int, Dict[str, Any]]] = {}
     unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
     for name, instances in boxes.items():
-        stats[name] = {}
         centroids = []
         for label, instance in instances.items():
-            stats[name][label] = measured = instance_shape(source, name, instance)
+            measured = stats[name][label]
             inst["instance_entity"].append(name)
             inst["instance_label"].append(label)
             for key in METRICS_3D:
@@ -248,7 +252,7 @@ def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, Insta
                 dist["distance_label"].append(label)
                 dist["distance_target"].append(target)
                 dist["distance_um"].append(found["distance_um"])
-    return inst, dist, stats
+    return inst, dist
 
 
 class _InstanceInWindow:

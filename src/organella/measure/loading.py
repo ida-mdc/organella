@@ -270,6 +270,7 @@ LOADED_COLUMNS: Dict[str, Any] = {
     "object_center_z_um": float,
     "object_center_y_um": float,
     "object_center_x_um": float,
+    "coarse_factor": int,
 }
 
 LOADED_DESCRIPTIONS: Dict[str, str] = {
@@ -284,6 +285,7 @@ LOADED_DESCRIPTIONS: Dict[str, str] = {
     "voxel_size_source": "Where the voxel size came from: 'tiff-metadata' or 'config'.",
     "object_center_z_um": "Z coordinate in µm of the object centre, the origin every polarity metric is measured from: the centroid of the object mask where one was named, and of everything segmented where none was. Null for a 2D object.",
     "object_center_y_um": "Y coordinate in µm of the object centre.",
+    "coarse_factor": "Set when the object was measured a window at a time (--windowed): how many voxels wide the coarse view was that the whole-object measurements ran on - the chance distributions, how deep each structure sits, the shape of each whole-structure mask, and any distance past the window's reach. 1 means they ran at full resolution. Null for an object measured whole.",
     "object_center_x_um": "X coordinate in µm of the object centre.",
 }
 

@@ -225,7 +225,7 @@ def null_if_not_finite(value: Any) -> Any:
     return value
 
 
-def _metrics_by_instance(inst: Dict[str, List[Any]]) -> Dict[tuple, Dict[str, Any]]:
+def metrics_by_instance(inst: Dict[str, List[Any]]) -> Dict[tuple, Dict[str, Any]]:
     """The instance lists as {(entity, label): {metric: value}}, for joining elsewhere.
 
     Keys drop the "instance_" prefix, so the same values can be written under the shorter
@@ -241,7 +241,7 @@ def _metrics_by_instance(inst: Dict[str, List[Any]]) -> Dict[tuple, Dict[str, An
     }
 
 
-def _nulled(table: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
+def nulled(table: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
     """One columnar table with every non-finite value turned into a NULL.
 
     Every column keeps its length, so the rows stay aligned, and its declared type, so a
@@ -317,14 +317,14 @@ class InstanceMeasurer:
         # readers want them.
         CACHE.get_or_compute(
             stack.object_id, ("instance_metrics",), stack.data,
-            lambda: _metrics_by_instance(inst),
+            lambda: metrics_by_instance(inst),
         )
         return ObjectMeasurement(
             columns=out,
             entity_columns={name: {"polar_depth_um": null_if_not_finite(depth)}
                             for name, depth in depths.items()},
-            tables={INSTANCE_ROW: _nulled(inst), DISTANCE_ROW: _nulled(dist),
-                    BASELINE_ROW: _nulled(baseline)},
+            tables={INSTANCE_ROW: nulled(inst), DISTANCE_ROW: nulled(dist),
+                    BASELINE_ROW: nulled(baseline)},
         )
 
     # ── morphology, one instance at a time ────────────────────────────────────

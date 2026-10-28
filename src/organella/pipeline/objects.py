@@ -78,18 +78,12 @@ def measure_object(folder: Path, group: str, excluded: Sequence[str] = (),
     started = time.perf_counter()
     cfg = config if config is not None else RunConfig()
     try:
-        stack = load_object(folder, cfg)
-        about_the_object = _what_the_object_is(folder, stack)
-
-        morphology = MorphologyMeasurer()
-        entity_rows = _entity_rows(stack, morphology, about_the_object, group)
-        whole_object_columns, deep_rows, per_entity = _measure_the_whole_object(
-            stack, excluded, cfg)
-        _add_to_entity_rows(entity_rows, per_entity)
-        object_row = _object_row(about_the_object, group,
-                                 _rolled_up(morphology, entity_rows), whole_object_columns)
-
-        return ObjectResult(stack.object_id, object_row, entity_rows, deep_rows,
+        if cfg.windowed:
+            from organella.pipeline.windowed import measure_windowed as measure
+        else:
+            measure = _measure_whole
+        object_id, object_row, entity_rows, deep_rows = measure(folder, group, excluded, cfg)
+        return ObjectResult(object_id, object_row, entity_rows, deep_rows,
                             seconds=time.perf_counter() - started)
     except Exception as exc:  # noqa: BLE001 - one bad object must not stop the batch
         logger.error("organella: %s failed: %s: %s", folder.name, type(exc).__name__, exc)
@@ -101,9 +95,22 @@ def measure_object(folder: Path, group: str, excluded: Sequence[str] = (),
         CACHE.clear()
 
 
+def _measure_whole(folder: Path, group: str, excluded: Sequence[str], cfg: RunConfig):
+    """An object read whole and measured, as (its id, its row, its entity rows, its deep rows)."""
+    stack = load_object(folder, cfg)
+    about_the_object = what_the_object_is(folder, stack.meta, stack.dim_order, stack.data.shape)
+
+    morphology = MorphologyMeasurer()
+    rows = entity_rows(stack, morphology, about_the_object, group)
+    whole_object_columns, deep_rows, per_entity = _measure_the_whole_object(stack, excluded, cfg)
+    add_to_entity_rows(rows, per_entity)
+    row = object_row(about_the_object, group, rolled_up(morphology, rows), whole_object_columns)
+    return stack.object_id, row, rows, deep_rows
+
+
 # ── the rows ──────────────────────────────────────────────────────────────────
 
-def _entity_rows(stack: ObjectStack, morphology: MorphologyMeasurer,
+def entity_rows(stack: ObjectStack, morphology: MorphologyMeasurer,
                  about_the_object: Mapping[str, Any], group: str) -> List[Dict[str, Any]]:
     """One row per structure of the object, named by the structure it is about.
 
@@ -142,7 +149,7 @@ def _measure_the_whole_object(
     return columns, frames, per_entity
 
 
-def _add_to_entity_rows(rows: List[Dict[str, Any]],
+def add_to_entity_rows(rows: List[Dict[str, Any]],
                         per_entity: Mapping[str, Mapping[str, Any]]) -> None:
     """Put what was measured against the whole object onto the structure it is about."""
     for row in rows:
@@ -151,7 +158,7 @@ def _add_to_entity_rows(rows: List[Dict[str, Any]],
             row.update(extra)
 
 
-def _object_row(about_the_object: Mapping[str, Any], group: str,
+def object_row(about_the_object: Mapping[str, Any], group: str,
                 rolled_up: Mapping[str, Any],
                 whole_object_columns: Mapping[str, Any]) -> Dict[str, Any]:
     """The one row that stands for the object: what it is, and what was measured of it whole."""
@@ -159,7 +166,7 @@ def _object_row(about_the_object: Mapping[str, Any], group: str,
             "obs_level": 0, ROW_TYPE: OBJECT_ROW, "imported_path_short": group}
 
 
-def _rolled_up(morphology: MorphologyMeasurer,
+def rolled_up(morphology: MorphologyMeasurer,
                entity_rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """The per-entity values that mean something for the object as a whole.
 
@@ -184,39 +191,41 @@ def _measurers_of_whole_objects(excluded: Iterable[str], config: RunConfig) -> L
 
 # ── what the object is ────────────────────────────────────────────────────────
 
-def _what_the_object_is(folder: Path, stack: ObjectStack) -> Dict[str, Any]:
+def what_the_object_is(folder: Path, meta: Mapping[str, Any], dim_order: str,
+                       shape: Sequence[int]) -> Dict[str, Any]:
     """Everything true of the object itself, not of one measurement of it.
 
     Both halves of that: what it holds and how big it is, and where it came from. Every row
     of this object repeats these, minus the few that describe the object as a whole (see
-    ``_OBJECT_ONLY``), so a row can be read on its own.
+    ``_OBJECT_ONLY``), so a row can be read on its own. ``shape`` is the whole array of the
+    object, entities along C included.
     """
-    return {**_extent(stack), **_provenance(folder, stack)}
+    return {**_extent(meta, dim_order, shape), **_provenance(folder, meta)}
 
 
-def _extent(stack: ObjectStack) -> Dict[str, Any]:
+def _extent(meta: Mapping[str, Any], dim_order: str, shape: Sequence[int]) -> Dict[str, Any]:
     """What the object knows about itself, plus how big the region it was read from is.
 
     The spatial axes only: C is the structure count, which ``n_entities`` already says and
     which as ``size_C`` reads as an image with five channels. Axis order is not a column
     either - it never varies, and ``spatial_dims`` says which axes an object has.
     """
-    columns = dict(stack.meta)
-    for axis, size in zip(stack.dim_order, stack.data.shape):
+    columns = dict(meta)
+    for axis, size in zip(dim_order, shape):
         if axis != "C":
             columns[f"size_{axis}"] = int(size)
-    columns["num_pixels"] = int(np.prod(stack.data.shape))
+    columns["num_pixels"] = int(np.prod(shape))
     return columns
 
 
-def _provenance(folder: Path, stack: ObjectStack) -> Dict[str, Any]:
+def _provenance(folder: Path, meta: Mapping[str, Any]) -> Dict[str, Any]:
     """Where the object came from and how much was read.
 
     An object is a folder, so the usual per-file columns (name, parent, depth, type)
     describe nothing and are left out. ``file_extension`` stays: the volumes share one, and
     it tells a TIFF batch from any other.
     """
-    files = [folder / name for name in (stack.meta.get("entity_files") or [])]
+    files = [folder / name for name in (meta.get("entity_files") or [])]
     stats = [p.stat() for p in files if p.exists()]
     suffixes = {p.suffix.lower().lstrip(".") for p in files}
     return {
