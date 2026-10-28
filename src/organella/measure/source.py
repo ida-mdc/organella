@@ -112,20 +112,29 @@ class ObjectSource:
         ``box`` is in the object's own coordinates (after the crop to the boundary's box), one slice per axis.
         """
         box = self._clipped(box)
-        out: Dict[str, np.ndarray] = {}
-        inside = None
-        if self._mask is not None and self._clip:
-            inside = self._mask[box] > 0
-        for key in self._keys:
-            entity = self._entities[key]
-            if key == self._mask_key:
-                out[entity.name] = np.array(self._mask[box])        # the boundary itself is not clipped
-                continue
-            volume = self._read(key, box)
-            if inside is not None:
-                volume[~inside] = 0
-            out[entity.name] = volume
-        return out
+        inside = self._inside(box)
+        return {name: self._read_clipped(key, box, inside)
+                for key, name in zip(self._keys, self.names)}
+
+    def read(self, name: str, box: Sequence[slice] | None = None) -> np.ndarray:
+        """One structure in ``box``, as ``window(box)[name]`` would be, without reading the others."""
+        box = self._clipped(box)
+        key = self._keys[self.names.index(name)]
+        return self._read_clipped(key, box, self._inside(box))
+
+    def _inside(self, box: Box) -> Optional[np.ndarray]:
+        """What the boundary encloses in ``box``, or None where nothing is clipped."""
+        if self._mask is None or not self._clip:
+            return None
+        return self._mask[box] > 0
+
+    def _read_clipped(self, key: str, box: Box, inside: Optional[np.ndarray]) -> np.ndarray:
+        if key == self._mask_key:
+            return np.array(self._mask[box])                        # the boundary itself is not clipped
+        volume = self._read(key, box)
+        if inside is not None:
+            volume[~inside] = 0
+        return volume
 
     def _clipped(self, box: Sequence[slice] | None) -> Box:
         if box is None:

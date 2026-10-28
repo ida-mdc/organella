@@ -134,3 +134,72 @@ def test_a_source_names_the_labels_a_manifest_declared(tmp_path):
     source = ObjectSource(_object(tmp_path), RunConfig(object_mask="cell"))
 
     assert source.declared_labels() == ["mito"]
+
+
+# ── instances, one window each ───────────────────────────────────────────────
+
+def _dense_and_source(tmp_path, crop=None):
+    folder = _object(tmp_path, crop)
+    cfg = RunConfig(object_mask="cell")
+    return load_object(folder, cfg), ObjectSource(folder, cfg)
+
+
+@pytest.mark.parametrize("block", [5, 9, 256])
+def test_the_box_and_size_of_every_instance_is_found_a_block_at_a_time(tmp_path, block):
+    from scipy import ndimage
+
+    from organella.measure.instance_windows import instance_boxes
+
+    dense, source = _dense_and_source(tmp_path)
+    labels = dense.volume(dense.entity_names.index("mito")).astype(np.int64)
+
+    found = instance_boxes(source, "mito", block=block)
+
+    expected = ndimage.find_objects(labels)
+    assert sorted(found) == [i + 1 for i, b in enumerate(expected) if b is not None]
+    for label, instance in found.items():
+        assert instance.box == expected[label - 1]
+        assert instance.voxels == int((labels == label).sum())
+
+
+def test_an_instance_clipped_away_by_the_boundary_is_not_found(tmp_path):
+    from organella.measure.instance_windows import instance_boxes
+
+    _, source = _dense_and_source(tmp_path)
+
+    assert 3 not in instance_boxes(source, "mito")
+
+
+def test_label_ids_too_large_to_index_are_found_too():
+    from organella.measure.instance_windows import _objects_in
+
+    part = np.zeros((6, 6, 6), np.uint64)
+    part[1:3, 1:3, 1:3] = 5_000_000_000
+    part[4:6, 0:2, 3:5] = 7
+    found = {label: (box, n) for label, box, n in _objects_in(part)}
+
+    assert found[5_000_000_000] == ((slice(1, 3), slice(1, 3), slice(1, 3)), 8)
+    assert found[7] == ((slice(4, 6), slice(0, 2), slice(3, 5)), 8)
+    assert sorted(found) == [7, 5_000_000_000]
+
+
+@pytest.mark.parametrize("crop", [None, "1:11,2:28,1:26"])
+def test_an_instance_measured_in_its_own_window_has_the_dense_numbers(tmp_path, crop):
+    from organella.analysis.shapes import label_metrics
+    from organella.measure.instance_windows import instance_boxes, instance_shape
+
+    dense, source = _dense_and_source(tmp_path, crop)
+    labels = dense.volume(dense.entity_names.index("mito"))
+    whole = label_metrics(labels, dense.sample_size)
+
+    for label, instance in instance_boxes(source, "mito").items():
+        got = instance_shape(source, "mito", instance)
+        assert sorted(got) == sorted(whole[label])
+        for key, value in whole[label].items():
+            if key == "ellipsoid_axes":
+                # The directions of an ellipsoid are only defined up to sign, and not at all for a round one.
+                d = sorted(whole[label]["ellipsoid_diameters_um"])
+                if d[1] - d[0] > 0.05 * d[2] and d[2] - d[1] > 0.05 * d[2]:
+                    assert np.allclose(np.abs(got[key]), np.abs(value), atol=1e-6), (label, got[key], value)
+                continue
+            assert np.allclose(got[key], value), (label, key, got[key], value)
