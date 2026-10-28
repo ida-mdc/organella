@@ -185,3 +185,26 @@ def test_a_binary_array_declared_as_labels_is_refused_with_what_to_do(tmp_path):
     result = measure_object(folder, "g", (), RunConfig(object_mask="cell", windowed=True))
 
     assert result.error and "declare it a mask" in result.error
+
+
+def test_a_lone_id_that_is_not_a_binary_value_is_one_instance(tmp_path):
+    import warnings
+
+    import zarr
+
+    folder = _object(tmp_path)
+    manifest = json.loads((folder / "source.json").read_text())
+    manifest["entities"]["er"]["kind"] = "label"
+    (folder / "source.json").write_text(json.dumps(manifest))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        from zarr.n5 import N5Store
+
+        er = zarr.open(N5Store(str(tmp_path / "sample.n5")), mode="r+")["labels/er_seg/s0"]
+        er[...] = (er[...] > 0).astype(np.uint8) * 7                 # an instance map holding the one id, 7
+
+    result = measure_object(folder, "g", (), RunConfig(object_mask="cell", windowed=True, **EVERYTHING))
+
+    assert result.error is None, result.error
+    assert [r["instance_label"] for r in _rows_of(result, "instance", ["instance_entity", "instance_label"]).values()
+            if r["instance_entity"] == "er"] == [7]

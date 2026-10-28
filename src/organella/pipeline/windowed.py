@@ -125,12 +125,19 @@ def _refuse_what_cannot_be_windowed(source: ObjectSource, cfg: RunConfig) -> Non
 
 def _refuse_binary_labels(source: ObjectSource, boxes: Boxes) -> None:
     """A binary array declared as labels is split into its connected pieces when an object is read whole, and
-    that split is of the whole array. One id is what that array looks like."""
+    that split is of the whole array. A lone id of 1 or 255 is what such an array looks like; a lone id of any
+    other value is an instance map that has one instance in this object, and is measured as that."""
     for name in source.declared_labels():
-        if len(boxes.get(name, ())) == 1:
-            raise ValueError(f"{source.object_id}: '{name}' is declared as labels but holds a single id, which is "
-                             "what a binary array looks like. Windows cannot split it into its connected pieces: "
-                             "declare it a mask, or give it an id per instance")
+        found = boxes.get(name, {})
+        if len(found) != 1:
+            continue
+        (only,) = found
+        if only in (1, 255):
+            raise ValueError(f"{source.object_id}: '{name}' is declared as labels but holds a single id ({only}), "
+                             "which is what a binary array looks like. Windows cannot split it into its connected "
+                             "pieces: declare it a mask, or give it an id per instance")
+        logger.info("organella: %s: '%s' holds one instance (id %d), measured as one; a whole-object run would "
+                    "split it into its connected components", source.object_id, name, only)
 
 
 def _exact_sizes(rows: Sequence[Dict[str, Any]], boxes: Boxes, source: ObjectSource) -> None:

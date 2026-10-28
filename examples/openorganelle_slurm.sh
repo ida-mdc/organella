@@ -71,7 +71,7 @@ jrc_hela-2|jrc_hela-3)
         --entity mito=labels/mito_seg --entity mito-mem=labels/mito-mem_seg --entity er=labels/er_seg \
         --entity golgi=labels/golgi_seg --entity lyso=labels/lyso_seg --entity ld=labels/ld_seg \
         --entity endo=labels/endo_seg --entity vesicle=labels/vesicle_seg --entity nucleus=labels/nucleus_seg \
-        --instances mito,mito-mem,er,golgi,lyso,ld,endo,vesicle
+        --instances mito,mito-mem,er,golgi,lyso,ld,endo,vesicle --masks nucleus
     extra=""
     ;;
 jrc_mus-liver-6|jrc_mus-liver-7)
