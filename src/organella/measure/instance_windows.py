@@ -1,12 +1,14 @@
 """Instances measured in a window of the object each, instead of in the object whole.
 
 The dense measurers hold every structure at once: a cell's distance maps, its foreground index and the ITK pass
-over all its labels are each as large as the cell. An instance needs a box around itself. Two steps:
+over all its labels are each as large as the cell. An instance needs a box around itself. Three steps:
 
 - :func:`instance_boxes` finds, in one pass over a structure in blocks, the box and the voxel count of every
   instance. Nothing larger than a block is in memory.
-- :func:`instance_shape` measures one instance in its own box and a margin, with the same ITK filter the dense
-  path uses, so the numbers are the dense ones.
+- :func:`instance_shape`, :func:`instance_distances` and the gap search measure one instance in its own box and a
+  margin, with the same code the dense path uses, so the numbers are the dense ones.
+- :func:`tiles` decides what is read: instances that sit near each other are measured from one read of the
+  region around them, so a chunk of the store is read once for all of them and not once for each.
 
 A measurement of an instance depends only on that instance's voxels and the margin around them, which is why a
 window gives the dense answer: the tests hold the two equal.
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -98,7 +101,7 @@ def expanded(box: Box, margin: "int | Sequence[int]", shape: Sequence[int]) -> B
     return tuple(slice(max(0, s.start - m), min(n, s.stop + m)) for s, m, n in zip(box, margins, shape))
 
 
-def instance_shape(source: ObjectSource, name: str, instance: InstanceBox, margin: int = 1) -> Dict[str, Any]:
+def instance_shape(source, name: str, instance: InstanceBox, margin: int = 1) -> Dict[str, Any]:
     """Size and shape of one instance, as ``label_metrics`` has it for the whole object.
 
     The centroid and the ellipsoid come back in the object's own frame, not the window's.
@@ -141,7 +144,7 @@ def contact_area_um2(instance: np.ndarray, distance: np.ndarray, sample_size: Se
     return area
 
 
-def instance_distances(source: ObjectSource, name: str, instance: InstanceBox, reach_um: float,
+def instance_distances(reader, name: str, instance: InstanceBox, reach_um: float,
                        contact_um: Sequence[float] = ()) -> Dict[str, Dict[str, Any]]:
     """How near an instance gets to every other structure, and how much of it is that near, in its own window.
 
@@ -149,63 +152,127 @@ def instance_distances(source: ObjectSource, name: str, instance: InstanceBox, r
     ``reach_um`` and ``inf`` where it is farther (the window does not see further), and the area of the
     instance within each of ``contact_um`` of it. The target of a structure is the union of its instances; the
     target of the object's boundary is the outside, so that distance is the depth under the surface.
+
+    ``reader`` is an ``ObjectSource`` or a tile of one. Structures are read one at a time, so an instance too
+    large for a tile holds two windows and one distance transform, not every structure at once.
     """
-    window = expanded(instance.box, margin_voxels(reach_um, source.sample_size), source.shape)
-    volumes = source.window(window)
-    own = volumes[name] == instance.label
+    window = expanded(instance.box, margin_voxels(reach_um, reader.sample_size), reader.shape)
+    own = reader.read(name, window) == instance.label
     out: Dict[str, Dict[str, Any]] = {}
-    for target in source.names:
+    for target in reader.names:
         if target == name:
             continue
         distance = distance_transform_um(
-            distance_target(volumes[target], target, source.kinds[target], source.object_mask_name),
-            source.sample_size, num_threads=1)
+            distance_target(reader.read(target, window), target, reader.kinds[target], reader.object_mask_name),
+            reader.sample_size, num_threads=1)
         nearest = float(distance[own].min())
         found: Dict[str, Any] = {"distance_um": nearest if nearest <= reach_um else float("inf")}
         for threshold in contact_um:
-            found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, source.sample_size, threshold)
+            found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, reader.sample_size, threshold)
         out[target] = found
     return out
 
 
-def instance_contacts(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], max_gap_um: float,
-                      num_threads: int = 0) -> List[Contact]:
-    """Which instances of a structure are within ``max_gap_um`` of each other, and by how much, from windows.
+# ── what is read: tiles ──────────────────────────────────────────────────────
 
-    ``boxes`` are the instances of each label structure, as ``instance_boxes`` found them. Each instance
-    is read with the reach of the gap around it and measured against what the window holds of the others,
-    which is what ``pairwise_instance_gaps`` does within the whole structure. Returned sorted, as it does.
+# The edge of the cell of the object an instance is assigned to by where it starts, and the largest a window may be
+# (along any axis) and still be read with the others of its tile. A tile is at most TILE + SMALL voxels an edge,
+# of every structure: with 8 structures that is under 0.5 GB at 256 + 128.
+TILE = 128
+SMALL = 256
+
+
+class _Tile:
+    """A region of the object read once, for the instances in it: what an ``ObjectSource`` is to a measurement of one."""
+
+    def __init__(self, source: ObjectSource, box: Box) -> None:
+        self._source = source
+        self._box = box
+        self._volumes = source.window(box)
+
+    def read(self, name: str, box: Box) -> np.ndarray:
+        """One structure in ``box``, which lies inside the tile, as the source would give it."""
+        inside = tuple(slice(b.start - t.start, b.stop - t.start) for b, t in zip(box, self._box))
+        if any(i.start < 0 or b.stop > t.stop for i, b, t in zip(inside, box, self._box)):
+            raise ValueError(f"{box} is not inside the tile {self._box}")
+        return self._volumes[name][inside]
+
+    def __getattr__(self, attribute: str):
+        return getattr(self._source, attribute)
+
+
+def tiles(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], margin: Sequence[int]):
+    """Every instance, with something to read its window from: ``(reader, [(structure, instance), ...])``.
+
+    Instances whose windows (their box and ``margin``) are small are grouped by where they start and read together
+    as one tile covering all their windows, in order, so neighbours share a read. One whose window is large is its
+    own group and is read from the source itself, a structure at a time.
+    """
+    shape = source.shape
+    groups: Dict[Tuple[int, ...], List[Tuple[str, InstanceBox, Box]]] = {}
+    alone: List[Tuple[str, InstanceBox]] = []
+    for name, instances in boxes.items():
+        for instance in instances.values():
+            window = expanded(instance.box, margin, shape)
+            if all(w.stop - w.start <= SMALL for w in window):
+                groups.setdefault(tuple(w.start // TILE for w in window), []).append((name, instance, window))
+            else:
+                alone.append((name, instance))
+    for key in sorted(groups):
+        members = groups[key]
+        region = tuple(slice(min(w[axis].start for *_, w in members), max(w[axis].stop for *_, w in members))
+                       for axis in range(len(shape)))
+        yield _Tile(source, region), [(name, instance) for name, instance, _ in members]
+    for name, instance in alone:
+        yield source, [(name, instance)]
+
+
+@dataclass
+class Measured:
+    """What measuring every instance in its window found: shape, distances and the gaps between instances."""
+
+    stats: Dict[str, Dict[int, Dict[str, Any]]]
+    distances: Dict[Tuple[str, int], Dict[str, Dict[str, Any]]]
+    contacts: List[Contact]
+
+
+def measure_instances(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]],
+                      reach_um: float | None, gap_um: float | None, num_threads: int = 0) -> Measured:
+    """Shape of every instance, and, unless ``None``, its distance to each other structure and its gap to neighbours.
+
+    ``reach_um`` is how far a distance is exact (``instance_distances``) and ``gap_um`` the largest gap between two
+    instances of a structure that is a contact. Each region of the object is read once for every instance in it.
     """
     anisotropy = tuple(float(v) for v in source.sample_size)
     threads = num_threads if num_threads and num_threads > 0 else (os.cpu_count() or 1)
-    reach = reach_voxels(max_gap_um, anisotropy)
-    contacts: List[Contact] = []
-    for name, instances in boxes.items():
-        closest: Dict[Tuple[int, int], float] = {}
-        for label, instance in instances.items():
-            near = source.read(name, expanded(instance.box, reach, source.shape))
-            gaps_around(near, label, anisotropy, threads, max_gap_um, closest)
-        contacts.extend((name, low, high, gap) for (low, high), gap in closest.items())
-    contacts.sort()
-    return contacts
+    gap_reach = reach_voxels(gap_um, anisotropy) if gap_um is not None else [0] * len(anisotropy)
+    reach = margin_voxels(reach_um, anisotropy) if reach_um is not None else (0,) * len(anisotropy)
+    margin = tuple(max(1, a, b) for a, b in zip(reach, gap_reach))
+
+    stats: Dict[str, Dict[int, Dict[str, Any]]] = {name: {} for name in boxes}
+    distances: Dict[Tuple[str, int], Dict[str, Dict[str, Any]]] = {}
+    closest: Dict[str, Dict[Tuple[int, int], float]] = {name: {} for name in boxes}
+    for reader, members in tiles(source, boxes, margin):
+        for name, instance in members:
+            stats[name][instance.label] = instance_shape(reader, name, instance)
+            if reach_um is not None:
+                distances[(name, instance.label)] = instance_distances(reader, name, instance, reach_um)
+            if gap_um is not None:
+                near = reader.read(name, expanded(instance.box, gap_reach, source.shape))
+                gaps_around(near, instance.label, anisotropy, threads, gap_um, closest[name])
+    contacts = sorted((name, low, high, gap) for name, pairs in closest.items() for (low, high), gap in pairs.items())
+    return Measured({name: dict(sorted(found.items())) for name, found in stats.items()}, distances, contacts)
 
 
-def shape_stats(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]]) -> Dict[str, Dict[int, Dict[str, Any]]]:
-    """The full shape measurement of every instance, ``{structure: {label: metrics}}``, each in its own window."""
-    return {name: {label: instance_shape(source, name, instance) for label, instance in instances.items()}
-            for name, instances in boxes.items()}
-
-
-def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]],
-                    stats: Mapping[str, Mapping[int, Mapping[str, Any]]], reach_um: float,
+def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], measured: Measured,
                     polarity_spread: bool = False):
-    """The instance rows and the distance rows of ``InstanceMeasurer``, built from windows, for the default settings.
+    """The instance rows and the distance rows of ``InstanceMeasurer``, built from what was measured in windows.
 
-    ``boxes`` are the instances of each label structure to measure, as ``instance_boxes`` found them, and ``stats``
-    what ``shape_stats`` measured of them; every structure of the object is still a target. Returns
-    ``(instances, distances)``, dicts of column lists like the dense measurer's. Not what the dense measurer gives
-    where it needs more than a window: skeletons and their tip distances, distance histograms, the chance
-    distributions and the depth of a centre are not here, and a distance beyond ``reach_um`` is ``inf``.
+    ``boxes`` are the instances of each label structure, as ``instance_boxes`` found them, and ``measured`` what
+    ``measure_instances`` found of them, distances included. Returns ``(instances, distances)``, dicts of column
+    lists like the dense measurer's. Not what the dense measurer gives where it needs more than a window: skeletons
+    and their tip distances, distance histograms, the chance distributions and the depth of a centre are not here,
+    and a distance beyond the window's reach is ``inf``.
     """
     from organella.measure.instances import _INSTANCE_COLUMNS, _POLARITY_COLUMNS, _UNMEASURED_SHAPE, _polar_spread_deg
 
@@ -220,16 +287,16 @@ def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, Insta
     for name, instances in boxes.items():
         centroids = []
         for label, instance in instances.items():
-            measured = stats[name][label]
+            stats = measured.stats[name][label]
             inst["instance_entity"].append(name)
             inst["instance_label"].append(label)
             for key in METRICS_3D:
-                inst[f"instance_{key}"].append(measured.get(key, float("nan")))
+                inst[f"instance_{key}"].append(stats.get(key, float("nan")))
             for key in _UNMEASURED_SHAPE[3]:
                 inst[f"instance_{key}"].append(float("nan"))
             for key, value in unmeasured.items():
                 inst[f"instance_{key}"].append(value)
-            centroid = np.array(measured["centroid_um"])
+            centroid = np.array(stats["centroid_um"])
             centroids.append(centroid)
             polar = polarity_from_offset(centroid - np.array(center))
             for key in _POLARITY_COLUMNS:
@@ -246,8 +313,8 @@ def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, Insta
         else:
             nearest = [float("nan")] * len(centroids)
         inst["instance_distance_to_closest_same_type_um"].extend(nearest)
-        for label, instance in instances.items():
-            for target, found in instance_distances(source, name, instance, reach_um).items():
+        for label in instances:
+            for target, found in measured.distances[(name, label)].items():
                 dist["distance_entity"].append(name)
                 dist["distance_label"].append(label)
                 dist["distance_target"].append(target)
@@ -255,18 +322,27 @@ def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, Insta
     return inst, dist
 
 
-class _InstanceInWindow:
-    """One instance as the geometry code reads it, the way ``regionprops`` has it: read from its own box on demand."""
+class _InstancesOf:
+    """The instances of one structure as the geometry code reads them, each with its mask, tile by tile.
 
-    def __init__(self, source: ObjectSource, name: str, instance: InstanceBox) -> None:
-        self._source, self._name, self._box = source, name, instance.box
-        self.label = instance.label
-        self.area = instance.voxels
-        self.bbox = tuple(b.start for b in instance.box) + tuple(b.stop for b in instance.box)
+    Iterating reads the object once through ``tiles``, and yields instances with what ``regionprops`` has of one: a
+    ``label``, a ``bbox`` (lows, then highs, in voxels), an ``area`` in voxels and the ``image`` of the instance in
+    its box. It is a sequence only in that it has a length and can be walked.
+    """
 
-    @property
-    def image(self) -> np.ndarray:
-        return self._source.read(self._name, self._box) == self.label
+    def __init__(self, source: ObjectSource, name: str, instances: Mapping[int, InstanceBox]) -> None:
+        self._source, self._name, self._instances = source, name, instances
+
+    def __len__(self) -> int:
+        return len(self._instances)
+
+    def __iter__(self):
+        for reader, members in tiles(self._source, {self._name: self._instances}, (0,) * len(self._source.shape)):
+            for _, instance in members:
+                yield SimpleNamespace(
+                    label=instance.label, area=instance.voxels,
+                    bbox=tuple(b.start for b in instance.box) + tuple(b.stop for b in instance.box),
+                    image=reader.read(self._name, instance.box) == instance.label)
 
 
 def mesh_rows_for_windows(source: ObjectSource, coarse: ObjectStack, boxes: Mapping[str, Mapping[int, InstanceBox]],
@@ -287,10 +363,11 @@ def mesh_rows_for_windows(source: ObjectSource, coarse: ObjectStack, boxes: Mapp
                 rows.extend(mask_rows(name, kind, coarse.volume(index), coarse.sample_size, source.object_id, "",
                                       options, 3, False))
                 continue
-            props = [_InstanceInWindow(source, name, instance) for instance in boxes.get(name, {}).values()]
-            if props:
-                rows.extend(instance_rows(name, kind, props, stats[name], {}, source.sample_size, source.object_id,
-                                          "", options, metrics, 3, False, source.center, pool))
+            instances = boxes.get(name, {})
+            if instances:
+                rows.extend(instance_rows(name, kind, _InstancesOf(source, name, instances), stats[name], {},
+                                          source.sample_size, source.object_id, "", options, metrics, 3, False,
+                                          source.center, pool))
     finally:
         pool.shutdown()
     if options.contact_max_um is not None:

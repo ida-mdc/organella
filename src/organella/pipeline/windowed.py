@@ -33,7 +33,7 @@ from organella.config import RunConfig, wants_skeletons
 from organella.measure import ContactMeasurer, GeometryWriter, InstanceMeasurer, MorphologyMeasurer
 from organella.measure.contacts import contact_measurement
 from organella.measure.instance_windows import (
-    InstanceBox, instance_boxes, instance_contacts, instance_tables, mesh_rows_for_windows, shape_stats,
+    InstanceBox, Measured, instance_boxes, instance_tables, measure_instances, mesh_rows_for_windows,
 )
 from organella.measure.instances import metrics_by_instance, nulled, null_if_not_finite
 from organella.measure.source import ObjectSource
@@ -71,30 +71,32 @@ def measure_windowed(folder, group: str, excluded: Sequence[str], cfg: RunConfig
     per_entity: Dict[str, Dict[str, Any]] = {}
     frames: List[pl.DataFrame] = []
 
-    def keep(measured: ObjectMeasurement, schemas: Mapping[str, Mapping[str, Any]]) -> None:
-        columns.update(measured.columns)
-        for name, values in measured.entity_columns.items():
+    def keep(found: ObjectMeasurement, schemas: Mapping[str, Mapping[str, Any]]) -> None:
+        columns.update(found.columns)
+        for name, values in found.entity_columns.items():
             per_entity.setdefault(name, {}).update(values)
-        frames.extend(table.deep_row_frames(measured, schemas, source.object_id))
+        frames.extend(table.deep_row_frames(found, schemas, source.object_id))
 
-    stats = shape_stats(source, boxes)
+    # One pass over the object finds all that windows give: the shape of every instance, how near it gets to each
+    # other structure, and which instances of a structure touch. What is not wanted is not measured.
+    with_instances = "organella-instances" not in skip
+    with_contacts = "organella-contacts" not in skip
+    with_geometry = "organella-mesh" not in skip and bool(cfg.mesh_dir)
+    measured = measure_instances(
+        source, boxes, cfg.window_reach_um if with_instances else None,
+        cfg.contact_max_um if (with_contacts or with_geometry) else None, cfg.edt_threads)
+
     metrics: Mapping[tuple, Mapping[str, Any]] = {}
-    if "organella-instances" not in skip:
-        measured, metrics = _instances(source, coarse, boxes, stats, cfg)
-        keep(measured, InstanceMeasurer.ROW_SCHEMAS)
-
-    # Found once for the contact rows and for the geometry, which carries the same pairs.
-    contacts = None
-    if "organella-contacts" not in skip or (cfg.mesh_dir and "organella-mesh" not in skip):
-        contacts = instance_contacts(source, boxes, cfg.contact_max_um, cfg.edt_threads)
-    if "organella-contacts" not in skip:
-        keep(contact_measurement(contacts), ContactMeasurer.ROW_SCHEMAS)
-
+    if with_instances:
+        instances, metrics = _instances(source, coarse, boxes, measured, cfg)
+        keep(instances, InstanceMeasurer.ROW_SCHEMAS)
+    if with_contacts:
+        keep(contact_measurement(measured.contacts), ContactMeasurer.ROW_SCHEMAS)
     if "organella-mesh" not in skip:
         keep(GeometryWriter(cfg).write(
             source.object_id, 3,
-            lambda: mesh_rows_for_windows(source, coarse, boxes, stats, MeshOptions.from_config(cfg), metrics,
-                                          contacts or [])), GeometryWriter.ROW_SCHEMAS)
+            lambda: mesh_rows_for_windows(source, coarse, boxes, measured.stats, MeshOptions.from_config(cfg),
+                                          metrics, measured.contacts)), GeometryWriter.ROW_SCHEMAS)
 
     add_to_entity_rows(rows, per_entity)
     return source.object_id, object_row(about, group, rolled_up(morphology, rows), columns), rows, frames
@@ -138,18 +140,19 @@ def _exact_counts_of_labels(rows: Sequence[Dict[str, Any]], boxes: Boxes, sample
         row["total_volume_um3"] = null_if_not_finite(float(sum(i.voxels for i in instances.values()) * voxel))
 
 
-def _instances(source: ObjectSource, coarse, boxes: Boxes, stats, cfg: RunConfig) -> Tuple[ObjectMeasurement, Mapping]:
+def _instances(source: ObjectSource, coarse, boxes: Boxes, measured: Measured,
+               cfg: RunConfig) -> Tuple[ObjectMeasurement, Mapping]:
     """The instance and distance rows from windows, and the chance distributions and depths from the coarse view."""
-    inst, dist = instance_tables(source, boxes, stats, cfg.window_reach_um, cfg.polarity_spread)
+    inst, dist = instance_tables(source, boxes, measured, cfg.polarity_spread)
     from_coarse = InstanceMeasurer(cfg).measure(coarse)
     dist["distance_um"] = _read_past_the_reach(dist, from_coarse.tables[DISTANCE_ROW], cfg.window_reach_um)
     enclosed = float(source.enclosed_voxels * np.prod(source.sample_size))
-    measured = ObjectMeasurement(
+    rows = ObjectMeasurement(
         columns={"object_volume_um3": enclosed},
         entity_columns=from_coarse.entity_columns,
         tables={INSTANCE_ROW: nulled(inst), DISTANCE_ROW: nulled(dist),
                 BASELINE_ROW: from_coarse.tables[BASELINE_ROW]})
-    return measured, metrics_by_instance(inst)
+    return rows, metrics_by_instance(inst)
 
 
 def _read_past_the_reach(exact: Mapping[str, List[Any]], coarse: Mapping[str, List[Any]], reach_um: float) -> List[float]:

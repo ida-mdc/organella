@@ -271,7 +271,7 @@ def _as_float(value):
 
 
 def test_the_instance_and_distance_rows_from_windows_are_the_dense_ones(tmp_path):
-    from organella.measure.instance_windows import instance_boxes, instance_tables, shape_stats
+    from organella.measure.instance_windows import instance_boxes, instance_tables, measure_instances
     from organella.measure.instances import DISTANCE_ROW, INSTANCE_ROW, InstanceMeasurer
 
     dense, source = _dense_and_source(tmp_path)
@@ -279,7 +279,7 @@ def test_the_instance_and_distance_rows_from_windows_are_the_dense_ones(tmp_path
     want_inst, want_dist = tables[INSTANCE_ROW], tables[DISTANCE_ROW]
 
     boxes = {"mito": instance_boxes(source, "mito")}
-    got_inst, got_dist = instance_tables(source, boxes, shape_stats(source, boxes), reach_um=100.0)
+    got_inst, got_dist = instance_tables(source, boxes, measure_instances(source, boxes, 100.0, None))
 
     def keyed(table, keys):
         columns = list(table)
@@ -346,13 +346,38 @@ def test_the_coarse_factor_is_the_smallest_that_fits(tmp_path):
 @pytest.mark.parametrize("gap", [0.02, 0.1, 5.0])
 def test_the_contacts_found_from_windows_are_the_dense_ones(tmp_path, gap):
     from organella.analysis.gaps import pairwise_instance_gaps
-    from organella.measure.instance_windows import instance_boxes, instance_contacts
+    from organella.measure.instance_windows import instance_boxes, measure_instances
 
     dense, source = _dense_and_source(tmp_path)
     boxes = {"mito": instance_boxes(source, "mito")}
     want = pairwise_instance_gaps(dense.volumes(), dense.kinds, dense.sample_size, gap)
-    got = instance_contacts(source, boxes, gap)
+    got = measure_instances(source, boxes, None, gap).contacts
 
     assert got == want
     if gap == 5.0:
         assert want, "the fixture has no pair this close, so the test would pass on nothing"
+
+
+def test_an_instance_measured_from_a_tile_has_the_numbers_it_has_from_its_own_window(tmp_path, monkeypatch):
+    """Small instances are read together and large ones alone; both routes are taken here, and agree."""
+    from organella.analysis.gaps import pairwise_instance_gaps
+    from organella.measure import instance_windows as module
+
+    monkeypatch.setattr(module, "TILE", 4)
+    monkeypatch.setattr(module, "SMALL", 12)
+    dense, source = _dense_and_source(tmp_path)
+    boxes = {"mito": module.instance_boxes(source, "mito")}
+    margin = module.margin_voxels(0.03, source.sample_size)
+    readers = {type(reader).__name__ for reader, _ in module.tiles(source, boxes, margin)}
+    assert readers == {"_Tile", "ObjectSource"}, "the fixture should have one small instance and one large"
+
+    got = module.measure_instances(source, boxes, 0.03, 0.1)
+
+    assert got.contacts == pairwise_instance_gaps(dense.volumes(), dense.kinds, dense.sample_size, 0.1)
+    for label, instance in boxes["mito"].items():
+        alone = module.instance_shape(source, "mito", instance)
+        assert got.stats["mito"][label].keys() == alone.keys()
+        for key, value in alone.items():
+            if key != "ellipsoid_axes":
+                assert np.allclose(got.stats["mito"][label][key], value), (label, key)
+        assert got.distances[("mito", label)] == module.instance_distances(source, "mito", instance, 0.03)
