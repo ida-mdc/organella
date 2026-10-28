@@ -411,3 +411,16 @@ def test_a_worker_takes_the_level_the_parent_set(monkeypatch):
         assert pool._level_to_pass_on() is None
     finally:
         package.handlers[:], package.level, package.propagate = before
+
+
+def test_a_cell_folder_that_is_a_link_belongs_to_the_subfolder_it_was_found_in(tmp_path):
+    from organella.pipeline import group_of
+
+    elsewhere = tmp_path / "elsewhere" / "cell_a"
+    elsewhere.mkdir(parents=True)
+    root = tmp_path / "root"
+    (root / "treated").mkdir(parents=True)
+    (root / "treated" / "cell_a").symlink_to(elsewhere, target_is_directory=True)
+
+    assert group_of(root / "treated" / "cell_a", root, ["treated"]) == "treated"
+    assert group_of(root / "treated" / "cell_a", root, []) == "treated"

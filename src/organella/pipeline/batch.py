@@ -80,10 +80,14 @@ def analyse(
 
 def group_of(folder: Path, root: Path, paths: Sequence[str]) -> str:
     """The import path an object belongs to: the group every row of it carries."""
+    # By where the folder was found, not where a link leads: cell folders may be symlinks to somewhere else.
     try:
-        relative = folder.resolve().relative_to(root.resolve())
+        relative = folder.relative_to(root)
     except ValueError:
-        return ""
+        try:
+            relative = folder.resolve().relative_to(root.resolve())
+        except ValueError:
+            return ""
     for path in paths:
         if relative == Path(path) or Path(path) in relative.parents:
             return path
