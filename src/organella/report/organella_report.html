@@ -8913,7 +8913,7 @@ function distributionPanel(host, opts) {
       hovertemplate:'%{customdata}: %{y:.3g}<extra></extra>' }];
     layout = { margin:{l:54,r:6,t:28,b:opts.showFacetTicks ? 52 : 22}, height:opts.height || PANEL_HEIGHT,
       title:{ text: opts.title }, showlegend:false,
-      xaxis: opts.showFacetTicks ? { automargin:true } : { showticklabels:false, ticks:'' },
+      xaxis: opts.showFacetTicks ? { type:'category', automargin:true } : { type:'category', showticklabels:false, ticks:'' },
       yaxis:{ title: opts.unit || null, rangemode:'tozero',
               range: (opts.range ? opts.range.slice() : null) || heldRange() || undefined } };
   } else if (plotStyle === 'histogram') {
@@ -8948,7 +8948,7 @@ function distributionPanel(host, opts) {
         return { type:'box', name:f.label, y:f.values, marker:{ color:f.color },
                  line:{ color:f.color }, showlegend:false };
       });
-      layout.xaxis = { showticklabels:false, ticks:'' };
+      layout.xaxis = { type:'category', showticklabels:false, ticks:'' };
       layout.yaxis = { title: opts.unit || null,
                        range: flatRange(histSpanOf, opts) || undefined };
       drawn = 'box';
@@ -8975,9 +8975,11 @@ function distributionPanel(host, opts) {
       ? { min: Math.min.apply(null, [dataSpan.min].concat(beyond)),
           max: Math.max.apply(null, [dataSpan.max].concat(beyond)) }
       : dataSpan;
+    // The axis is a category axis by decree: Plotly reads group names such as "6" and "7" as numbers, puts
+    // the boxes at x = 6 and 7 and leaves the diamonds, on [-0.5, n - 0.5], far to their left.
     layout = { margin:{l:54,r:6,t:28,b:opts.showFacetTicks ? 52 : 22}, height:opts.height || PANEL_HEIGHT,
       title:{ text: opts.title }, showlegend:false,
-      xaxis: opts.showFacetTicks ? { automargin:true } : { showticklabels:false, ticks:'' },
+      xaxis: opts.showFacetTicks ? { type:'category', automargin:true } : { type:'category', showticklabels:false, ticks:'' },
       yaxis:{ title: opts.unit || null,
               range: flatRange(span, opts) || heldRange()
                 || (opts.range ? opts.range.slice() : undefined) } };
