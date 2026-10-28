@@ -21,6 +21,7 @@ from typing import Any, Dict, Sequence, Tuple
 import numpy as np
 from scipy import ndimage
 
+from organella.analysis.distances import distance_target, distance_transform_um
 from organella.analysis.shapes import label_metrics
 from organella.measure.source import ObjectSource
 
@@ -84,9 +85,13 @@ def _objects_in(part: np.ndarray):
         yield label, found, int(counts[index])
 
 
-def expanded(box: Box, margin: int, shape: Sequence[int]) -> Box:
-    """``box`` grown by ``margin`` voxels on every side, kept inside an object of ``shape``."""
-    return tuple(slice(max(0, s.start - margin), min(n, s.stop + margin)) for s, n in zip(box, shape))
+def expanded(box: Box, margin: "int | Sequence[int]", shape: Sequence[int]) -> Box:
+    """``box`` grown by ``margin`` voxels on every side, kept inside an object of ``shape``.
+
+    One margin, or one per axis: a distance in µm is a different number of voxels along each.
+    """
+    margins = (margin,) * len(box) if isinstance(margin, int) else tuple(margin)
+    return tuple(slice(max(0, s.start - m), min(n, s.stop + m)) for s, m, n in zip(box, margins, shape))
 
 
 def instance_shape(source: ObjectSource, name: str, instance: InstanceBox, margin: int = 1) -> Dict[str, Any]:
@@ -103,4 +108,57 @@ def instance_shape(source: ObjectSource, name: str, instance: InstanceBox, margi
     out = dict(measured)
     out["centroid_um"] = tuple(float(c + o) for c, o in zip(measured["centroid_um"], offset))
     out["centroid_xyz_um"] = tuple(float(c) for c in reversed(out["centroid_um"]))
+    return out
+
+
+def margin_voxels(reach_um: float, sample_size: Sequence[float]) -> Tuple[int, ...]:
+    """How many voxels along each axis make ``reach_um``, and one more so the nearest voxel is inside the window."""
+    return tuple(int(np.ceil(reach_um / float(size))) + 1 for size in sample_size)
+
+
+def contact_area_um2(instance: np.ndarray, distance: np.ndarray, sample_size: Sequence[float],
+                     threshold_um: float) -> float:
+    """The surface of an instance that lies within ``threshold_um`` of a target, in µm².
+
+    The faces of the instance's boundary voxels, counting a voxel's exposed faces when its own distance to the
+    target is at most the threshold. That is the layer the liver paper's membrane contacts take (the outer
+    voxels of a mitochondrion within two voxels of the ER), with the area of the faces in place of a voxel count.
+    ``instance`` is a boolean array.
+    """
+    # Padded, so that an instance on the edge of the window has background beside it and nothing wraps round.
+    inside = np.pad(instance, 1)
+    near = np.pad(instance & (distance <= threshold_um), 1)
+    voxel = float(np.prod(sample_size))
+    area = 0.0
+    for axis, size in enumerate(sample_size):
+        face = voxel / float(size)                    # the face a step along this axis crosses
+        for step in (1, -1):
+            area += float((near & ~np.roll(inside, step, axis=axis)).sum()) * face
+    return area
+
+
+def instance_distances(source: ObjectSource, name: str, instance: InstanceBox, reach_um: float,
+                       contact_um: Sequence[float] = ()) -> Dict[str, Dict[str, Any]]:
+    """How near an instance gets to every other structure, and how much of it is that near, in its own window.
+
+    For each other structure: the smallest distance from the instance to it, exact where it is at most
+    ``reach_um`` and ``inf`` where it is farther (the window does not see further), and the area of the
+    instance within each of ``contact_um`` of it. The target of a structure is the union of its instances; the
+    target of the object's boundary is the outside, so that distance is the depth under the surface.
+    """
+    window = expanded(instance.box, margin_voxels(reach_um, source.sample_size), source.shape)
+    volumes = source.window(window)
+    own = volumes[name] == instance.label
+    out: Dict[str, Dict[str, Any]] = {}
+    for target in source.names:
+        if target == name:
+            continue
+        distance = distance_transform_um(
+            distance_target(volumes[target], target, source.kinds[target], source.object_mask_name),
+            source.sample_size, num_threads=1)
+        nearest = float(distance[own].min())
+        found: Dict[str, Any] = {"distance_um": nearest if nearest <= reach_um else float("inf")}
+        for threshold in contact_um:
+            found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, source.sample_size, threshold)
+        out[target] = found
     return out

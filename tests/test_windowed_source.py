@@ -203,3 +203,62 @@ def test_an_instance_measured_in_its_own_window_has_the_dense_numbers(tmp_path, 
                     assert np.allclose(np.abs(got[key]), np.abs(value), atol=1e-6), (label, got[key], value)
                 continue
             assert np.allclose(got[key], value), (label, key, got[key], value)
+
+
+# ── distances and contact area, in a window ──────────────────────────────────
+
+def test_the_nearest_a_structure_gets_to_another_is_the_dense_distance_where_it_is_within_reach(tmp_path):
+    from organella.analysis.distances import distance_target, distance_transform_um
+    from organella.measure.instance_windows import instance_boxes, instance_distances
+
+    dense, source = _dense_and_source(tmp_path)
+    boxes = instance_boxes(source, "mito")
+    volumes = dense.volumes()
+    for reach in (0.05, 3.0):
+        for label, instance in boxes.items():
+            got = instance_distances(source, "mito", instance, reach_um=reach)
+            for target in dense.entity_names:
+                if target == "mito":
+                    continue
+                transform = distance_transform_um(
+                    distance_target(volumes[target], target, dense.kinds[target], dense.object_mask_name),
+                    dense.sample_size)
+                exact = float(transform[volumes["mito"] == label].min())
+                if exact <= reach:
+                    assert got[target]["distance_um"] == pytest.approx(exact, rel=1e-5), (label, target, reach)
+                else:
+                    assert got[target]["distance_um"] == float("inf"), (label, target, reach)
+
+
+def test_the_area_of_an_instance_near_a_target_is_the_area_of_its_faces_that_near(tmp_path):
+    from organella.measure.instance_windows import contact_area_um2
+    from organella.analysis.distances import distance_transform_um
+
+    shape = (14, 16, 16)
+    instance = np.zeros(shape, bool)
+    instance[2:6, 4:8, 4:8] = True                      # a cube, 4 voxels a side
+    target = np.zeros(shape, bool)
+    target[8:, :, :] = True                              # a slab two empty voxels above it
+    sample = (1.0, 1.0, 1.0)
+    distance = distance_transform_um(target, sample)
+
+    # The layer facing the slab is 3 voxels from it: 16 faces towards the slab and its 16 side faces.
+    assert contact_area_um2(instance, distance, sample, threshold_um=2.9) == 0.0
+    assert contact_area_um2(instance, distance, sample, threshold_um=3.0) == 32.0
+    # 2 µm deep in z and 1 µm in y and x: the layer facing the slab is 6 µm from it, and its faces are 16 across z
+    # (1 µm² each) and 8 across y and 8 across x (2 µm² each).
+    odd = (2.0, 1.0, 1.0)
+    distance = distance_transform_um(target, odd)
+    assert contact_area_um2(instance, distance, odd, threshold_um=5.9) == 0.0
+    assert contact_area_um2(instance, distance, odd, threshold_um=6.0) == 16 * 1.0 + 8 * 2.0 + 8 * 2.0
+
+
+def test_the_area_on_the_edge_of_a_window_does_not_wrap_round():
+    from organella.measure.instance_windows import contact_area_um2
+
+    instance = np.zeros((4, 4, 4), bool)
+    instance[0, :, :] = True                             # a layer on the face of the window
+    near = np.zeros((4, 4, 4))                           # everything is at distance 0
+
+    # Two big faces of 16 and four side strips of 4 each, with nothing counted across the edge.
+    assert contact_area_um2(instance, near, (1.0, 1.0, 1.0), 1.0) == 16 + 16 + 4 * 4
