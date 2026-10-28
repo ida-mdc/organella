@@ -15,7 +15,6 @@ window gives the dense answer: the tests hold the two equal.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import product
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -24,7 +23,7 @@ from scipy.spatial import cKDTree
 
 from organella.analysis.distances import distance_target, distance_transform_um, polarity_from_offset
 from organella.analysis.shapes import METRICS_3D, label_metrics
-from organella.measure.source import ObjectSource
+from organella.measure.source import ObjectSource, blocks
 
 Box = Tuple[slice, ...]
 
@@ -50,8 +49,7 @@ def instance_boxes(source: ObjectSource, name: str, block: int = 256) -> Dict[in
     lo: Dict[int, list] = {}
     hi: Dict[int, list] = {}
     count: Dict[int, int] = {}
-    for corner in product(*(range(0, n, block) for n in shape)):
-        window = tuple(slice(c, min(c + block, n)) for c, n in zip(corner, shape))
+    for window, corner in blocks(shape, block):
         part = source.read(name, window)
         for label, found, voxels in _objects_in(part):
             starts = [s.start + c for s, c in zip(found, corner)]

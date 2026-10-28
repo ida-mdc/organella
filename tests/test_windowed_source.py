@@ -301,3 +301,42 @@ def test_the_instance_and_distance_rows_from_windows_are_the_dense_ones(tmp_path
     assert sorted(a) == sorted(b)
     for key in a:
         assert b[key]["distance_um"] == pytest.approx(a[key]["distance_um"], rel=1e-5), key
+
+
+@pytest.mark.parametrize("crop", [None, "1:11,2:28,1:26"])
+def test_what_a_source_knows_of_the_object_is_what_a_loaded_stack_does(tmp_path, crop):
+    """The box, the centre and the count come from the mask a block at a time, and the metadata is shared."""
+    folder = _object(tmp_path, crop)
+    cfg = RunConfig(object_mask="cell")
+    dense = load_object(folder, cfg)
+    source = ObjectSource(folder, cfg)
+
+    assert source.meta.keys() == dense.meta.keys()
+    for key, want in dense.meta.items():
+        assert source.meta[key] == pytest.approx(want), key
+    assert source.enclosed_voxels == int((dense.volumes()["cell"] > 0).sum())
+    assert source.center == pytest.approx(dense.center)
+
+
+@pytest.mark.parametrize("factor", [1, 2, 3])
+def test_a_coarse_stack_is_every_nth_voxel_of_the_object(tmp_path, factor):
+    folder = _object(tmp_path)
+    cfg = RunConfig(object_mask="cell")
+    dense = load_object(folder, cfg)
+    coarse = ObjectSource(folder, cfg).coarse_stack(factor)
+
+    assert np.array_equal(coarse.data, dense.data[:, ::factor, ::factor, ::factor])
+    assert coarse.entity_names == dense.entity_names
+    assert coarse.kinds == dense.kinds
+    assert coarse.sample_size == pytest.approx(tuple(size * factor for size in dense.sample_size))
+    assert coarse.center == pytest.approx(dense.center)          # the full-resolution centre, not one recomputed
+
+
+def test_the_coarse_factor_is_the_smallest_that_fits(tmp_path):
+    source = ObjectSource(_object(tmp_path), RunConfig(object_mask="cell"))
+    whole = int(np.prod(source.shape))
+
+    assert source.coarse_factor(whole) == 1
+    factor = source.coarse_factor(whole // 8)
+    assert int(np.prod([-(-n // factor) for n in source.shape])) <= whole // 8
+    assert int(np.prod([-(-n // (factor - 1)) for n in source.shape])) > whole // 8

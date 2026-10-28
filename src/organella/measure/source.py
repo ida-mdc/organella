@@ -24,20 +24,34 @@ a window of it is asked for, and kept.
 from __future__ import annotations
 
 import logging
+from itertools import product
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from organella.config import RunConfig
 from organella.measure.discovery import Dataset, discover_dataset, key_for_name, load_volume
-from organella.measure.loading import _channel_order, select_entities, voxel_size_of
+from organella.measure.loading import (
+    SPATIAL_AXES_3D, _channel_order, _stack_narrowest, object_meta, select_entities, voxel_size_of,
+)
 from organella.measure.readers import ArrayRef, _array, read_header, read_volume
-from organella.analysis.shapes import foreground_bounds
+from organella.analysis.shapes import foreground_bounds, foreground_centroid
+from organella.model import ObjectStack
 
 logger = logging.getLogger(__name__)
 
 Box = Tuple[slice, ...]
+
+# Edge of the cube read at once when a whole object is walked, and the most voxels a slab of a decimated read holds.
+BLOCK = 256
+_SLAB_VOXELS = 64_000_000
+
+
+def blocks(shape: Sequence[int], block: int = BLOCK) -> Iterator[Tuple[Box, Tuple[int, ...]]]:
+    """Cubes of ``block`` voxels an edge that tile ``shape``, each as (its box, its corner)."""
+    for corner in product(*(range(0, n, block) for n in shape)):
+        yield tuple(slice(c, min(c + block, n)) for c, n in zip(corner, shape)), corner
 
 
 class ObjectSource:
@@ -69,41 +83,60 @@ class ObjectSource:
         self._entities = {key: dataset.entities[key] for key in self._keys}
         self.names: List[str] = [self._entities[key].name for key in self._keys]
         self.kinds: Dict[str, str] = {self._entities[key].name: self._entities[key].kind for key in self._keys}
+        self._dtypes: Dict[str, np.dtype] = {}
         for key, entity in self._entities.items():
-            shape, _ = read_header(entity.source)
+            shape, dtype = read_header(entity.source)
             if shape != source_shape:
                 raise ValueError(f"{self.object_id}: entity '{entity.name}' has shape {shape}, "
                                  f"source image has {source_shape}")
+            self._dtypes[key] = np.dtype(dtype)
 
         self.object_mask_name = dataset.object_mask_name
-        mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
-        self._mask_key = mask_key
-        self._mask: Optional[np.ndarray] = None
-        origin = (0, 0, 0)
-        shape = tuple(source_shape)
-        if mask_key is not None:
-            whole = load_volume(self._entities[mask_key].source)
-            bounds = foreground_bounds(whole > 0)
-            if bounds is not None:
-                box = tuple(slice(lo, hi) for lo, hi in bounds)
-                origin = tuple(b.start for b in box)
-                shape = tuple(b.stop - b.start for b in box)
-                whole = whole[box]
-            self._mask = np.array(whole)
-        self.origin: Tuple[int, int, int] = origin
-        self.shape: Tuple[int, int, int] = shape
+        self._mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
         self._whole: Dict[str, np.ndarray] = {}
+        self._dataset = dataset
+        # Until the boundary has been found the object is the whole store.
+        self.origin: Tuple[int, int, int] = (0, 0, 0)
+        self.shape: Tuple[int, int, int] = tuple(source_shape)
+        # What the boundary encloses, found a block at a time: the box it fills, how many voxels it
+        # has, and where its centre of mass is. The mask itself is not kept, so an object whose mask
+        # is larger than memory costs no more to open than a small one.
+        self.enclosed_voxels: Optional[int] = None
+        self._centroid: Optional[np.ndarray] = None
+        if self._mask_key is not None:
+            self._scan_mask()
+        self.meta = object_meta(dataset, self._keys, self.object_id, self.shape, self.sample_size,
+                                self.voxel_size_source, self.center)
+
+    def _scan_mask(self) -> None:
+        """Find the box, the voxel count and the centre of the boundary, one block of it at a time."""
+        low, high, total, weighted = None, None, 0, np.zeros(3)
+        for box, _ in blocks(self.shape):
+            inside = self._read(self._mask_key, box) > 0
+            found = int(inside.sum())
+            if not found:
+                continue
+            start = np.array([b.start for b in box])
+            bounds = np.array(foreground_bounds(inside)) + start[:, None]
+            low = bounds[:, 0] if low is None else np.minimum(low, bounds[:, 0])
+            high = bounds[:, 1] if high is None else np.maximum(high, bounds[:, 1])
+            total += found
+            weighted += (foreground_centroid(inside) + start) * found
+        if total == 0:
+            return
+        self.origin = tuple(int(v) for v in low)
+        self.shape = tuple(int(h - l) for l, h in zip(low, high))
+        self.enclosed_voxels = total
+        self._centroid = weighted / total - np.array(self.origin)
 
     # ── what the object is ────────────────────────────────────────────────────
 
     @property
     def center(self) -> Optional[Tuple[float, ...]]:
         """The boundary's centroid in µm, the origin of every polarity metric; None for an object with no boundary."""
-        if self._mask is None:
+        if self._centroid is None:
             return None
-        from organella.analysis.distances import object_center_um
-
-        return object_center_um(self._mask, self.sample_size)
+        return tuple(float(c * size) for c, size in zip(self._centroid, self.sample_size))
 
     def declared_labels(self) -> List[str]:
         """The label structures a manifest declared: ``load_object`` splits one of these that holds a single id.
@@ -112,6 +145,47 @@ class ObjectSource:
         stack and a window differ, so the caller has to know which it has.
         """
         return [e.name for e in self._entities.values() if e.declared and e.kind == "label"]
+
+    # ── the whole object, coarsely ────────────────────────────────────────────
+
+    def coarse_factor(self, max_voxels: int) -> int:
+        """The smallest whole number of voxels per coarse voxel, along each axis, that leaves a structure
+        of at most ``max_voxels`` voxels; 1 when the object is that small already."""
+        factor = 1
+        while int(np.prod([-(-n // factor) for n in self.shape])) > max_voxels:
+            factor += 1
+        return factor
+
+    def coarse_stack(self, factor: int) -> ObjectStack:
+        """Every structure of the object as one stack, keeping every ``factor``-th voxel along each axis.
+
+        What the measurements that need the whole object run on when the whole object is too big to
+        hold: the stack ``load_object`` would build, at ``factor`` times the voxel size. Ids are kept
+        as stored, so a label stays the label it was; a structure thinner than ``factor`` voxels may
+        miss the voxels that were kept. With ``factor`` 1 it is the object ``load_object`` returns.
+        The boundary's centre is the one found at full resolution, not recomputed from what is kept.
+        """
+        if factor < 1:
+            raise ValueError(f"a coarse stack keeps every factor-th voxel, and {factor} is not a whole number")
+        shape = tuple(-(-n // factor) for n in self.shape)
+        kept = {key: np.zeros(shape, dtype=self._dtypes[key]) for key in self._keys}
+        # Slabs of whole multiples of factor along the first axis, so that the voxels kept are the
+        # ones a stride over the whole object would keep.
+        per_row = int(np.prod(self.shape[1:]))
+        rows = factor * max(1, _SLAB_VOXELS // (per_row * factor))
+        for start in range(0, self.shape[0], rows):
+            box = (slice(start, min(start + rows, self.shape[0])),) + tuple(slice(0, n) for n in self.shape[1:])
+            read = self.window(box)
+            for key, name in zip(self._keys, self.names):
+                piece = read[name][::factor, ::factor, ::factor]
+                kept[key][start // factor:start // factor + piece.shape[0]] = piece
+            del read
+        stack = _stack_narrowest(kept, self._keys, self.object_id)
+        center = self.center
+        meta = object_meta(self._dataset, self._keys, self.object_id, shape,
+                           tuple(float(size) * factor for size in self.sample_size),
+                           self.voxel_size_source, center)
+        return ObjectStack(stack, "C" + SPATIAL_AXES_3D, meta)
 
     # ── windows ───────────────────────────────────────────────────────────────
 
@@ -133,13 +207,13 @@ class ObjectSource:
 
     def _inside(self, box: Box) -> Optional[np.ndarray]:
         """What the boundary encloses in ``box``, or None where nothing is clipped."""
-        if self._mask is None or not self._clip:
+        if self._mask_key is None or not self._clip:
             return None
-        return self._mask[box] > 0
+        return self._read(self._mask_key, box) > 0
 
     def _read_clipped(self, key: str, box: Box, inside: Optional[np.ndarray]) -> np.ndarray:
         if key == self._mask_key:
-            return np.array(self._mask[box])                        # the boundary itself is not clipped
+            return self._read(key, box)                             # the boundary itself is not clipped
         volume = self._read(key, box)
         if inside is not None:
             volume[~inside] = 0

@@ -311,6 +311,37 @@ def find_object_dirs(root: Path) -> List[Path]:
     return sorted(d for d in root.rglob("*") if d.is_dir() and is_object_dir(d))
 
 
+def object_meta(dataset: Dataset, keys: List[str], object_id: str, shape: Tuple[int, ...],
+                voxel_size: Tuple[float, ...], voxel_size_source: str,
+                center: Tuple[float, ...] | None) -> Dict[str, Any]:
+    """What an object knows about itself, in the shape the report's object row takes.
+
+    Shared by the stack ``load_object`` builds and the windows ``ObjectSource`` reads, so both say
+    the same thing about the same object. The extent of each axis is not in here: a stack reads it
+    off its own array. ``keys`` are the entities in channel order and ``shape`` the spatial extent
+    of the object as it will be measured.
+    """
+    ndim = len(shape)
+    axes = SPATIAL_AXES_3D if ndim == 3 else SPATIAL_AXES_2D
+    meta: Dict[str, Any] = {
+        "channel_names": [dataset.entities[k].name for k in keys],
+        "entity_kinds": [dataset.entities[k].kind for k in keys],
+        "entity_files": [_entity_origin(dataset.entities[k]) for k in keys],
+        "entity_file_bytes": [_file_size(dataset.entities[k].path) for k in keys],
+        "n_entities": len(keys),
+        "object_id": object_id,
+        "object_mask_name": dataset.object_mask_name,
+        # A plane's extent is (Y, X); which axes these are is in dim_order.
+        "object_shape": [int(n) for n in shape],
+        "spatial_dims": ndim,
+        "voxel_size_source": voxel_size_source,
+    }
+    meta.update({f"pixel_size_{ax}": float(size) for ax, size in zip(axes, voxel_size)})
+    if center is not None:
+        meta.update({f"object_center_{ax.lower()}_um": value for ax, value in zip(axes, center)})
+    return meta
+
+
 def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStack:
     """Every entity volume of one object folder, as one stack.
 
@@ -374,23 +405,6 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     keys = _channel_order(dataset)
     stack = _stack_narrowest(volumes, keys, object_dir.name)
 
-    # What the object knows about itself, in the shape the report's object row takes. The
-    # extent of each axis is not in here: it is read off the array itself.
-    axes = SPATIAL_AXES_3D if ndim == 3 else SPATIAL_AXES_2D
-    meta: Dict[str, Any] = {
-        "channel_names": [dataset.entities[k].name for k in keys],
-        "entity_kinds": [dataset.entities[k].kind for k in keys],
-        "entity_files": [_entity_origin(dataset.entities[k]) for k in keys],
-        "entity_file_bytes": [_file_size(dataset.entities[k].path) for k in keys],
-        "n_entities": len(keys),
-        "object_id": object_dir.name,
-        "object_mask_name": dataset.object_mask_name,
-        # A plane's extent is (Y, X); which axes these are is in dim_order.
-        "object_shape": list(stack.shape[1:]),
-        "spatial_dims": ndim,
-        "voxel_size_source": voxel_size_source,
-    }
-    meta.update({f"pixel_size_{ax}": float(size) for ax, size in zip(axes, voxel_size)})
     # The origin for every polarity metric, computed once so a per-entity measurement can
     # still measure against it. Read off the stack, since _stack_narrowest has released the
     # source volumes. With a bounding mask it is that mask's centroid; without one, the
@@ -399,9 +413,9 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     center = (object_center_um(stack[keys.index(object_mask_key)], voxel_size)
               if object_mask_key is not None
               else segmented_center_um(stack, voxel_size))
-    if center is not None:
-        meta.update({f"object_center_{ax.lower()}_um": value
-                     for ax, value in zip(axes, center)})
+    meta = object_meta(dataset, keys, object_dir.name, stack.shape[1:], voxel_size,
+                       voxel_size_source, center)
+    axes = SPATIAL_AXES_3D if ndim == 3 else SPATIAL_AXES_2D
     logger.info(
         "organella: %s: %d entities, %s %s as %s (%.1f GB), sample size (%s) µm: %s",
         object_dir.name, len(keys), "×".join(str(s) for s in stack.shape[1:]),
