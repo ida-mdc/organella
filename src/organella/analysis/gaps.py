@@ -95,7 +95,7 @@ def _gaps_within(
             slice(max(0, axis.start - pad), min(extent, axis.stop + pad))
             for axis, pad, extent in zip(box, reach, labels.shape)
         )
-        _gaps_around(labels[window], label_id, anisotropy, threads, max_gap_um, closest)
+        gaps_around(labels[window], label_id, anisotropy, threads, max_gap_um, closest)
     return closest
 
 
@@ -105,7 +105,7 @@ def reach_voxels(max_gap_um: float, sample_size: Sequence[float]) -> List[int]:
     return [int(math.ceil(max_gap_um / float(v))) for v in sample_size]
 
 
-def _gaps_around(near: np.ndarray, label_id: int, anisotropy: Sequence[float], threads: int,
+def gaps_around(near: np.ndarray, label_id: int, anisotropy: Sequence[float], threads: int,
                  max_gap_um: float, closest: Dict[Tuple[int, int], float]) -> None:
     """Fold the gaps from one instance to its neighbours into ``closest``.
 

@@ -14,18 +14,21 @@ window gives the dense answer: the tests hold the two equal.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
-from organella.analysis.gaps import Contact, _gaps_around, reach_voxels
+from organella.analysis.gaps import Contact, gaps_around, reach_voxels
 from organella.analysis.distances import distance_target, distance_transform_um, polarity_from_offset
 from organella.analysis.shapes import METRICS_3D, label_metrics
+from organella.analysis.meshes import MeshOptions, contact_rows, instance_rows, mask_rows
+from organella.analysis.parallel import WorkPool, worker_share
 from organella.measure.source import ObjectSource, blocks
+from organella.model import ObjectStack
 
 Box = Tuple[slice, ...]
 
@@ -181,20 +184,22 @@ def instance_contacts(source: ObjectSource, boxes: Mapping[str, Mapping[int, Ins
         closest: Dict[Tuple[int, int], float] = {}
         for label, instance in instances.items():
             near = source.read(name, expanded(instance.box, reach, source.shape))
-            _gaps_around(near, label, anisotropy, threads, max_gap_um, closest)
+            gaps_around(near, label, anisotropy, threads, max_gap_um, closest)
         contacts.extend((name, low, high, gap) for (low, high), gap in closest.items())
     contacts.sort()
     return contacts
 
 
-def instance_tables(source: ObjectSource, reach_um: float, entities: Optional[Sequence[str]] = None,
+def instance_tables(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], reach_um: float,
                     polarity_spread: bool = False):
     """The instance rows and the distance rows of ``InstanceMeasurer``, built from windows, for the default settings.
 
-    Returns ``(instances, distances)``, each a dict of column lists like the dense measurer's. Not what the dense
-    measurer gives where it needs more than a window: skeletons and their tip distances, distance histograms, the
-    chance distributions and the depth of a centre are not here, and a distance beyond ``reach_um`` is ``inf``.
-    ``entities`` limits the structures whose instances are measured; every structure is still a target.
+    ``boxes`` are the instances of each label structure to measure, as ``instance_boxes`` found them; every
+    structure of the object is still a target. Returns ``(instances, distances, stats)``: the first two are dicts
+    of column lists like the dense measurer's, and ``stats`` is the full shape measurement of each instance,
+    ``{structure: {label: metrics}}``, which a surface is chosen and drawn from. Not what the dense measurer gives
+    where it needs more than a window: skeletons and their tip distances, distance histograms, the chance
+    distributions and the depth of a centre are not here, and a distance beyond ``reach_um`` is ``inf``.
     """
     from organella.measure.instances import _INSTANCE_COLUMNS, _POLARITY_COLUMNS, _UNMEASURED_SHAPE, _polar_spread_deg
 
@@ -203,24 +208,24 @@ def instance_tables(source: ObjectSource, reach_um: float, entities: Optional[Se
                          "measured from")
     center = source.center
     sample = np.array(source.sample_size)
-    names = [n for n in source.names if source.kinds[n] == "label" and (entities is None or n in entities)]
     inst: Dict[str, List[Any]] = {col: [] for col in _INSTANCE_COLUMNS}
     dist: Dict[str, List[Any]] = {c: [] for c in ("distance_entity", "distance_label", "distance_target", "distance_um")}
+    stats: Dict[str, Dict[int, Dict[str, Any]]] = {}
     unmeasured = {"branches": float("nan"), "length_um": float("nan"), "tortuosity": float("nan")}
-    for name in names:
-        boxes = instance_boxes(source, name)
+    for name, instances in boxes.items():
+        stats[name] = {}
         centroids = []
-        for label, instance in boxes.items():
-            stats = instance_shape(source, name, instance)
+        for label, instance in instances.items():
+            stats[name][label] = measured = instance_shape(source, name, instance)
             inst["instance_entity"].append(name)
             inst["instance_label"].append(label)
             for key in METRICS_3D:
-                inst[f"instance_{key}"].append(stats.get(key, float("nan")))
+                inst[f"instance_{key}"].append(measured.get(key, float("nan")))
             for key in _UNMEASURED_SHAPE[3]:
                 inst[f"instance_{key}"].append(float("nan"))
             for key, value in unmeasured.items():
                 inst[f"instance_{key}"].append(value)
-            centroid = np.array(stats["centroid_um"])
+            centroid = np.array(measured["centroid_um"])
             centroids.append(centroid)
             polar = polarity_from_offset(centroid - np.array(center))
             for key in _POLARITY_COLUMNS:
@@ -237,10 +242,53 @@ def instance_tables(source: ObjectSource, reach_um: float, entities: Optional[Se
         else:
             nearest = [float("nan")] * len(centroids)
         inst["instance_distance_to_closest_same_type_um"].extend(nearest)
-        for label, instance in boxes.items():
+        for label, instance in instances.items():
             for target, found in instance_distances(source, name, instance, reach_um).items():
                 dist["distance_entity"].append(name)
                 dist["distance_label"].append(label)
                 dist["distance_target"].append(target)
                 dist["distance_um"].append(found["distance_um"])
-    return inst, dist
+    return inst, dist, stats
+
+
+class _InstanceInWindow:
+    """One instance as the geometry code reads it, the way ``regionprops`` has it: read from its own box on demand."""
+
+    def __init__(self, source: ObjectSource, name: str, instance: InstanceBox) -> None:
+        self._source, self._name, self._box = source, name, instance.box
+        self.label = instance.label
+        self.area = instance.voxels
+        self.bbox = tuple(b.start for b in instance.box) + tuple(b.stop for b in instance.box)
+
+    @property
+    def image(self) -> np.ndarray:
+        return self._source.read(self._name, self._box) == self.label
+
+
+def mesh_rows_for_windows(source: ObjectSource, coarse: ObjectStack, boxes: Mapping[str, Mapping[int, InstanceBox]],
+                          stats: Mapping[str, Mapping[int, Mapping[str, Any]]], options: MeshOptions,
+                          metrics: Mapping[tuple, Mapping[str, Any]], contacts: Sequence[Contact]) -> List[Dict[str, Any]]:
+    """The geometry rows of an object, as ``mesh_rows_for_object`` has them, with its instances meshed from windows.
+
+    A label structure's instances are meshed at full resolution from their own boxes, and a whole-structure mask
+    from the coarse view ``coarse``: the surface of a network the size of the cell is not a window's work, and
+    at the coarse voxel size it is as much detail as it can be drawn with. Skeletons are not here.
+    """
+    pool = WorkPool(worker_share(options.mesh_workers), what="meshing")
+    rows: List[Dict[str, Any]] = []
+    try:
+        for index, name in enumerate(coarse.entity_names):
+            kind = coarse.kinds[name]
+            if kind != "label":
+                rows.extend(mask_rows(name, kind, coarse.volume(index), coarse.sample_size, source.object_id, "",
+                                      options, 3, False))
+                continue
+            props = [_InstanceInWindow(source, name, instance) for instance in boxes.get(name, {}).values()]
+            if props:
+                rows.extend(instance_rows(name, kind, props, stats[name], {}, source.sample_size, source.object_id,
+                                          "", options, metrics, 3, False, source.center, pool))
+    finally:
+        pool.shutdown()
+    if options.contact_max_um is not None:
+        rows.extend(contact_rows(contacts, source.object_id, ""))
+    return rows

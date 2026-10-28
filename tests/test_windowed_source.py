@@ -271,14 +271,14 @@ def _as_float(value):
 
 
 def test_the_instance_and_distance_rows_from_windows_are_the_dense_ones(tmp_path):
-    from organella.measure.instance_windows import instance_tables
+    from organella.measure.instance_windows import instance_boxes, instance_tables
     from organella.measure.instances import DISTANCE_ROW, INSTANCE_ROW, InstanceMeasurer
 
     dense, source = _dense_and_source(tmp_path)
     tables = InstanceMeasurer(RunConfig(object_mask="cell")).measure(dense).tables
     want_inst, want_dist = tables[INSTANCE_ROW], tables[DISTANCE_ROW]
 
-    got_inst, got_dist = instance_tables(source, reach_um=100.0)
+    got_inst, got_dist, _ = instance_tables(source, {"mito": instance_boxes(source, "mito")}, reach_um=100.0)
 
     def keyed(table, keys):
         columns = list(table)
