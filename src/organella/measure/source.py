@@ -24,6 +24,8 @@ a window of it is asked for, and kept.
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from itertools import product
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
@@ -46,6 +48,9 @@ Box = Tuple[slice, ...]
 # Edge of the cube read at once when a whole object is walked, and the most voxels a slab of a decimated read holds.
 BLOCK = 256
 _SLAB_VOXELS = 64_000_000
+# How many reads of a store go at once. Each waits on the network or on a decompression that lets go of the
+# interpreter, so threads are enough.
+READ_THREADS = 8
 
 
 def blocks(shape: Sequence[int], block: int = BLOCK) -> Iterator[Tuple[Box, Tuple[int, ...]]]:
@@ -96,6 +101,7 @@ class ObjectSource:
         self.object_mask_name = dataset.object_mask_name
         self._mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
         self._whole: Dict[str, np.ndarray] = {}
+        self._whole_lock = threading.Lock()
         self._dataset = dataset
         # Until the boundary has been found the object is the whole store.
         self.origin: Tuple[int, int, int] = (0, 0, 0)
@@ -201,8 +207,17 @@ class ObjectSource:
         """
         box = self._clipped(box)
         inside = self._inside(box)
-        return {name: self._read_clipped(key, box, inside)
-                for key, name in zip(self._keys, self.names)}
+        with ThreadPoolExecutor(min(READ_THREADS, len(self._keys))) as pool:
+            read = list(pool.map(lambda key: self._read_clipped(key, box, inside), self._keys))
+        return dict(zip(self.names, read))
+
+    def read_boxes(self, name: str, boxes: Sequence[Box]) -> Iterator[np.ndarray]:
+        """One structure in each of ``boxes``, in order, with a few of them being read ahead of the one in use."""
+        key = self._keys[self.names.index(name)]
+        with ThreadPoolExecutor(READ_THREADS) as pool:
+            for start in range(0, len(boxes), READ_THREADS):
+                group = [self._clipped(box) for box in boxes[start:start + READ_THREADS]]
+                yield from pool.map(lambda box: self._read_clipped(key, box, self._inside(box)), group)
 
     def read(self, name: str, box: Sequence[slice] | None = None) -> np.ndarray:
         """One structure in ``box``, as ``window(box)[name]`` would be, without reading the others."""
@@ -242,8 +257,9 @@ class ObjectSource:
         if isinstance(source, ArrayRef):
             # The array itself, not read_volume: that turns a window one slice deep into a plane.
             return np.array(_array(source)[self._in_the_store(source, box)])
-        if key not in self._whole:
-            self._whole[key] = read_volume(source)
+        with self._whole_lock:                       # one thread reads the file, the others wait for it
+            if key not in self._whole:
+                self._whole[key] = read_volume(source)
         return np.array(self._whole[key][tuple(slice(o + b.start, o + b.stop) for o, b in zip(self.origin, box))])
 
     def _in_the_store(self, ref: ArrayRef, box: Box) -> Box:

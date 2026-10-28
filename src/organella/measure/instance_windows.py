@@ -16,6 +16,7 @@ window gives the dense answer: the tests hold the two equal.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
@@ -31,6 +32,8 @@ from organella.analysis.meshes import MeshOptions, contact_rows, instance_rows, 
 from organella.analysis.parallel import WorkPool, worker_share
 from organella.measure.source import ObjectSource, blocks
 from organella.model import ObjectStack
+
+logger = logging.getLogger(__name__)
 
 Box = Tuple[slice, ...]
 
@@ -52,12 +55,11 @@ def instance_boxes(source: ObjectSource, name: str, block: int = 256) -> Dict[in
 
     ``block`` is the edge of the cube read at once. An instance that crosses blocks is the union of its parts.
     """
-    shape = source.shape
     lo: Dict[int, list] = {}
     hi: Dict[int, list] = {}
     count: Dict[int, int] = {}
-    for window, corner in blocks(shape, block):
-        part = source.read(name, window)
+    cubes = list(blocks(source.shape, block))
+    for (window, corner), part in zip(cubes, source.read_boxes(name, [box for box, _ in cubes])):
         for label, found, voxels in _objects_in(part):
             starts = [s.start + c for s, c in zip(found, corner)]
             stops = [s.stop + c for s, c in zip(found, corner)]
@@ -240,6 +242,9 @@ class Measured:
     contacts: List[Contact]
 
 
+# How many tiles are measured between two lines in the log.
+_PROGRESS = 32
+
 # The object a worker measures in. A process of the pool opens it once as it starts (the task then carries only the
 # instances), and the process that measures in itself sets it directly.
 _SOURCE: ObjectSource | None = None
@@ -290,8 +295,12 @@ def measure_instances(source: ObjectSource, boxes: Mapping[str, Mapping[int, Ins
     _use_source(source)
     pool = WorkPool(workers, total=len(tasks), what="measuring instances",
                     initializer=_open_source, initargs=(source.folder, source.config))
+    results = []
     try:
-        results = pool.map(_measure_tile, tasks)
+        for start in range(0, len(tasks), _PROGRESS):
+            results.extend(pool.map(_measure_tile, tasks[start:start + _PROGRESS], total=len(tasks)))
+            logger.info("organella: %s: %d of %d regions measured", source.object_id,
+                        min(start + _PROGRESS, len(tasks)), len(tasks))
     finally:
         pool.shutdown()
 

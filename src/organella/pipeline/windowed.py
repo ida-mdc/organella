@@ -55,13 +55,19 @@ def measure_windowed(folder, group: str, excluded: Sequence[str], cfg: RunConfig
     _refuse_what_cannot_be_windowed(source, cfg)
     skip = set(excluded or ())
 
-    boxes: Boxes = {name: instance_boxes(source, name) for name in source.names if source.kinds[name] == "label"}
+    boxes: Boxes = {}
+    for name in source.names:
+        if source.kinds[name] == "label":
+            boxes[name] = instance_boxes(source, name)
+            logger.info("organella: %s: %d instances of %s", source.object_id, len(boxes[name]), name)
     _refuse_binary_labels(source, boxes)
     factor = source.coarse_factor(cfg.coarse_voxels)
     logger.info("organella: %s: %d instances measured a window at a time; the whole-object measurements run on "
                 "%s", source.object_id, sum(map(len, boxes.values())),
                 f"every {factor}th voxel" if factor > 1 else "the object at full resolution")
     coarse = source.coarse_stack(factor)
+    logger.info("organella: %s: coarse view of %s voxels, %.1f GB", source.object_id,
+                "×".join(map(str, coarse.data.shape[1:])), coarse.data.nbytes / 1024**3)
 
     about = what_the_object_is(folder, source.meta, coarse.dim_order, (len(source.names), *source.shape))
     morphology = MorphologyMeasurer()
