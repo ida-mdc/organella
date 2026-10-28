@@ -468,138 +468,159 @@ def _rows(volumes, kinds, sample_size, object_id, group_id, options, metrics,
     for name, volume in volumes.items():
         kind = kinds[name]
         if kind != "label":
-            binary = volume > 0
-            if not binary.any():
-                continue
-            # Not `metrics`: that parameter holds the per-instance values to carry, and
-            # rebinding it here left every label row without them.
-            shape = region_metrics_for(object_id, name, volume, sample_size)
-            extent = _bbox_extent(binary)
-            roundness = shape.get("sphericity", shape.get("circularity", float("nan")))
-            rows.append({
-                **shape,
-                "object_id": object_id, "group_id": group_id, "entity_name": name,
-                "entity_kind": kind, "row_type": "file", "label_id": None,
-                "spatial_dims": ndim,
-                "surface_kind": "mesh",
-                "surface": b"" if planar else generate_mesh(
-                    binary, (0, 0, 0), sample_size,
-                    step_size=options.step_size,
-                    smooth_sigma=instance_sigma(
-                        options.smooth_sigma, roundness,
-                        float(binary.sum() / extent) if extent else float("nan")),
-                    target_reduction=options.target_reduction, level=options.level,
-                    max_vertices=options.max_vertices,
-                ),
-                "outline": generate_outline(binary, (0, 0), sample_size) if planar else b"",
-                "skeleton": b"",
-            })
+            rows.extend(mask_rows(name, kind, volume, sample_size, object_id, group_id, options, ndim, planar))
             continue
-
         # The view itself, not a contiguous copy of it: label_metrics makes whatever
         # ITK needs, and passing the same array the instance measurer passed is what
         # lets the per-object cache recognise the two calls as the same work.
-        labels = volume
-        props = regions_for(object_id, name, labels)
+        props = regions_for(object_id, name, volume)
         if not props:
             continue
-        measured = label_metrics_for(object_id, name, labels, sample_size)
-        shape_keys = METRICS_2D if ndim == 2 else METRICS_3D
         skeletons = (
-            skeletons_for(object_id, name, labels, sample_size,
+            skeletons_for(object_id, name, volume, sample_size,
                           options.max_skeleton_voxels, options.skeleton_params)
             if wants_skeletons(name, options.geometry_as, options.skeletons)
             else {}
         )
-        # What this structure's instances are stored as: forced for the whole entity, or
-        # decided per instance from its own measured shape.
-        told = forced_surface(name, options.geometry_as)
-        to_mesh = meshed = 0
-        # In batches, so the pool always has work but the cropped masks in flight never add
-        # up to another copy of the object.
-        for batch in batched(props, _GEOMETRY_BATCH):
-            pending: List[Dict[str, Any]] = []
-            tasks: List[Tuple[Any, ...]] = []
-            oversized: List[bool] = []
-            # Row index in `pending` per task: a parametric surface needs no task at all,
-            # which is most of them and most of the run's meshing.
-            task_rows: List[int] = []
-            for rp in batch:
-                stats = measured.get(int(rp.label), {})
-                shape_metrics = {key: stats.get(key, float("nan")) for key in shape_keys}
-                origin = tuple(int(v) for v in rp.bbox[:ndim])
-                bbox_extent = float(np.prod([hi - lo for lo, hi
-                                             in zip(rp.bbox[:ndim], rp.bbox[ndim:])]))
-                fill_ratio = rp.area / bbox_extent if bbox_extent > 0 else float("nan")
-                roundness = shape_metrics.get("sphericity",
-                                              shape_metrics.get("circularity", float("nan")))
-                carried = (metrics or {}).get((name, int(rp.label))) or {}
-                skeleton = skeletons.get(int(rp.label))
-                skeleton_shape = _skeleton_metrics(skeleton)
-                # A plane's surface is its outline, and neither primitive is a 2D shape, so
-                # the selector only runs on volumes.
-                surface_kind = "mesh" if planar else (told or choose_surface(
-                    roundness, shape_metrics.get("aspect_ratio_major_minor"),
-                    skeleton_shape.get("branches"), has_skeleton=skeleton is not None,
-                ))
-                surface = surface_of(surface_kind, stats, skeleton)
-                # An ellipsoid needs finite moments and a tube a centre line; an instance
-                # with neither is still a shape somebody wants to see.
-                if surface_kind != "mesh" and not surface:
-                    surface_kind = "mesh"
-                pending.append({
-                    **_polarity(stats.get("centroid_um"), centre),
-                    **skeleton_shape,
-                    **{k: v for k, v in carried.items() if k in CARRIED_METRICS},
-                    **shape_metrics,
-                    "object_id": object_id, "group_id": group_id, "entity_name": name,
-                    "entity_kind": kind, "row_type": "instance", "label_id": int(rp.label),
-                    "spatial_dims": ndim,
-                    "surface_kind": surface_kind,
-                    "surface": surface,
-                    "outline": b"",
-                    "skeleton": skeleton_payload(skeleton),
-                })
-                if surface_kind != "mesh":
-                    continue
-                image = rp.image.astype(bool)
-                task_rows.append(len(pending) - 1)
-                tasks.append((
-                    image, origin, tuple(sample_size), planar,
-                    options.step_size,
-                    instance_sigma(options.smooth_sigma, roundness, fill_ratio),
-                    options.target_reduction, options.level, options.max_vertices,
-                ))
-                oversized.append(image.size > _INLINE_INSTANCE_SAMPLES)
-
-            # The big ones here, the rest in the pool, and the results put back in order.
-            geometry: List[Optional[Tuple[bytes, bytes]]] = [None] * len(tasks)
-            farmed = [i for i, big in enumerate(oversized) if not big]
-            for i, big in enumerate(oversized):
-                if big:
-                    geometry[i] = _instance_geometry(tasks[i])
-            for i, done in zip(farmed, pool.map(_instance_geometry,
-                                                [tasks[i] for i in farmed],
-                                                total=len(props))):
-                geometry[i] = done
-            for task_index, payloads in enumerate(geometry):
-                row = pending[task_rows[task_index]]
-                row["surface"], row["outline"] = payloads
-            to_mesh += len(geometry)
-            meshed += sum(1 for payloads in geometry if payloads[0] or payloads[1])
-            rows.extend(pending)
-        # A few instances failing to mesh is ordinary (too small to enclose a surface), but a structure
-        # with no surface at all usually means its file was not read as the labels it was meant to be.
-        if to_mesh and not meshed:
-            logger.warning(
-                "organella: %s: none of the %d instances of %s got a surface, so the 3D view will show nothing "
-                "for it. Check that the file holds one label per object (a label that is several separate pieces "
-                "is one instance, and a very thin one cannot be meshed); the reason for each is logged at "
-                "debug level.", object_id, to_mesh, name)
+        rows.extend(instance_rows(
+            name, kind, props, label_metrics_for(object_id, name, volume, sample_size), skeletons,
+            sample_size, object_id, group_id, options, metrics, ndim, planar, centre, pool))
 
     if options.contact_max_um is not None:
-        rows.extend(_contact_rows(volumes, kinds, sample_size, object_id, group_id,
-                                  options.contact_max_um))
+        rows.extend(contact_rows(
+            contacts_for(object_id, volumes, kinds, sample_size, options.contact_max_um),
+            object_id, group_id))
+    return rows
+
+
+def mask_rows(name: str, kind: str, volume: np.ndarray, sample_size: Sequence[float], object_id: str,
+               group_id: str, options: MeshOptions, ndim: int, planar: bool) -> List[Dict[str, Any]]:
+    """The row of one whole-structure mask: its measurements and its surface, or nothing if it is empty."""
+    binary = volume > 0
+    if not binary.any():
+        return []
+    # Not `metrics`: that parameter holds the per-instance values to carry, and
+    # rebinding it here left every label row without them.
+    shape = region_metrics_for(object_id, name, volume, sample_size)
+    extent = _bbox_extent(binary)
+    roundness = shape.get("sphericity", shape.get("circularity", float("nan")))
+    return [{
+        **shape,
+        "object_id": object_id, "group_id": group_id, "entity_name": name,
+        "entity_kind": kind, "row_type": "file", "label_id": None,
+        "spatial_dims": ndim,
+        "surface_kind": "mesh",
+        "surface": b"" if planar else generate_mesh(
+            binary, (0, 0, 0), sample_size,
+            step_size=options.step_size,
+            smooth_sigma=instance_sigma(
+                options.smooth_sigma, roundness,
+                float(binary.sum() / extent) if extent else float("nan")),
+            target_reduction=options.target_reduction, level=options.level,
+            max_vertices=options.max_vertices,
+        ),
+        "outline": generate_outline(binary, (0, 0), sample_size) if planar else b"",
+        "skeleton": b"",
+    }]
+
+
+def instance_rows(name: str, kind: str, props: Sequence[Any], measured: Mapping[int, Mapping[str, Any]],
+                   skeletons: Mapping[int, Any], sample_size: Sequence[float], object_id: str, group_id: str,
+                   options: MeshOptions, metrics: Optional[Mapping[tuple, Mapping[str, Any]]], ndim: int,
+                   planar: bool, centre: Optional[Sequence[float]], pool: WorkPool) -> List[Dict[str, Any]]:
+    """The rows of one label structure's instances, with the surface each is drawn as.
+
+    ``props`` are the instances, each with a ``label``, a ``bbox`` (lows, then highs, in voxels), an ``area``
+    in voxels and its ``image`` (the mask of the instance inside its box): regionprops of a labelled volume
+    have these, and so do the instances read from windows. ``measured`` is each one's shape metrics.
+    """
+    rows: List[Dict[str, Any]] = []
+    shape_keys = METRICS_2D if ndim == 2 else METRICS_3D
+    # What this structure's instances are stored as: forced for the whole entity, or
+    # decided per instance from its own measured shape.
+    told = forced_surface(name, options.geometry_as)
+    to_mesh = meshed = 0
+    # In batches, so the pool always has work but the cropped masks in flight never add
+    # up to another copy of the object.
+    for batch in batched(props, _GEOMETRY_BATCH):
+        pending: List[Dict[str, Any]] = []
+        tasks: List[Tuple[Any, ...]] = []
+        oversized: List[bool] = []
+        # Row index in `pending` per task: a parametric surface needs no task at all,
+        # which is most of them and most of the run's meshing.
+        task_rows: List[int] = []
+        for rp in batch:
+            stats = measured.get(int(rp.label), {})
+            shape_metrics = {key: stats.get(key, float("nan")) for key in shape_keys}
+            origin = tuple(int(v) for v in rp.bbox[:ndim])
+            bbox_extent = float(np.prod([hi - lo for lo, hi
+                                         in zip(rp.bbox[:ndim], rp.bbox[ndim:])]))
+            fill_ratio = rp.area / bbox_extent if bbox_extent > 0 else float("nan")
+            roundness = shape_metrics.get("sphericity",
+                                          shape_metrics.get("circularity", float("nan")))
+            carried = (metrics or {}).get((name, int(rp.label))) or {}
+            skeleton = skeletons.get(int(rp.label))
+            skeleton_shape = _skeleton_metrics(skeleton)
+            # A plane's surface is its outline, and neither primitive is a 2D shape, so
+            # the selector only runs on volumes.
+            surface_kind = "mesh" if planar else (told or choose_surface(
+                roundness, shape_metrics.get("aspect_ratio_major_minor"),
+                skeleton_shape.get("branches"), has_skeleton=skeleton is not None,
+            ))
+            surface = surface_of(surface_kind, stats, skeleton)
+            # An ellipsoid needs finite moments and a tube a centre line; an instance
+            # with neither is still a shape somebody wants to see.
+            if surface_kind != "mesh" and not surface:
+                surface_kind = "mesh"
+            pending.append({
+                **_polarity(stats.get("centroid_um"), centre),
+                **skeleton_shape,
+                **{k: v for k, v in carried.items() if k in CARRIED_METRICS},
+                **shape_metrics,
+                "object_id": object_id, "group_id": group_id, "entity_name": name,
+                "entity_kind": kind, "row_type": "instance", "label_id": int(rp.label),
+                "spatial_dims": ndim,
+                "surface_kind": surface_kind,
+                "surface": surface,
+                "outline": b"",
+                "skeleton": skeleton_payload(skeleton),
+            })
+            if surface_kind != "mesh":
+                continue
+            image = rp.image.astype(bool)
+            task_rows.append(len(pending) - 1)
+            tasks.append((
+                image, origin, tuple(sample_size), planar,
+                options.step_size,
+                instance_sigma(options.smooth_sigma, roundness, fill_ratio),
+                options.target_reduction, options.level, options.max_vertices,
+            ))
+            oversized.append(image.size > _INLINE_INSTANCE_SAMPLES)
+
+        # The big ones here, the rest in the pool, and the results put back in order.
+        geometry: List[Optional[Tuple[bytes, bytes]]] = [None] * len(tasks)
+        farmed = [i for i, big in enumerate(oversized) if not big]
+        for i, big in enumerate(oversized):
+            if big:
+                geometry[i] = _instance_geometry(tasks[i])
+        for i, done in zip(farmed, pool.map(_instance_geometry,
+                                            [tasks[i] for i in farmed],
+                                            total=len(props))):
+            geometry[i] = done
+        for task_index, payloads in enumerate(geometry):
+            row = pending[task_rows[task_index]]
+            row["surface"], row["outline"] = payloads
+        to_mesh += len(geometry)
+        meshed += sum(1 for payloads in geometry if payloads[0] or payloads[1])
+        rows.extend(pending)
+    # A few instances failing to mesh is ordinary (too small to enclose a surface), but a structure
+    # with no surface at all usually means its file was not read as the labels it was meant to be.
+    if to_mesh and not meshed:
+        logger.warning(
+            "organella: %s: none of the %d instances of %s got a surface, so the 3D view will show nothing "
+            "for it. Check that the file holds one label per object (a label that is several separate pieces "
+            "is one instance, and a very thin one cannot be meshed); the reason for each is logged at "
+            "debug level.", object_id, to_mesh, name)
     return rows
 
 
@@ -618,20 +639,13 @@ def _skeleton_metrics(skeleton) -> Dict[str, Any]:
     return skeleton_graph_metrics(skeleton)
 
 
-def _contact_rows(
-    volumes: Mapping[str, np.ndarray],
-    kinds: Mapping[str, str],
-    sample_size: Sequence[float],
-    object_id: str,
-    group_id: str,
-    max_gap_um: float,
-) -> List[Dict[str, Any]]:
+def contact_rows(contacts: Sequence[Tuple[str, int, int, float]], object_id: str,
+                  group_id: str) -> List[Dict[str, Any]]:
     """The touching pairs, in the row shape the 3D viewer splits out on load.
 
     Both sides of a pair are instances of one structure, so ``entity_b`` repeats
     ``entity_a``; both columns stay, so every contact row has the same shape.
     """
-    contacts = contacts_for(object_id, volumes, kinds, sample_size, max_gap_um)
     return [
         {
             "object_id": object_id, "group_id": group_id, "row_type": "contact",
