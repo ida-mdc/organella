@@ -340,3 +340,18 @@ def test_the_coarse_factor_is_the_smallest_that_fits(tmp_path):
     factor = source.coarse_factor(whole // 8)
     assert int(np.prod([-(-n // factor) for n in source.shape])) <= whole // 8
     assert int(np.prod([-(-n // (factor - 1)) for n in source.shape])) > whole // 8
+
+
+@pytest.mark.parametrize("gap", [0.02, 0.1, 5.0])
+def test_the_contacts_found_from_windows_are_the_dense_ones(tmp_path, gap):
+    from organella.analysis.gaps import pairwise_instance_gaps
+    from organella.measure.instance_windows import instance_boxes, instance_contacts
+
+    dense, source = _dense_and_source(tmp_path)
+    boxes = {"mito": instance_boxes(source, "mito")}
+    want = pairwise_instance_gaps(dense.volumes(), dense.kinds, dense.sample_size, gap)
+    got = instance_contacts(source, boxes, gap)
+
+    assert got == want
+    if gap == 5.0:
+        assert want, "the fixture has no pair this close, so the test would pass on nothing"

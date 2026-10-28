@@ -15,12 +15,14 @@ window gives the dense answer: the tests hold the two equal.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import os
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
+from organella.analysis.gaps import Contact, _gaps_around, reach_voxels
 from organella.analysis.distances import distance_target, distance_transform_um, polarity_from_offset
 from organella.analysis.shapes import METRICS_3D, label_metrics
 from organella.measure.source import ObjectSource, blocks
@@ -161,6 +163,28 @@ def instance_distances(source: ObjectSource, name: str, instance: InstanceBox, r
             found[f"contact_um2_{threshold:g}"] = contact_area_um2(own, distance, source.sample_size, threshold)
         out[target] = found
     return out
+
+
+def instance_contacts(source: ObjectSource, boxes: Mapping[str, Mapping[int, InstanceBox]], max_gap_um: float,
+                      num_threads: int = 0) -> List[Contact]:
+    """Which instances of a structure are within ``max_gap_um`` of each other, and by how much, from windows.
+
+    ``boxes`` are the instances of each label structure, as ``instance_boxes`` found them. Each instance
+    is read with the reach of the gap around it and measured against what the window holds of the others,
+    which is what ``pairwise_instance_gaps`` does within the whole structure. Returned sorted, as it does.
+    """
+    anisotropy = tuple(float(v) for v in source.sample_size)
+    threads = num_threads if num_threads and num_threads > 0 else (os.cpu_count() or 1)
+    reach = reach_voxels(max_gap_um, anisotropy)
+    contacts: List[Contact] = []
+    for name, instances in boxes.items():
+        closest: Dict[Tuple[int, int], float] = {}
+        for label, instance in instances.items():
+            near = source.read(name, expanded(instance.box, reach, source.shape))
+            _gaps_around(near, label, anisotropy, threads, max_gap_um, closest)
+        contacts.extend((name, low, high, gap) for (low, high), gap in closest.items())
+    contacts.sort()
+    return contacts
 
 
 def instance_tables(source: ObjectSource, reach_um: float, entities: Optional[Sequence[str]] = None,

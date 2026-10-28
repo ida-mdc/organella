@@ -81,7 +81,7 @@ def _gaps_within(
     anisotropy = tuple(float(v) for v in sample_size)
     threads = num_threads if num_threads and num_threads > 0 else (os.cpu_count() or 1)
     # Bounding-box padding per axis, so everything within max_gap is inside the window.
-    reach = [int(math.ceil(max_gap_um / v)) for v in anisotropy]
+    reach = reach_voxels(max_gap_um, anisotropy)
     # Not cast to int32 first: find_objects takes any integer type, and the cast was a full
     # second copy of the largest array this measurer holds - and contacts are where a run
     # peaks, which is what sizes the object pool.
@@ -95,20 +95,35 @@ def _gaps_within(
             slice(max(0, axis.start - pad), min(extent, axis.stop + pad))
             for axis, pad, extent in zip(box, reach, labels.shape)
         )
-        near = labels[window]
-        others = (near > 0) & (near != label_id)
-        if not others.any():
-            continue
-        # Distance from every sample to this instance, whose own voxels read zero.
-        to_this_one = edt.edt(np.ascontiguousarray((near != label_id).astype(np.uint8)),
-                              anisotropy=anisotropy, parallel=threads)
-        for other_id, gap in _nearest_per_instance(near[others], to_this_one[others]):
-            if gap > max_gap_um:
-                continue
-            pair = (label_id, other_id) if label_id < other_id else (other_id, label_id)
-            if pair not in closest or gap < closest[pair]:
-                closest[pair] = float(gap)
+        _gaps_around(labels[window], label_id, anisotropy, threads, max_gap_um, closest)
     return closest
+
+
+def reach_voxels(max_gap_um: float, sample_size: Sequence[float]) -> List[int]:
+    """How many voxels along each axis make ``max_gap_um``, rounded up: the padding of a window that sees every
+    instance close enough to be in contact with the one inside it."""
+    return [int(math.ceil(max_gap_um / float(v))) for v in sample_size]
+
+
+def _gaps_around(near: np.ndarray, label_id: int, anisotropy: Sequence[float], threads: int,
+                 max_gap_um: float, closest: Dict[Tuple[int, int], float]) -> None:
+    """Fold the gaps from one instance to its neighbours into ``closest``.
+
+    ``near`` is a window around the instance ``label_id`` that reaches ``max_gap_um`` past it on every
+    side; what it holds of any other instance is what that instance can be in contact with it by.
+    """
+    others = (near > 0) & (near != label_id)
+    if not others.any():
+        return
+    # Distance from every sample to this instance, whose own voxels read zero.
+    to_this_one = edt.edt(np.ascontiguousarray((near != label_id).astype(np.uint8)),
+                          anisotropy=anisotropy, parallel=threads)
+    for other_id, gap in _nearest_per_instance(near[others], to_this_one[others]):
+        if gap > max_gap_um:
+            continue
+        pair = (label_id, other_id) if label_id < other_id else (other_id, label_id)
+        if pair not in closest or gap < closest[pair]:
+            closest[pair] = float(gap)
 
 
 def _nearest_per_instance(ids: np.ndarray, distances: np.ndarray):
