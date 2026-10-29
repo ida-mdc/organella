@@ -80,3 +80,34 @@ def test_a_palette_can_be_tried_on_a_report_that_exists_and_names_it_does_not_ha
     entities = rows.filter(pl.col("row_type") == "entity")
     assert dict(zip(entities["entity_name"], entities["entity_colour"])) == {"cell": None, "mito": "#445566", "wall": "#112233"}
     assert json.loads(footer["organella_column_descriptions"])["entity_colour"]          # still self-describing
+
+
+def _report_of(parent, out):
+    from organella.app.process import process
+    assert process(FolderSource(parent, object_mask="cell"), DEFAULT, ParquetSink(out), Settings(reach_um=0.4)) == {}
+    return out
+
+
+def test_reports_of_separate_runs_merge_into_the_report_one_run_over_all_of_them_would_write(object_folder, tmp_path):
+    import shutil
+    from organella.report.file import merge_reports, read_report
+    first, second, together = tmp_path / "one", tmp_path / "two", tmp_path / "both"
+    for parent, name in ((first, "cell_a"), (second, "cell_b"), (together, "cell_a"), (together, "cell_b")):
+        shutil.copytree(object_folder, parent / name)
+    parts = [_report_of(first, tmp_path / "a.parquet"), _report_of(second, tmp_path / "b.parquet")]
+    whole, _ = read_report(_report_of(together, tmp_path / "whole.parquet"))
+    merged_path = tmp_path / "merged.parquet"
+    assert merge_reports(parts, merged_path) == 2
+    merged, footer = read_report(merged_path)
+    assert merged.equals(whole)
+    stats = json.loads(footer["organella_processing_stats"])
+    assert footer["organella_project_name"] == "merged" and stats["n_objects"] == 2 and set(stats["seconds_per_object"]) == {"cell_a", "cell_b"}
+    assert json.loads(footer["organella_column_descriptions"])["object_volume_um3"]
+
+
+def test_an_object_in_two_reports_is_refused_and_so_is_nothing_to_merge(written, tmp_path):
+    from organella.report.file import merge_reports
+    with pytest.raises(ValueError, match="cell_a is in both"):
+        merge_reports([written, written], tmp_path / "x.parquet")
+    with pytest.raises(ValueError, match="no reports"):
+        merge_reports([], tmp_path / "y.parquet")

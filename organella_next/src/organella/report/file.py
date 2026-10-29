@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
 import polars as pl
 import pyarrow as pa
@@ -14,6 +16,7 @@ FOOTER = "organella_"
 DESCRIPTIONS_KEY = FOOTER + "column_descriptions"
 DESCRIPTION_KEY = FOOTER + "description"
 NOUN_KEY = FOOTER + "object_noun"
+STATS_KEY = FOOTER + "processing_stats"
 
 
 def read_report(path: Path) -> tuple[pl.DataFrame, dict[str, str]]:
@@ -53,3 +56,30 @@ def recolour(path: Path, colours: dict[str, str]) -> int:
     coloured = rows.with_columns(entity_colour=pl.col("entity_name").replace_strict(colours, default=None))
     write_report(coloured, path, footer)
     return int(coloured.filter(pl.col("row_type") == "entity")["entity_colour"].is_not_null().sum())
+
+
+def merge_reports(sources: Sequence[Path], output: Path) -> int:
+    """One report from several, for objects measured in separate runs; returns how many objects it holds. The footer is
+    the first report's, with the run statistics added up: the runs went side by side, so the longest one is the wall time."""
+    if not sources:
+        raise ValueError("no reports to merge")
+    parts = [read_report(path) for path in sources]
+    seen: dict[str, Path] = {}
+    for path, (rows, _) in zip(sources, parts):
+        for object_id in rows["object_id"].unique().to_list():
+            if object_id in seen:
+                raise ValueError(f"object {object_id} is in both {seen[object_id]} and {path}")
+            seen[object_id] = path
+    rows = pl.concat([r for r, _ in parts], how="diagonal_relaxed").sort("object_id", "obs_level", maintain_order=True)
+    rows = rows.with_columns(pl.col(c).cast(pl.String) for c, t in rows.schema.items() if t == pl.Null)
+    footers = [f for _, f in parts]
+    write_report(rows, output, {**footers[0], FOOTER + "project_name": output.stem, STATS_KEY: json.dumps(_combined(footers)),
+                                FOOTER + "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    return len(seen)
+
+
+def _combined(footers: list[dict[str, str]]) -> dict:
+    stats = [json.loads(f.get(STATS_KEY, "{}")) for f in footers]
+    return {"wall_s": max((s.get("wall_s", 0.0) for s in stats), default=0.0),
+            "n_objects": sum(s.get("n_objects", 0) for s in stats), "n_failed": sum(s.get("n_failed", 0) for s in stats),
+            "seconds_per_object": {k: v for s in stats for k, v in s.get("seconds_per_object", {}).items()}}

@@ -39,6 +39,16 @@ def colours_command(report: Path, palette: Path) -> None:
     click.echo(f"{recolour(report, colours_from_file(palette))} structure(s) coloured in {report}")
 
 
+@main.command("merge")
+@click.argument("reports", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("-o", "--output", required=True, type=click.Path(dir_okay=False, path_type=Path), help="Where the merged report goes.")
+def merge_command(reports: tuple[Path, ...], output: Path) -> None:
+    """Join reports of different objects, measured in separate runs, into one. An object may be in only one of them."""
+    from organella.report.file import merge_reports
+
+    click.echo(f"{merge_reports(reports, output)} object(s) from {len(reports)} report(s) written to {output}")
+
+
 @main.command("describe")
 @click.argument("report", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument("text")
