@@ -28,6 +28,8 @@ log = logging.getLogger(__name__)
 # tell a sphere from a smooth short rod, which an ellipsoid of the same moments draws too fat in the middle.
 ELLIPSOID_MIN_SPHERICITY = 0.75
 ELLIPSOID_MAX_ASPECT = 3.0
+# Only small instances: its coarse sphere and its mismatch with the real outline show on a big one, a nucleus above all.
+ELLIPSOID_MAX_VOLUME_UM3 = 0.5
 # A blob's skeleton is one branch the length of its own diameter, which a tube would draw as a stubby cylinder.
 TUBE_MIN_ASPECT = 3.0
 # Below this an aspect ratio is a collapsed measurement, not a flat shape.
@@ -41,7 +43,8 @@ _DECIMATION_LOCK = threading.Lock()
 SURFACE_KINDS = ("mesh", "ellipsoid", "tube")
 
 
-def choose_surface(sphericity: float | None, aspect: float | None, branches: float | None, has_skeleton: bool) -> str:
+def choose_surface(sphericity: float | None, aspect: float | None, branches: float | None, has_skeleton: bool,
+                   volume_um3: float | None) -> str:
     """Which kind of surface to store for one instance. A missing metric falls through to a mesh, which draws the
     voxels it has where a primitive chosen on a NaN would be wrong about the shape."""
     def known(value) -> bool:
@@ -51,7 +54,8 @@ def choose_surface(sphericity: float | None, aspect: float | None, branches: flo
         aspect = None
     if has_skeleton and known(aspect) and aspect >= TUBE_MIN_ASPECT and known(branches) and branches >= 1:
         return "tube"
-    if known(sphericity) and sphericity >= ELLIPSOID_MIN_SPHERICITY and known(aspect) and aspect <= ELLIPSOID_MAX_ASPECT:
+    if (known(sphericity) and sphericity >= ELLIPSOID_MIN_SPHERICITY and known(aspect) and aspect <= ELLIPSOID_MAX_ASPECT
+            and known(volume_um3) and volume_um3 <= ELLIPSOID_MAX_VOLUME_UM3):
         return "ellipsoid"
     return "mesh"
 

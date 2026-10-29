@@ -70,7 +70,8 @@ def instance_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, rep
         skeleton = traced[r] if traced is not None else None
         has_skeleton = skeleton is not None and skeleton.vertices is not None and len(skeleton.vertices) > 0
         kind = "mesh" if planar else (forced or choose_surface(roundness, found.get("aspect_ratio_major_minor"),
-                                                                 skeleton.branches if skeleton is not None else None, has_skeleton))
+                                                                 skeleton.branches if skeleton is not None else None, has_skeleton,
+                                                                 found.get("volume_um3")))
         surface = b""
         if kind == "ellipsoid":
             covariance = np.array([[stats[f"v{min(i, j)}{max(i, j)}"][r] for j in range(ndim)] for i in range(ndim)])

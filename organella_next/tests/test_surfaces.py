@@ -39,14 +39,15 @@ def test_a_speck_gets_no_mesh_and_a_square_gets_one_closed_outline():
     assert np.allclose(vertices[:, 2], 0, atol=1e-3) and vertices[:, 0].min() == pytest.approx(0.45, abs=0.06)
 
 
-@pytest.mark.parametrize("sphericity,aspect,branches,skeleton,expected", [
-    (0.9, 1.2, 1, True, "ellipsoid"), (0.9, 1.2, None, False, "ellipsoid"),
-    (0.5, 6.0, 1, True, "tube"), (0.5, 6.0, 1, False, "mesh"), (0.5, 6.0, 0, True, "mesh"),
-    (0.9, 3.5, 1, True, "tube"), (0.9, 3.5, 1, False, "mesh"), (0.4, 1.5, 3, True, "mesh"),
-    (float("nan"), 1.2, 1, True, "mesh"), (0.9, 0.0, 1, True, "mesh"),
+@pytest.mark.parametrize("sphericity,aspect,branches,skeleton,volume,expected", [
+    (0.9, 1.2, 1, True, 0.1, "ellipsoid"), (0.9, 1.2, None, False, 0.1, "ellipsoid"),
+    (0.5, 6.0, 1, True, 0.1, "tube"), (0.5, 6.0, 1, False, 0.1, "mesh"), (0.5, 6.0, 0, True, 0.1, "mesh"),
+    (0.9, 3.5, 1, True, 0.1, "tube"), (0.9, 3.5, 1, False, 0.1, "mesh"), (0.4, 1.5, 3, True, 0.1, "mesh"),
+    (float("nan"), 1.2, 1, True, 0.1, "mesh"), (0.9, 0.0, 1, True, 0.1, "mesh"),
+    (0.9, 1.2, None, False, 200.0, "mesh"), (0.9, 1.2, None, False, None, "mesh"),
 ])
-def test_the_surface_kind_follows_the_measured_shape(sphericity, aspect, branches, skeleton, expected):
-    assert choose_surface(sphericity, aspect, branches, skeleton) == expected
+def test_the_surface_kind_follows_the_measured_shape(sphericity, aspect, branches, skeleton, volume, expected):
+    assert choose_surface(sphericity, aspect, branches, skeleton, volume) == expected
 
 
 def test_smoothing_scales_with_roundness_and_zero_means_none():

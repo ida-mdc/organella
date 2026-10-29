@@ -49,8 +49,8 @@ def build_sample():
     cell = np.ones(shape, np.uint8)
     nucleus = ((z - 20) ** 2 + (y - 15) ** 2 + (x - 60) ** 2 <= 36).astype(np.uint8)
     vesicles = np.zeros(shape, np.uint16)
-    vesicles[((z - 20) ** 2 + (y - 40) ** 2 + (x - 15) ** 2) <= 25] = 1                         # round: an ellipsoid
-    vesicles[((z - 20) ** 2 + (y - 40) ** 2 + (x - 24) ** 2) <= 25] = 2                         # touches it
+    vesicles[((z - 20) ** 2 + (y - 40) ** 2 + (x - 15) ** 2) <= 16] = 1                         # small and round: an ellipsoid
+    vesicles[((z - 20) ** 2 + (y - 40) ** 2 + (x - 22) ** 2) <= 16] = 2                         # touches it
     filament = (((y - 15) ** 2 + (z - 20) ** 2) <= 9) & (x >= 5) & (x <= 45)                    # long: a tube
     kinked = np.zeros(shape, bool)
     kinked[10:30, 30:34, 50:75] = True
