@@ -56,15 +56,15 @@ def _measure(sample: Sample, measurements: Sequence[Measurement], settings: Sett
              geometry: GeometrySink | None = None) -> list[pl.DataFrame]:
     sample, shared = prepared(sample, settings), {}
     frames = [
-        _stamped(rows, row_type, sample)
+        (row_type, _stamped(rows, row_type, sample))
         for measurement in measurements
         for row_type, rows in measurement.measure(sample, settings, shared).items()
         if rows.width
     ]
     if geometry is None:
-        return frames
+        return [frame for _, frame in frames]
     where = pl.lit(str(geometry.write(sample, shared, settings)))   # the object row says where its geometry went
-    return [f.with_columns(mesh_geometry_file=where) if f["row_type"][0] == RowType.OBJECT else f for f in frames]
+    return [frame.with_columns(mesh_geometry_file=where) if row_type is RowType.OBJECT else frame for row_type, frame in frames]
 
 
 def _stamped(rows: pl.DataFrame, row_type: RowType, sample: Sample) -> pl.DataFrame:

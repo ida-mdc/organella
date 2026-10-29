@@ -89,3 +89,24 @@ def test_a_manifest_over_an_n5_store_clips_in_the_right_axes(tmp_path):
     (ref,) = open_source(tmp_path / "cells").samples()
     sample = prepared(ref.open(), Settings(chunk_edge=8))
     assert int((sample.structures["mito"].data > 0).sum().compute()) == z * y * 2
+
+
+def test_an_array_whose_metadata_tensorstore_refuses_is_read_by_zarr_python(tmp_path):
+    """Published stores carry members tensorstore's zarr driver does not know, such as a checksum on a zstd compressor."""
+    import json
+
+    import numpy as np
+    import zarr
+
+    from organella.sources.arrays import open_store_array
+
+    data = np.arange(6 * 8 * 10, dtype=np.uint16).reshape(6, 8, 10)
+    zarr.create_array(str(tmp_path), name="labels/mito", data=data, chunks=(4, 4, 4), zarr_format=2)
+    descriptor = tmp_path / "labels" / "mito" / ".zarray"
+    metadata = json.loads(descriptor.read_text())
+    metadata["compressor"] = {"id": "zstd", "level": 3, "checksum": False}
+    descriptor.write_text(json.dumps(metadata))
+    array = open_store_array(str(tmp_path), "labels/mito")
+    np.testing.assert_array_equal(array.compute(), data)
+    with pytest.raises(FileNotFoundError):
+        open_store_array(str(tmp_path), "labels/missing")

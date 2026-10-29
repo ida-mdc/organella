@@ -7,7 +7,7 @@ license = "MIT"
 dependencies = [
     "click>=8.1",
     "dask[array]>=2025.1",
-    "zarr>=3",
+    "zarr[remote]>=3",
     "tensorstore",
     "tifffile>=2024.5",
     "imagecodecs",

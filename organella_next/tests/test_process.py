@@ -80,3 +80,20 @@ def test_a_reach_wider_than_a_chunk_is_refused(object_folder, tmp_path):
 def test_no_column_of_the_report_has_the_null_type(report_path):
     """DuckDB-WASM cannot skip through a Null-typed column once a file has more than a few rows."""
     assert [c for c, t in pl.read_parquet_schema(report_path).items() if t == pl.Null] == []
+
+
+def test_a_sample_of_masks_alone_is_measured_with_its_geometry(tmp_path, object_folder):
+    """No labelled structure means no instance, distance or contact rows: frames with columns and no rows."""
+    import shutil
+
+    from organella.geometry.writer import GeometryWriter
+    from organella.sources import FolderSource
+    parent = tmp_path / "batch"
+    shutil.copytree(object_folder, parent / "cell_m")
+    (parent / "cell_m" / "sample_mito_label.tif").unlink()
+    report = tmp_path / "masks.parquet"
+    failures = process(FolderSource(parent, object_mask="cell"), DEFAULT, ParquetSink(report), Settings(reach_um=0.4),
+                       GeometryWriter(tmp_path / "meshes"))
+    assert failures == {}
+    rows = pl.read_parquet(report)
+    assert set(rows["row_type"]) >= {"object", "entity"} and rows.filter(pl.col("row_type") == "object")["mesh_geometry_file"][0]

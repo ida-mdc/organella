@@ -94,10 +94,31 @@ def open_store_array(url: str, array_path: str, context: ts.Context | None = Non
         except ValueError:
             continue
     else:
-        raise FileNotFoundError(f"no {' or '.join(drivers)} array '{array_path}' in {url}")
+        if _is_n5(url):
+            raise FileNotFoundError(f"no {' or '.join(drivers)} array '{array_path}' in {url}")
+        return _open_with_zarr(url, array_path)
     if _is_n5(url):
         store = store.T
     return da.from_array(_Readable(store), chunks=tuple(store.chunk_layout.read_chunk.shape), asarray=False)
+
+
+def _open_with_zarr(url: str, array_path: str) -> da.Array:
+    """What tensorstore's zarr driver refuses is read by zarr-python instead: it checks array metadata strictly, and
+    some published stores carry members it does not know, such as a ``checksum`` on a zstd compressor."""
+    import zarr
+    from zarr.errors import GroupNotFoundError
+
+    where = kvstore_spec(url)
+    if where["driver"] == "http":
+        from obstore.store import HTTPStore
+        store = zarr.storage.ObjectStore(HTTPStore.from_url(where["base_url"].rstrip("/")), read_only=True)
+    else:
+        store = zarr.storage.LocalStore(where["path"], read_only=True)
+    try:
+        array = zarr.open_array(store, path=array_path, mode="r")
+    except (FileNotFoundError, GroupNotFoundError, KeyError) as error:
+        raise FileNotFoundError(f"no zarr array '{array_path}' in {url}") from error
+    return da.from_array(array, chunks=array.chunks)
 
 
 class _Readable:
