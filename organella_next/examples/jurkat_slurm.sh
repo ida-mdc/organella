@@ -11,6 +11,8 @@
 #
 # SCALE      the scale level every cell is measured at (default s3: 27.5 x 32 x 32 nm; s2 is 8 times the voxels, s1 64).
 # ONLY       comma-separated cells to measure, e.g. jurkat_08; default all 11. All 11 are still cut apart.
+# CHUNK_EDGE sets --chunk-edge: the reach (1 um) must fit in it, which is 73 voxels at s2 and 146 at s1, so s1 needs
+# 192 or more; memory per thread grows with the cube of it, so give THREADS fewer then.
 # THREADS and CACHE_GB set --threads and --cache-gb. At s3 a cell peaks at about 5 GB, at s2 about 13 GB for cell 8
 # (the others are bigger, and it grows with the voxels); the memory request below is for s3.
 #SBATCH --job-name=jurkat
@@ -25,6 +27,7 @@ out=${1:?usage: sbatch examples/jurkat_slurm.sh OUT}
 scale=${SCALE:-s3}
 threads=${THREADS:-$SLURM_CPUS_PER_TASK}
 cache_gb=${CACHE_GB:-4}
+chunk_edge=${CHUNK_EDGE:-128}
 store=s3://janelia-cosem-datasets/jrc_jurkat-1/jrc_jurkat-1.n5
 
 cd "${SLURM_SUBMIT_DIR:-.}"
@@ -48,6 +51,7 @@ if [ -n "${ONLY:-}" ]; then
 fi
 
 uv run organella process "$measure" -o "$out/jurkat.parquet" --object-noun cell \
-    --skeletons mito --with-mesh --resume --threads "$threads" --cache-gb "$cache_gb"
+    --skeletons mito --with-mesh --resume --threads "$threads" --cache-gb "$cache_gb" \
+    --chunk-edge "$chunk_edge"
 
 echo "open it with: organella view $out/jurkat.parquet"
