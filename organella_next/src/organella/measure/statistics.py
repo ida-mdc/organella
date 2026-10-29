@@ -47,7 +47,7 @@ class Statistics:
         # All delayed: computed together with arrays, dask hands the delayed results back out of order.
         lazies = [counts_and_centroids(_origin_region(sample).astype(np.uint8)), *map(_lazy_statistics, structures)]
         if mask is not None:
-            lazies.append(dask.delayed(np.asarray)(boundary_voxels(mask.foreground)))
+            lazies.append(boundary_voxels(mask.foreground))
         found = dask.compute(*lazies)
         centre_stats, per_structure = found[0], dict(zip((s.name for s in structures), found[1:]))
         boundary = found[-1] if mask is not None else None
