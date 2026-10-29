@@ -11,7 +11,8 @@ import polars as pl
 from organella.app.settings import Settings
 from organella.core import RowType, Sample, Structure, normalised
 from organella.measure.distance_field import distance_to, reach_cap
-from organella.measure.per_label import end_range_per_label, histogram_per_label, minimum_per_label
+from organella.measure.per_label import (chunks_with_origin, ends_in_chunk, extremes, histogram_in_chunk, histograms_of,
+                                         minimised, minimum_in_chunk, smallest, summed, tree_merged)
 
 # The baseline is binned this much finer than it is stored, so its median is exact to a small fraction of the reach.
 FINE_PER_STORED_BIN = 32
@@ -35,9 +36,9 @@ class Distances:
         baseline_rows: list[pl.DataFrame] = []
         for plan in plans:
             found = plan.unpack(results)
-            for source, smallest in zip(plan.sources, found.minima):
-                if smallest.height:
-                    distance_rows.append(_distance_frame(source, plan.target, smallest, found, settings))
+            for source in plan.sources:
+                if found.minima[source.name].height:
+                    distance_rows.append(_distance_frame(source, plan.target, found.minima[source.name], found, settings))
             if found.target_exists:
                 baseline_rows.append(_baseline_frame(plan.target, found.fine_counts, plan.excluded, settings))
         return {
@@ -50,7 +51,7 @@ class Distances:
 class _Found:
     """What the computation of one target came to."""
 
-    minima: list = dataclass_field(default_factory=list)
+    minima: dict = dataclass_field(default_factory=dict)       # source name -> nearest distance per instance
     histograms: dict = dataclass_field(default_factory=dict)   # source name -> per-instance histograms
     ends: dict = dataclass_field(default_factory=dict)          # source name -> tip distances
     fine_counts: np.ndarray | None = None
@@ -59,14 +60,11 @@ class _Found:
 
 @dataclass(frozen=True)
 class _Plan:
-    """What measuring one target needs, still lazy: its field and, from it, everything read against that target."""
+    """What measuring one target needs, still lazy: one report per chunk of its field, merged in a tree."""
 
     target: Structure
     sources: list[Structure]
-    minima: list
-    histograms: dict      # source name -> lazy
-    ends: dict            # source name -> lazy
-    baseline: object
+    bundle: object
     exists: object
     excluded: tuple[str, ...]
 
@@ -80,34 +78,56 @@ class _Plan:
         for structure in named:
             if structure is not target:
                 region = region & ~structure.foreground
-        # Voxels outside the region are set below the range so the histogram skips them.
-        counted = da.where(region, field, np.float32(-1))
-        fine = da.histogram(counted, bins=FINE_PER_STORED_BIN * settings.histogram_bins,
-                            range=(0.0, float(reach_cap(settings.reach_um))))[0]
+        # Everything read against a chunk of the field is read in the one task that makes it, so no chunk waits in memory
+        # for a reduction that dask would otherwise order after all the others.
         upper = float(reach_cap(settings.reach_um))
-        # All delayed: computed together with arrays, dask hands the delayed results back out of order.
-        return _Plan(
-            target, sources,
-            minima=[minimum_per_label(field, s.data) for s in sources],
-            histograms={s.name: histogram_per_label(field, s.data, settings.instance_histogram_bins, upper)
-                        for s in sources} if settings.distance_histograms else {},
-            ends={s.name: end_range_per_label(field, *tips[s.name])
-                  for s in sources if s.name in tips},
-            baseline=dask.delayed(np.asarray)(fine), exists=dask.delayed(bool)(target_voxels.any()),
-            excluded=tuple(s.name for s in named),
-        )
+        instance_bins = settings.instance_histogram_bins if settings.distance_histograms else None
+        known_tips = dask.delayed(tips)
+        reports = [dask.delayed(_chunk_report)(origin, f, r, {s.name: c for s, c in zip(sources, labels)}, known_tips,
+                                               instance_bins, upper, FINE_PER_STORED_BIN * settings.histogram_bins)
+                   for origin, (f, r, *labels) in chunks_with_origin(field, region, *(s.data for s in sources))]
+        return _Plan(target, sources, dask.delayed(_finished)(tree_merged(reports, _merged)),
+                     dask.delayed(bool)(target_voxels.any()), tuple(s.name for s in named))
 
     def lazies(self) -> list:
-        return [*self.minima, *self.histograms.values(), *self.ends.values(), self.baseline, self.exists]
+        return [self.bundle, self.exists]
 
     def unpack(self, results) -> _Found:
-        found = _Found(minima=[next(results) for _ in self.minima])
-        found.histograms = {name: next(results) for name in self.histograms}
-        found.ends = {name: next(results) for name in self.ends}
-        found.fine_counts, found.target_exists = next(results), next(results)
+        bundle, exists = next(results), next(results)
+        found = _Found(minima=bundle["minima"], histograms=bundle["histograms"], ends=bundle["ends"],
+                       fine_counts=bundle["fine"], target_exists=exists)
         if not found.target_exists:
             found.ends = {}   # nothing to be near: no tip distance, where the whole-instance one reads as the cap
         return found
+
+
+def _chunk_report(origin: np.ndarray, field: np.ndarray, region: np.ndarray, labels: dict, tips: dict,
+                  instance_bins: int | None, upper: float, fine_bins: int) -> dict:
+    """Everything one chunk of a target's field says about the instances and the object's voxels in it."""
+    return {
+        "fine": np.histogram(field[region], bins=fine_bins, range=(0.0, upper))[0].astype(np.int64),
+        "minima": {name: minimum_in_chunk(chunk, field) for name, chunk in labels.items()},
+        "histograms": {name: histogram_in_chunk(chunk, field, instance_bins, upper) for name, chunk in labels.items()}
+        if instance_bins else {},
+        "ends": {name: ends_in_chunk(field, origin, *tips[name]) for name in labels if name in tips},
+    }
+
+
+def _merged(reports: list[dict]) -> dict:
+    first = reports[0]
+    return {
+        "fine": np.sum([r["fine"] for r in reports], axis=0),
+        "minima": {name: smallest([r["minima"][name] for r in reports]) for name in first["minima"]},
+        "histograms": {name: summed([r["histograms"][name] for r in reports]) for name in first["histograms"]},
+        "ends": {name: extremes([r["ends"][name] for r in reports]) for name in first["ends"]},
+    }
+
+
+def _finished(report: dict) -> dict:
+    merged = _merged([report])
+    return {"fine": merged["fine"], "ends": merged["ends"],
+            "minima": {name: minimised(frame) for name, frame in merged["minima"].items()},
+            "histograms": {name: histograms_of(frame) for name, frame in merged["histograms"].items()}}
 
 
 def _tip_voxels(sample: Sample, tips_um: dict) -> dict[str, tuple[np.ndarray, np.ndarray]]:

@@ -1,8 +1,9 @@
+import dask
 import dask.array as da
 import numpy as np
 from scipy import ndimage
 
-from organella.measure.per_label import counts_and_centroids, minimum_per_label
+from organella.measure.per_label import chunks_with_origin, counts_and_centroids, minimised, minimum_in_chunk, smallest, tree_merged
 
 
 def labels_across_chunks():
@@ -24,7 +25,9 @@ def test_counts_and_centroids_equal_the_in_memory_answer_across_chunk_borders():
 def test_minimum_equals_the_in_memory_answer_across_chunk_borders():
     labels = labels_across_chunks()
     field = np.random.default_rng(0).random(labels.shape)
-    found = minimum_per_label(da.from_array(field, chunks=8), da.from_array(labels, chunks=8)).compute()
+    chunks = chunks_with_origin(da.from_array(labels, chunks=8), da.from_array(field, chunks=8))
+    reports = [dask.delayed(minimum_in_chunk)(chunk, f) for _, (chunk, f) in chunks]
+    found = dask.delayed(minimised)(tree_merged(reports, smallest)).compute()
     ids = found["id"].to_numpy()
     np.testing.assert_allclose(found["min"].to_numpy(), ndimage.minimum(field, labels, ids))
 

@@ -60,7 +60,7 @@ def _count_and_sums(chunk: np.ndarray, origin: np.ndarray) -> pl.DataFrame:
                          **sums, **cross}).hstack(corners)
 
 
-def _summed(reports: list[pl.DataFrame]) -> pl.DataFrame:
+def summed(reports: list[pl.DataFrame]) -> pl.DataFrame:
     """Counts and moments add; a bounding box takes the smallest low corner and the largest high corner."""
     columns = [c for c in reports[0].columns if c != "id"]
     return pl.concat(reports).group_by("id").agg(
@@ -86,53 +86,37 @@ def counts_and_centroids(labels: da.Array) -> Delayed:
     """A frame of ``id``, ``count``, the centroid ``c0``, ``c1``..., the covariance ``v00``, ``v01``... of each
     instance's voxel coordinates, and its bounding box ``lo0``..``hi0``.. (inclusive), ids ascending."""
     reports = [dask.delayed(_count_and_sums)(chunk, origin) for origin, (chunk,) in chunks_with_origin(labels)]
-    return dask.delayed(_counted)(tree_merged(reports, _summed))
+    return dask.delayed(_counted)(tree_merged(reports, summed))
 
 
-def _minimum(chunk: np.ndarray, field: np.ndarray) -> pl.DataFrame:
+def minimum_in_chunk(chunk: np.ndarray, field: np.ndarray) -> pl.DataFrame:
     present = np.unique(chunk)
     present = present[present > 0]
     found = ndimage.minimum(field, chunk, present).astype(field.dtype) if present.size else np.empty(0, field.dtype)
     return pl.DataFrame({"id": present, "min": found})
 
 
-def _smallest(reports: list[pl.DataFrame]) -> pl.DataFrame:
+def smallest(reports: list[pl.DataFrame]) -> pl.DataFrame:
     return pl.concat(reports).group_by("id").min()
 
 
-def _minimised(total: pl.DataFrame) -> pl.DataFrame:
+def minimised(total: pl.DataFrame) -> pl.DataFrame:
     total = total.sort("id")
     return pl.DataFrame({"id": _ids_as_int64(total["id"].to_numpy()), "min": total["min"].to_numpy()})
 
 
-def minimum_per_label(field: da.Array, labels: da.Array) -> Delayed:
-    """A frame of ``id`` and ``min``, the smallest ``field`` value inside each instance present, ids ascending.
-
-    A frame and not a tuple: dask moves a delayed tuple around when many collections are computed together.
-    """
-    reports = [dask.delayed(_minimum)(chunk, f) for _, (chunk, f) in chunks_with_origin(labels, field)]
-    return dask.delayed(_minimised)(tree_merged(reports, _smallest))
-
-
-def _ends_in_chunk(field: np.ndarray, origin: np.ndarray, points: np.ndarray, owners: np.ndarray) -> pl.DataFrame:
+def ends_in_chunk(field: np.ndarray, origin: np.ndarray, points: np.ndarray, owners: np.ndarray) -> pl.DataFrame:
     inside = np.all((points >= origin) & (points < origin + field.shape), axis=1)
     local = (points[inside] - origin).T
     return pl.DataFrame({"id": owners[inside], "end_min": field[tuple(local)].astype(np.float64)}).with_columns(
         end_max=pl.col("end_min"))
 
 
-def _extremes(reports: list[pl.DataFrame]) -> pl.DataFrame:
+def extremes(reports: list[pl.DataFrame]) -> pl.DataFrame:
     return pl.concat(reports).group_by("id").agg(pl.col("end_min").min(), pl.col("end_max").max())
 
 
-def end_range_per_label(field: da.Array, points: np.ndarray, owners: np.ndarray) -> Delayed:
-    """A frame of ``id``, ``end_min`` and ``end_max``: the smallest and largest ``field`` value at the voxels
-    ``points`` ``(n, ndim)`` that belong to each owner. Read chunk by chunk, so no task holds the field."""
-    reports = [dask.delayed(_ends_in_chunk)(chunk, origin, points, owners) for origin, (chunk,) in chunks_with_origin(field)]
-    return dask.delayed(lambda merged: _extremes([merged]))(tree_merged(reports, _extremes))
-
-
-def _histogram_report(chunk: np.ndarray, field: np.ndarray, bins: int, upper: float) -> pl.DataFrame:
+def histogram_in_chunk(chunk: np.ndarray, field: np.ndarray, bins: int, upper: float) -> pl.DataFrame:
     foreground = chunk > 0
     present, inverse = np.unique(chunk[foreground], return_inverse=True)
     values = field[foreground].astype(np.float64)
@@ -142,14 +126,7 @@ def _histogram_report(chunk: np.ndarray, field: np.ndarray, bins: int, upper: fl
                          **{f"h{b}": counts[:, b].astype(np.int64) for b in range(bins)}})
 
 
-def _histograms(total: pl.DataFrame) -> pl.DataFrame:
+def histograms_of(total: pl.DataFrame) -> pl.DataFrame:
     total = total.sort("id")
     return pl.DataFrame({"id": _ids_as_int64(total["id"].to_numpy()), "total": total["total"],
                          "counts": total.select(pl.col(c) for c in total.columns if c.startswith("h")).to_numpy().tolist()})
-
-
-def histogram_per_label(field: da.Array, labels: da.Array, bins: int, upper: float) -> Delayed:
-    """A frame of ``id``, ``total`` (the sum of the field over the instance) and ``counts``: how many of its voxels fall in
-    each of ``bins`` equal bins of 0..``upper``, the last also holding everything past it. Ids ascending."""
-    reports = [dask.delayed(_histogram_report)(chunk, f, bins, upper) for _, (chunk, f) in chunks_with_origin(labels, field)]
-    return dask.delayed(_histograms)(tree_merged(reports, _summed))
