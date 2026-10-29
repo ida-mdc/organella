@@ -1,0 +1,6 @@
+/* Source Serif 4, the latin subset Google Fonts serves, inlined so the report looks the same
+   on every machine and still asks nothing of the network. Copyright 2014-2023 Adobe
+   (https://github.com/adobe-fonts/source-serif), SIL Open Font License 1.1. A variable file,
+   so one download covers every weight the page asks for. */
+@font-face { font-family: "Organella Serif"; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url(data:font/woff2;base64,@source-serif.woff2) format("woff2"); }

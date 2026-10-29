@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Organella Report</title>
+<!-- Every image here is inlined, favicon included: the page has to keep working as the one
+     file somebody copied out of an install, with no server and nothing beside it. -->
+<link rel="icon" href="data:image/png;base64,@favicon.png">
+<style>
+/*@styles/font.css*/
+</style>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js@2.27.0/dist/plotly.min.js"></script>
+<style>
+/*@styles/report.css*/
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────────── -->
+<div class="topbar d-none" id="topbar">
+  <span class="brand"><i class="brand-mark" aria-hidden="true"></i>Organella Report</span>
+  <button class="btn btn-sm btn-outline-dark d-none" id="load-btn">&#128194; Open Report</button>
+  <input type="file" id="file-input" accept=".parquet" class="d-none">
+  <div class="btn-group btn-group-sm d-none" id="geom-btn">
+    <button type="button" class="btn btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown"
+            aria-expanded="false">&#128230; Add geometry</button>
+    <ul class="dropdown-menu">
+      <li><button type="button" class="dropdown-item" id="geom-pick-folder">Pick the
+        <code>report_meshes</code> folder</button></li>
+      <li><button type="button" class="dropdown-item" id="geom-pick-files">Pick
+        <code>.parquet</code> files</button></li>
+      <li><hr class="dropdown-divider"></li>
+      <!-- A browser's own word for handing a folder to a page is "upload", and its
+           confirmation dialogue says so - which reads alarmingly two inches from a note
+           promising that nothing is uploaded. Said here, where that dialogue appears. -->
+      <li><div class="dropdown-item-text geom-note">Your browser may ask to
+        &ldquo;upload&rdquo; the folder. That is its word for handing the files to this page:
+        they are read here, in your browser, and nothing is sent anywhere.</div></li>
+    </ul>
+  </div>
+  <input type="file" id="geom-input" webkitdirectory directory multiple class="d-none">
+  <input type="file" id="geom-files-input" accept=".parquet" multiple class="d-none">
+  <nav id="subnav" class="subnav" aria-label="Sections"></nav>
+  <span class="file-info d-none" id="topbar-privacy"><i class="bi bi-shield-lock me-1"></i>Your data stays local, nothing is uploaded.</span>
+  <div id="global-filters" class="d-none d-flex flex-wrap gap-2 ms-auto align-items-center">
+    <div id="plot-groupby-wrap" style="display:none;align-items:center;gap:.35rem" class="d-flex">
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Group plots by</span>
+      <select id="plot-groupby" class="form-select form-select-sm" style="width:auto">
+        <option value="object" data-noun-label>Object</option><option value="group">Group</option>
+      </select>
+    </div>
+    <!-- Whichever the charts are grouped by, this narrows them to one of it. Two separate
+         "all groups" and "all objects" filters could disagree with the grouping and with
+         each other; one that follows it cannot. -->
+    <div class="d-flex align-items-center" style="gap:.35rem">
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Showing</span>
+      <select id="flt-only" class="form-select form-select-sm" style="width:auto"></select>
+    </div>
+    <div class="d-flex align-items-center" style="gap:.35rem">
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Show as</span>
+      <select id="plot-style" class="form-select form-select-sm" style="width:auto">
+        <option value="distribution">Boxes</option>
+        <option value="histogram">Histograms</option>
+      </select>
+    </div>
+    <label id="sig-wrap" class="small mb-0 d-none align-items-center"
+           style="gap:.35rem;color:var(--ink-3);white-space:nowrap">
+      <input type="checkbox" id="show-significance" checked> Significance
+    </label>
+    <span id="sig-hint" class="small" style="color:var(--ink-3)"></span>
+  </div>
+</div>
+
+<!-- ── Landing ─────────────────────────────────────────────── -->
+<div id="landing" class="landing">
+  <div class="landing-bg" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="landing-inner">
+
+  <!-- The masthead. It stays up while a report loads, so the page never goes blank. -->
+  <div class="masthead">
+    <img class="masthead-figure" src="data:image/png;base64,@masthead.png"
+         alt="A figure drawn entirely out of organelles, holding a measuring tape">
+    <div class="masthead-words">
+      <h1>Organella</h1>
+      <p>measuring label relationships in 2D and 3D</p>
+      <div class="feature-chips">
+        <span>distributions</span><span>distances</span><span>contacts</span><span>polarity</span><span>3D</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row justify-content-center g-4 landing-cards">
+
+    <!-- Left: how a report is made at all, since the page cannot make one. Right: opening
+         the one you have. The loading and error panels take the place of the right column. -->
+    <div class="col-md-6 col-lg-5" id="landing-commands">
+     <div class="glass">
+      <div class="landing-head"><span class="step">2</span>Make a report
+        <button type="button" class="copy-btn" id="copy-cmd" title="Copy the commands">Copy</button></div>
+      <pre class="landing-code"><code>pip install organella
+
+organella dry-run experiment/
+organella process experiment/ \
+    -o report.parquet \
+    --object-mask pm --with-mesh</code></pre>
+      <p class="small text-muted mb-0">
+        <code>dry-run</code> reads headers only and says what would be measured.
+        <code>--object-mask</code> names the mask that bounds each object, and everything
+        inside it is measured relative to that. <code>--with-mesh</code> adds the geometry the
+        3D sections draw. Every flag is in the
+        <a href="https://github.com/ida-mdc/organella#readme" target="_blank">README</a>.
+      </p>
+     </div>
+    </div>
+
+    <div class="col-md-6 col-lg-5" id="landing-form">
+     <div class="glass">
+      <div class="landing-head"><span class="step">1</span>Open a report</div>
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="drop-ring"><i class="bi bi-box-arrow-in-down"></i></div>
+        <div class="mt-2 fw-semibold fs-6">Drop <code>report.parquet</code> here, or click to browse</div>
+        <span class="file-info"><i class="bi bi-shield-lock me-1"></i>Your data stays local, nothing is uploaded.</span>
+      </div>
+      <div style="border-top:1px solid var(--rule);margin-top:1.2rem;padding-top:1rem">
+        <div class="small text-muted mb-1">Or load from a URL</div>
+        <div class="d-flex gap-2">
+          <input type="url" id="url-input" class="form-control form-control-sm"
+                 placeholder="https://example.com/report.parquet" style="font-size:.78rem">
+          <button class="btn btn-sm btn-outline-dark flex-shrink-0" id="url-load-btn">Load</button>
+        </div>
+      </div>
+      <p class="small text-muted mt-3 mb-0">
+        Ran with <code>--with-mesh</code>? Open the report, then press <strong>Add geometry</strong>
+        and pick the <code>report_meshes</code> folder.
+      </p>
+     </div>
+    </div>
+
+
+    <div class="col-md-6 col-lg-5 d-none" id="landing-loading"
+         style="text-align:center">
+     <div class="glass" style="padding:3rem 2rem">
+      <div class="loading-cell" role="status" aria-label="Loading"><i></i><i></i><i></i></div>
+      <div class="card-title">Reading your report…</div>
+      <div id="loading-url" class="card-detail" style="word-break:break-all"></div>
+      <!-- What it is reading right now. A real report is a million rows and takes tens of
+           seconds; without this the spinner is indistinguishable from a page that has hung. -->
+      <div id="loading-step" class="card-detail"></div>
+     </div>
+    </div>
+
+    <div class="col-md-6 col-lg-5 d-none" id="landing-error"
+         style="text-align:center">
+     <div class="glass glass-error" style="padding:3rem 2rem">
+      <div style="font-size:2rem;margin-bottom:.8rem;color:var(--danger)"><i class="bi bi-exclamation-triangle"></i></div>
+      <div class="card-title" style="color:var(--danger)">Failed to load</div>
+      <div id="landing-error-msg" class="card-detail" style="margin-bottom:1.4rem;word-break:break-word"></div>
+      <button class="btn btn-sm btn-outline-dark" onclick="showLandingForm()">Try again</button>
+     </div>
+    </div>
+
+  </div>
+  </div>
+</div>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<div id="main-content" class="d-none main">
+
+  <!-- 01 Overview -->
+  <div class="section" id="s-overview">
+    <div class="section-title">Overview</div>
+    <p class="section-subtitle" id="report-source"></p>
+    <!-- What the run was told this data is: credits, a citation, a licence. -->
+    <div id="report-description" class="report-description d-none"></div>
+    <dl class="facts">
+      <div class="fact"><dt id="fact-cells-label"></dt><dd id="fact-cells"></dd></div>
+      <div class="fact" id="fact-groups-row"><dt>Groups</dt><dd id="glance-groups"></dd></div>
+      <div class="fact"><dt id="fact-structures-label">Structures</dt><dd id="fact-structures"></dd></div>
+    </dl>
+    <div id="overview-warnings"></div>
+    <div id="overview-table-wrap" class="mb-4"></div>
+    <div id="glance-diff"></div>
+    <div class="subsection-label">How much of each structure is there?</div>
+    <div id="overview-volumes"></div>
+  </div>
+
+  <!-- 02 The thing itself, in 3D -->
+  <div class="section" id="s-3d">
+    <div class="section-title">Looking at a single <span data-noun></span></div>
+    <p class="section-subtitle">Drag to orbit, scroll to zoom, shift-drag to pan. Colour
+      by structure to read the layout, by a metric to see where the extremes sit,
+      or by contact group to see which instances chain together at a given gap.
+      Explode pushes every instance out along its own direction from the
+      <span data-noun></span> centre.</p>
+    <div id="dock-status" class="dock-status"></div>
+    <div id="dock-tabs" class="dock-tabs" role="tablist"></div>
+    <div id="dock-scene">
+      <div id="scene-controls" class="ctrl-bar"></div>
+      <div id="scene-holder"></div>
+      <div id="scene-scale" class="metric-scale"></div>
+      <div id="scene-explain" class="explain"></div>
+      <div id="scene-note" class="chart-note"></div>
+    </div>
+    <div id="dock-gallery" class="d-none"></div>
+  </div>
+
+  <!-- 03 Component stats -->
+  <div class="section" id="s-entities">
+    <div class="section-title">Structure by structure</div>
+    <div class="big" id="entity-coverage"></div>
+    <div class="pill-row" id="entity-pills" role="tablist" aria-label="Structure"></div>
+    <select id="stats-entity-select" class="d-none" aria-hidden="true"></select>
+    <div id="entity-stats-container"></div>
+  </div>
+
+  <!-- 04 Groups of one structure -->
+  <div class="section d-none" id="s-groups">
+    <div class="section-title">Groups of one structure</div>
+    <p class="section-subtitle" id="ct-subtitle"></p>
+    <div id="ct-coverage"></div>
+    <div class="pill-row" id="ct-pills" role="tablist" aria-label="Structure"></div>
+    <select id="ct-pair" class="d-none" aria-hidden="true"></select>
+    <div class="mb-3">
+      <div style="min-width:260px;max-width:360px">
+        <label class="form-label small mb-1">Touching within <span id="ct-thr-val">–</span> µm</label>
+        <input type="range" id="ct-thr" class="form-range" min="0" max="0.5" step="0.005" value="0.5">
+        <span id="ct-thr-max" class="d-none"></span>
+      </div>
+      <span id="ct-count" class="d-none"></span>
+    </div>
+    <p id="ct-summary" class="d-none"></p>
+
+    <div id="ct-compare-wrap" class="d-none">
+      <div class="subsection-label mt-1" id="ct-compare-title"></div>
+      <p class="subsection-desc" id="ct-compare-desc"></p>
+      <div class="chart-legend" id="ct-legend"></div>
+      <div class="charts-row" id="ct-compare-charts"></div>
+      <div id="ct-compare-table" class="table-wrap mt-3"></div>
+    </div>
+
+    <div id="ct-far-wrap" class="d-none">
+      <div class="subsection-label mt-4" id="ct-far-label"></div>
+      <p class="subsection-desc" id="ct-far-desc"></p>
+      <div class="charts-row" id="ct-far-charts"></div>
+    </div>
+
+    <div id="ct-baseline-wrap" class="d-none">
+      <div class="subsection-label mt-4" id="ct-baseline-label"></div>
+      <p class="subsection-desc" id="ct-baseline-desc"></p>
+      <div class="charts-row" id="ct-baseline-charts"></div>
+    </div>
+
+    <div id="ct-both-wrap" class="d-none">
+      <div class="subsection-label mt-4" id="ct-both-label"></div>
+      <p class="subsection-desc" id="ct-both-desc"></p>
+      <div id="ct-both-charts"></div>
+    </div>
+  </div>
+
+  <!-- 05 Polarity, relative to one structure -->
+  <div class="section d-none" id="s-polarity">
+    <div class="section-title">Polarity</div>
+    <p class="section-subtitle" id="pol-subtitle"></p>
+    <div id="pol-coverage"></div>
+    <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+      <div>
+        <label class="form-label small mb-1 text-muted">Measured towards</label><br>
+        <select id="pol-reference" class="form-select form-select-sm" style="width:auto"></select>
+      </div>
+      <span id="pol-axis" class="small text-muted align-self-end pb-1"></span>
+    </div>
+    <div class="subsection-label" id="pol-angle-label"></div>
+    <p class="subsection-desc" id="pol-angle-desc"></p>
+    <div class="chart-legend" id="pol-legend"></div>
+    <div class="charts-row" id="pol-angle-charts"></div>
+    <div class="subsection-label mt-4" id="pol-index-label"></div>
+    <p class="subsection-desc" id="pol-index-desc"></p>
+    <div class="chart-legend" id="pol-index-legend"></div>
+    <div class="charts-row" id="pol-index-charts"></div>
+    <div class="subsection-label mt-4" id="pol-where-label"></div>
+    <p class="subsection-desc" id="pol-where-desc"></p>
+    <div class="chart-legend" id="pol-where-legend"></div>
+    <div class="charts-row" id="pol-where-charts"></div>
+    <div class="subsection-label mt-4" id="pol-map-label"></div>
+    <p class="subsection-desc" id="pol-map-desc"></p>
+    <!-- The radius is this row's own choice: nothing above it is drawn against a radius. -->
+    <div id="pol-radius-wrap" class="d-flex align-items-center mb-3" style="gap:.35rem">
+      <span class="small" style="color:var(--ink-3);white-space:nowrap">Radius</span>
+      <select id="pol-radius" class="form-select form-select-sm" style="width:auto"></select>
+    </div>
+    <div class="chart-legend" id="pol-map-legend"></div>
+    <div class="charts-row" id="pol-map-charts"></div>
+    <div id="pol-map-fold"></div>
+  </div>
+
+  <!-- 06 Files -->
+  <div class="section" id="s-structure">
+    <div class="section-title">List of files</div>
+    <details class="per-object">
+    <summary>Click to expand</summary>
+    <div class="table-wrap">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light"><tr>
+          <th data-noun></th><th>structure</th><th>kind</th>
+          <th class="text-end">instances</th><th class="text-end" id="th-extent">extent</th>
+          <th class="text-end" id="th-boundary">boundary</th>
+          <th class="text-end" id="th-round">roundness</th>
+          <th class="text-end">aspect</th><th class="text-end">size</th><th>file</th>
+        </tr></thead>
+        <tbody id="file-table-body"></tbody>
+      </table>
+    </div>
+    </details>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ── Footer ── -->
+<footer class="cs-footer">
+  <div class="cs-footer-inner">
+    <div class="cs-footer-left">
+      <a href="https://helmholtz-imaging.de" target="_blank">
+        <img src="https://pixelpatrol.app/assets/Helmholtz-Imaging_Mark.png" alt="Helmholtz Imaging" class="cs-footer-logo">
+      </a>
+      <span>Organella is a derivative of <a href="https://github.com/ida-mdc/pixel-patrol" target="_blank" class="cs-footer-link-light">Pixel Patrol</a> and is developed by <a href="https://helmholtz-imaging.de" target="_blank" class="cs-footer-link-light">Helmholtz Imaging</a>.</span>
+    </div>
+    <div class="cs-footer-right">
+      <a href="mailto:support@helmholtz-imaging.de">support@helmholtz-imaging.de</a>
+      <a href="https://github.com/ida-mdc/organella" target="_blank"><i class="bi bi-github me-1"></i>GitHub</a>
+      <!-- Absolute, because this page is also read from a file:// path, where a relative
+           link to the published site would go nowhere. -->
+      <a href="https://ida-mdc.github.io/organella/impressum.html" target="_blank">Imprint</a>
+      <a href="https://ida-mdc.github.io/organella/privacy.html" target="_blank">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+/*@src*/
+</script>
+</body>
+</html>
