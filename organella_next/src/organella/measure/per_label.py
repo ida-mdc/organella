@@ -114,6 +114,24 @@ def minimum_per_label(field: da.Array, labels: da.Array) -> Delayed:
     return dask.delayed(_minimised)(_tree_merged(reports, _smallest))
 
 
+def _ends_in_chunk(field: np.ndarray, origin: np.ndarray, points: np.ndarray, owners: np.ndarray) -> pl.DataFrame:
+    inside = np.all((points >= origin) & (points < origin + field.shape), axis=1)
+    local = (points[inside] - origin).T
+    return pl.DataFrame({"id": owners[inside], "end_min": field[tuple(local)].astype(np.float64)}).with_columns(
+        end_max=pl.col("end_min"))
+
+
+def _extremes(reports: list[pl.DataFrame]) -> pl.DataFrame:
+    return pl.concat(reports).group_by("id").agg(pl.col("end_min").min(), pl.col("end_max").max())
+
+
+def end_range_per_label(field: da.Array, points: np.ndarray, owners: np.ndarray) -> Delayed:
+    """A frame of ``id``, ``end_min`` and ``end_max``: the smallest and largest ``field`` value at the voxels
+    ``points`` ``(n, ndim)`` that belong to each owner. Read chunk by chunk, so no task holds the field."""
+    reports = [dask.delayed(_ends_in_chunk)(chunk, origin, points, owners) for origin, (chunk,) in _chunks(field)]
+    return dask.delayed(lambda merged: _extremes([merged]))(_tree_merged(reports, _extremes))
+
+
 def _histogram_report(chunk: np.ndarray, field: np.ndarray, bins: int, upper: float) -> pl.DataFrame:
     foreground = chunk > 0
     present, inverse = np.unique(chunk[foreground], return_inverse=True)

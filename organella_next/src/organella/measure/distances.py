@@ -11,7 +11,7 @@ import polars as pl
 from organella.app.settings import Settings
 from organella.core import RowType, Sample, Structure, normalised
 from organella.measure.distance_field import distance_to, reach_cap
-from organella.measure.per_label import histogram_per_label, minimum_per_label
+from organella.measure.per_label import end_range_per_label, histogram_per_label, minimum_per_label
 
 # The baseline is binned this much finer than it is stored, so its median is exact to a small fraction of the reach.
 FINE_PER_STORED_BIN = 32
@@ -91,7 +91,7 @@ class _Plan:
             minima=[minimum_per_label(field, s.data) for s in sources],
             histograms={s.name: histogram_per_label(field, s.data, settings.instance_histogram_bins, upper)
                         for s in sources} if settings.distance_histograms else {},
-            ends={s.name: dask.delayed(_end_range)(field.vindex[tuple(tips[s.name][0].T)], tips[s.name][1])
+            ends={s.name: end_range_per_label(field, *tips[s.name])
                   for s in sources if s.name in tips},
             baseline=dask.delayed(np.asarray)(fine), exists=dask.delayed(bool)(target_voxels.any()),
             excluded=tuple(s.name for s in named),
@@ -119,11 +119,6 @@ def _tip_voxels(sample: Sample, tips_um: dict) -> dict[str, tuple[np.ndarray, np
             voxels = np.concatenate([np.clip(np.rint(t / edge).astype(np.int64), 0, shape - 1) for _, t in owned])
             found[name] = (voxels, np.concatenate([np.full(len(t), label) for label, t in owned]))
     return found
-
-
-def _end_range(values: np.ndarray, owners: np.ndarray) -> pl.DataFrame:
-    return pl.DataFrame({"id": owners, "v": values}).group_by("id").agg(
-        pl.col("v").min().alias("end_min"), pl.col("v").max().alias("end_max"))
 
 
 def _require_halo_fits(sample: Sample, settings: Settings) -> None:
