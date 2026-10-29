@@ -53,7 +53,7 @@ class Settings:
     geometry_as: Mapping[str, str] = field(default_factory=dict)  # per structure: mesh, ellipsoid or tube, plus skeleton
     keep_skeletons: bool = False  # keep each traced skeleton whole, for the geometry that draws it
     mesh_smooth_sigma: float | tuple[float, ...] = 0.7  # in voxels of the finest axis, or one per axis (z, y, x)
-    mesh_step_size: int = 2
+    mesh_step_size: int = 1
     mesh_target_reduction: float = 0.8
     mesh_level: float | None = None
     mesh_max_vertices: int = 0  # 0 is no cap

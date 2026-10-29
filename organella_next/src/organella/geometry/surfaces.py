@@ -88,7 +88,7 @@ def _decimated(xyz: np.ndarray, faces: np.ndarray, reduction: float, **options) 
     return xyz.astype(np.float32), faces
 
 
-def generate_mesh(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Sequence[float], step_size: int = 2,
+def generate_mesh(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Sequence[float], step_size: int = 1,
                   smooth_sigma: float | Sequence[float] = 0.7, target_reduction: float = 0.8,
                   level: float | None = None, max_vertices: int = 0) -> bytes:
     """Mesh a (Z, Y, X) mask by marching cubes on a signed distance field, as a quantised payload; empty if it fails.
