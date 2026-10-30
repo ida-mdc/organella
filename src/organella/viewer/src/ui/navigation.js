@@ -1,4 +1,4 @@
-var SUBNAV = [['s-overview', 'Overview'], ['s-3d', 'The cell in 3D'],
+var SUBNAV = [['s-overview', 'Overview'], ['s-3d', null],
               ['s-entities', 'Structures'], ['s-groups', 'Contact groups'],
               ['s-polarity', 'Polarity'], ['s-structure', 'Files']];
 
@@ -18,7 +18,7 @@ function buildSubnav() {
     link.href = '#' + entry[0];
     link.dataset.target = entry[0];
     link.innerHTML = '<span class="num">' + (count < 10 ? '0' : '') + count + '</span>'
-      + escHtml(entry[1]);
+      + escHtml(entry[1] || 'The ' + noun() + ' in ' + dimsWord());
     link.addEventListener('click', function(event) {
       event.preventDefault();
       section.scrollIntoView({ behavior: 'smooth', block: 'start' });

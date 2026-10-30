@@ -22,6 +22,13 @@ var INSTANCE_PREFIX = 'instance_';
  * ends up on screen: as a structure in a selector, in the heading it fills, and in every
  * sentence built from it. A row with no name is dropped instead, and said so once.
  */
+/** 2 or 3: the column says, and a report that predates it is a plane when it has no extent along z. */
+function dimsOfObject(row) {
+  if (row.spatial_dims != null) return Number(row.spatial_dims);
+  if (row.size_y == null) return null;
+  return row.size_z == null ? 2 : 3;
+}
+
 function nameOf(value) {
   return value === null || value === undefined ? '' : String(value);
 }
@@ -95,14 +102,13 @@ function adapt(rows) {
   var groupOf = {}, dimsOf = {}, maskOf = {};
   objectRows.forEach(function(r) {
     groupOf[r.object_id] = r.imported_path_short != null ? String(r.imported_path_short) : '';
-    dimsOf[r.object_id] = r.spatial_dims != null ? Number(r.spatial_dims) : null;
+    dimsOf[r.object_id] = dimsOfObject(r);
     maskOf[r.object_id] = r.object_mask_name != null ? String(r.object_mask_name) : null;
   });
   var kindOf = {};   // structures are one kind throughout a batch
   entityRows.forEach(function(r) { if (r.entity_kind) kindOf[r.entity_name] = r.entity_kind; });
 
-  var dims = uniq(objectRows.map(function(r){ return r.spatial_dims; })
-                            .filter(function(d){ return d != null; }).map(Number));
+  var dims = uniq(objectRows.map(dimsOfObject).filter(function(d){ return d != null; }));
   PLANAR = dims.length > 0 && dims.every(function(d){ return d === 2; });
   MIXED_DIMS = dims.length > 1;
   // Whether anything bounds the thing decides what to call it, and what can be said about

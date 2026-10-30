@@ -64,6 +64,7 @@ function addInstance(stage, item, hex) {
 async function paintThumb(target, item, hex) {
   var stage = await thumbStage();
   stage.clear();
+  stage.setPlanar(PLANAR);
   addInstance(stage, item, hex);
   stage.fit();
   var context = target.getContext('2d');
@@ -108,6 +109,7 @@ async function openInstance(item, title) {
   }
   var stage = _modalStage;
   stage.clear();
+  stage.setPlanar(PLANAR);
   addInstance(stage, item, item.hex);
   stage.resize(canvas.clientWidth, canvas.clientHeight);
   stage.fit();

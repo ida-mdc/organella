@@ -374,9 +374,16 @@ def with_noun(description: str, noun: str | None) -> str:
     return re.sub(r"\bobject\b", noun.partition("/")[0], re.sub(r"\bobjects\b", plural_of(noun), description))
 
 
-def descriptions_for(columns, noun: str | None = None) -> dict[str, str]:
+def for_a_plane(description: str) -> str:
+    """A description as a reader of a 2D report should read it: samples are pixels, and an object is an image."""
+    return (re.sub(r"\bvoxel(s?)\b", r"pixel\1", description)
+            .replace("of the volume that was measured", "of the image that was measured")
+            .replace("1 is a sphere, or a disc in a plane;", "1 is a disc;"))
+
+
+def descriptions_for(columns, noun: str | None = None, planar: bool = False) -> dict[str, str]:
     """The description of each of these columns that has one."""
-    return {c: with_noun(describe(c), noun) for c in columns if describe(c)}
+    return {c: (for_a_plane if planar else str)(with_noun(describe(c), noun)) for c in columns if describe(c)}
 
 
 

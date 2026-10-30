@@ -125,6 +125,7 @@ def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl
         "object_mask_name": sample.object_mask,
     }
     if sample.object_mask:
+        "spatial_dims": len(edge),
         row[columns.object_size(len(edge))] = float(centre_stats["count"].sum()) * sample.voxel_size.volume
     if centre is not None:
         row.update({f"object_center_{a}_um": float(c) for a, c in zip(axes, centre)})

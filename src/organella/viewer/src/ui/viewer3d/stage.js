@@ -34,7 +34,10 @@ var STAGE = {
 // to the object, so the shadows travel across it as you orbit. Head-on would flatten it.
 var LIGHT_OFFSET = (35 * Math.PI) / 180;
 
-/** A renderer, scene and camera for one canvas, plus the orbit interaction. */
+/**
+ * A renderer, scene and camera for one canvas, plus the interaction: orbit in 3D, and for a plane (``setPlanar``) a fixed
+ * view straight down onto it that can only be panned and zoomed.
+ */
 function makeStage(THREE, canvas, opts) {
   var shadows = !opts || opts.shadows !== false;
   var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -49,6 +52,7 @@ function makeStage(THREE, canvas, opts) {
   var target = new THREE.Vector3();
   var spherical = { radius: 5, theta: Math.PI * 0.25, phi: Math.PI * 0.35 };
   var framed = null;                 // { centre, size } of what is drawn
+  var planar = false;                // a plane has no side to look from: the camera is fixed square on to it
 
   // Depth comes from the light falling off, so the ambient term stays low and the rest is
   // directional: a key from above front, a weak fill so the shadow side is not black, and a
@@ -139,6 +143,7 @@ function makeStage(THREE, canvas, opts) {
       target.x + spherical.radius * sinPhi * Math.sin(spherical.theta),
       target.y + spherical.radius * Math.cos(spherical.phi),
       target.z + spherical.radius * sinPhi * Math.cos(spherical.theta));
+    camera.up.set(0, planar ? -1 : 1, 0);      // an image has its rows running down the screen
     camera.lookAt(target);
     placeKey();                              // the light rides with the camera
     renderer.render(scene, camera);
@@ -158,7 +163,7 @@ function makeStage(THREE, canvas, opts) {
       stage.spinLoop = true;
       var tick = function() {
         if (!spinning || !canvas.isConnected) { stage.spinLoop = false; return; }
-        if (!document.hidden && lastCost < 40 && !pose) {
+        if (!document.hidden && lastCost < 40 && !pose && !planar) {
           spherical.theta += 0.0035;
           apply();
         }
@@ -168,12 +173,25 @@ function makeStage(THREE, canvas, opts) {
     },
     /** The camera's angles, read or set: how far round, and how far up from the pole. */
     view: function(to, andDraw) {
-      if (to) {
+      if (to && !planar) {
         spherical.theta = to.theta; spherical.phi = to.phi;
         if (andDraw !== false) apply();
       }
       return { theta: spherical.theta, phi: spherical.phi };
     },
+    /**
+     * A plane is looked at square on, from the side its rows read downwards, and never turned: left-drag pans and the wheel
+     * zooms. Putting it back to 3D restores the orbit the camera had.
+     */
+    setPlanar: function(on) {
+      if (on === planar) return;
+      planar = on;
+      spinning = false;
+      if (on) { spherical.theta = Math.PI; spherical.phi = Math.PI / 2; }
+      else { spherical.theta = Math.PI * 0.25; spherical.phi = Math.PI * 0.35; }
+      scene.fog = null;
+    },
+    isPlanar: function() { return planar; },
     /** Turn what is drawn (a Matrix4), or put it back (null). Drawn by the next draw. */
     setPose: function(matrix) { pose = matrix; },
     /**
@@ -207,7 +225,7 @@ function makeStage(THREE, canvas, opts) {
       camera.updateProjectionMatrix();
       // Fog over the depth of the object itself, so the far side fades into the paper. It
       // starts behind the near face, so nothing in front of the middle is dulled.
-      scene.fog = new THREE.Fog(STAGE.background, spherical.radius * 0.85, spherical.radius * 2.8);
+      scene.fog = planar ? null : new THREE.Fog(STAGE.background, spherical.radius * 0.85, spherical.radius * 2.8);
       apply();
     },
     resize: function(width, height) {
@@ -242,7 +260,7 @@ function makeStage(THREE, canvas, opts) {
   canvas.style.touchAction = 'none';
   canvas.addEventListener('pointerdown', function(event) {
     spinning = false;
-    dragging = { x: event.clientX, y: event.clientY, pan: event.button === 2 || event.shiftKey };
+    dragging = { x: event.clientX, y: event.clientY, pan: planar || event.button === 2 || event.shiftKey };
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', function(event) {
@@ -269,10 +287,24 @@ function makeStage(THREE, canvas, opts) {
   };
   canvas.addEventListener('pointerup', stop);
   canvas.addEventListener('pointercancel', stop);
+  // Zooming a plane keeps the point under the pointer where it is, as a map does.
+  var zoomAbout = function(event, factor) {
+    var box = canvas.getBoundingClientRect();
+    var x = ((event.clientX - box.left) / box.width) * 2 - 1, y = -(((event.clientY - box.top) / box.height) * 2 - 1);
+    var half = spherical.radius * Math.tan((camera.fov * Math.PI) / 360), shift = half * (1 - factor);
+    camera.updateMatrixWorld();
+    var e = camera.matrixWorld.elements;
+    target.x += (e[0] * x * camera.aspect + e[4] * y) * shift;
+    target.y += (e[1] * x * camera.aspect + e[5] * y) * shift;
+    target.z += (e[2] * x * camera.aspect + e[6] * y) * shift;
+  };
+  canvas.addEventListener('dblclick', function() { if (planar) stage.fit(); });
   canvas.addEventListener('contextmenu', function(event){ event.preventDefault(); });
   canvas.addEventListener('wheel', function(event) {
     event.preventDefault();
-    spherical.radius = Math.max(1e-4, spherical.radius * (1 + Math.sign(event.deltaY) * 0.12));
+    var factor = 1 + Math.sign(event.deltaY) * 0.12;
+    if (planar) zoomAbout(event, factor);
+    spherical.radius = Math.max(1e-4, spherical.radius * factor);
     apply();
   }, { passive: false });
 

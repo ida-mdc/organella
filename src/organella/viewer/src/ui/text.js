@@ -214,5 +214,16 @@ function fillNouns() {
   });
   document.querySelectorAll('[data-noun-label]').forEach(function(el) {
     el.textContent = Noun();
+/** "2D" for a report of planes, "3D" otherwise. */
+function dimsWord() { return PLANAR ? '2D' : '3D'; }
+
+/** How to move the viewer: a plane can only be panned and zoomed. */
+function viewerHowTo() {
+  return PLANAR ? 'Drag to pan, scroll to zoom, double-click to fit.' : 'Drag to orbit, scroll to zoom, shift-drag to pan.';
+}
+
   });
 }
+  document.querySelectorAll('[data-howto]').forEach(function(el) {
+    el.textContent = viewerHowTo();
+  });

@@ -55,6 +55,8 @@ await send('Page.navigate', { url });
 
 const snapshot = `JSON.stringify({
   charts: document.querySelectorAll('.js-plotly-plot').length,
+  planar: typeof PLANAR === 'undefined' ? null : PLANAR,
+  pin: (document.querySelector('.pin-3d span') || {}).textContent || null,
   loadError: document.getElementById('landing-error') && !document.getElementById('landing-error').classList.contains('d-none')
     ? document.getElementById('landing-error-msg').textContent : null,
   sections: Object.fromEntries([...document.querySelectorAll('section[id^="s-"], [id^="s-"]')].filter((e) => /^s-[a-z0-9]+$/.test(e.id))

@@ -31,7 +31,8 @@ def read_report(path: Path) -> tuple[pl.DataFrame, dict[str, str]]:
 def write_report(rows: pl.DataFrame, path: Path, footer: dict[str, str]) -> None:
     """Rows, a description on every field that has one, and the footer, which holds the descriptions too: a browser's
     parquet reader drops field metadata, so the page reads the footer copy to explain a metric under its chart."""
-    described = descriptions_for(rows.columns, footer.get(NOUN_KEY))
+    planar = "spatial_dims" in rows.columns and rows["spatial_dims"].drop_nulls().unique().to_list() == [2]
+    described = descriptions_for(rows.columns, footer.get(NOUN_KEY), planar)
     table = rows.to_arrow()
     fields = [f.with_metadata({**(f.metadata or {}), b"description": described[f.name].encode()}) if f.name in described else f
               for f in table.schema]
