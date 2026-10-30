@@ -171,13 +171,27 @@ function polarityOverlay(THREE, frame, o) {
               c[2] + a[2] * x + frame.u[2] * y];
     };
 
+    // Where a group's diamond goes, a fraction `t` of the way. In the half plot it is the middle of the dots as drawn, so the two
+    // sides of the axis, folded together there, do not cancel the way they do in the average vector.
+    var diamondSpot = function(g, t, out) {
+      if (layout === 'half') {
+        var half = polarHalfCentre(g.units.map(function(u){ return u.angle; }),
+                                   g.units.map(function(u){ return polarPlotRadius(frame, u, o.radiusMode); }),
+                                   g.units.map(function(u){ return u.weight; }));
+        if (half) {
+          var n = a.map(function(v, k){ return Math.cos(half.angle) * v + Math.sin(half.angle) * frame.u[k]; });
+          polarMorphPoint(frame, layout, n, half.radius, half.radius, t, out, 0);
+          return;
+        }
+      }
+      polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond), t, out, 0, g.diamond.theta);
+    };
     groups.forEach(function(g) {
       var tint = colourOf(g.name);
       var target = null;
       if (g.diamond) {
         target = new Float32Array(3);
-        polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond), 1,
-                        target, 0, g.diamond.theta);
+        diamondSpot(g, 1, target);
       }
       var coords = new Float32Array(g.units.length * 3);
       g.units.forEach(function(unit, i) {
@@ -203,8 +217,7 @@ function polarityOverlay(THREE, frame, o) {
       // is not a place in the data, and appears faded in as the points gather.
       if (g.diamond && (layout === 'half' || layout === 'circle') && sT > 0.02) {
         var where = new Float32Array(3);
-        polarMorphPoint(frame, layout, g.diamond.n, g.diamond.dist, radiusOfDiamond(g.diamond),
-                        sT, where, 0, g.diamond.theta);
+        diamondSpot(g, sT, where);
         diamondAt(where, '#' + new THREE.Color(tint).getHexString(),
                   gemSize * (0.8 + 0.7 * Math.max(sT, kT)), Math.min(1, sT * 3), true, 9);
       }

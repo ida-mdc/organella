@@ -686,14 +686,15 @@ function renderPolarity() {
     var sizes = polarWeights(rows);
     var found = polarityIndices(rows.map(function(r){ return r.unit; }), axis.unit, sizes);
     if (!found || !found.mean) return null;
-    return { id: id, r: weightedQuantile(rows.map(radiusOf), sizes, 0.5),
-             cone: polarConeDeg(found.mean, axis.unit),
+    // The middle of the instances as the plot would draw them, each at its angle to the axis and its radius.
+    var centre = polarHalfCentre(rows.map(function(r){ return r.angle_deg; }), rows.map(radiusOf), sizes);
+    return { id: id, r: centre.radius, cone: centre.angle * 180 / Math.PI,
              R: found.R, V: found.V, n: rows.length };
   };
   setHtml('pol-map-desc', 'One diamond per ' + noun() + ' and structure, one plot per group. The radius is '
     + (toMask ? 'the depth inside the ' + dataName(mask) : 'the distance from the centre of the ' + noun())
-    + ' at which the structure lies, taken as the middle of its instances. The angle is that of its average'
-    + ' direction to the axis towards ' + dataName(ref) + ' (<b>0° towards</b>, <b>180° away</b>). A star marks '
+    + ' and the angle to the axis towards ' + dataName(ref) + ' (<b>0° towards</b>, <b>180° away</b>) at which the structure lies: the'
+    + ' average position of its instances, each placed at its own radius and angle. A star marks '
     + dataName(ref) + '. Only the angle to the axis is fixed by the data; the side of the axis on which a'
     + ' structure falls is arbitrary, so the ' + noun(true) + ' of a group can share a plot.');
 

@@ -295,6 +295,24 @@ function polarCentreAngleDeg(units, frame, weights) {
   return Math.hypot(x, y) > 1e-9 ? Math.atan2(y, x) * 180 / Math.PI : null;
 }
 
+/**
+ * Where the dots of a half plot are centred: the weighted mean of the points as they are drawn, each at its angle to the axis
+ * (degrees) and its radius. Folding puts the instances of both sides of the axis into one half, so this is not the angle of the
+ * average vector, in which the two sides cancel; it is the middle of what the plot shows. Null without a point.
+ */
+function polarHalfCentre(angles, radii, weights) {
+  var x = 0, y = 0, total = 0;
+  angles.forEach(function(angle, i) {
+    var r = radii[i], w = weights && weights.length === angles.length ? weights[i] : 1;
+    if (r == null || !isFinite(r)) return;
+    x += w * r * Math.cos(angle * Math.PI / 180);
+    y += w * r * Math.sin(angle * Math.PI / 180);
+    total += w;
+  });
+  if (!total) return null;
+  return { radius: Math.hypot(x, y) / total, angle: Math.atan2(y, x) };   // y is never negative, so the angle is 0..180
+}
+
 /** The circle plot's diamond angle, falling back on the 3D mean where the angles cancel. */
 function centreAngle(units, frame, weights, mean) {
   var angle = polarCentreAngleDeg(units, frame, weights);
