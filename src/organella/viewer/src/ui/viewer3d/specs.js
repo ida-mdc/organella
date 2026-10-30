@@ -141,7 +141,16 @@ function groupSpec(entity, aspect, cols) {
     spec.title = '% of ' + entity + ' reaching another';
     spec.text = 'Each ' + named + ' instance is either in a group of two or more - drawn in its own colour - or'
       + ' touches nothing and is dim. The chart’s number is the share of instances that are in a group.' + gap;
-  } else if (aspect === 'reach' || aspect === 'baseline') {
+  } else if (aspect === 'baseline') {
+    var tb = targets[0];
+    spec.valueLabel = 'Same-size groups beaten (%)';
+    spec.title = entity + ' group to ' + (tb || (cols && cols[0]) || 'a structure');
+    spec.text = 'A bigger group reaches closer to anything just by being bigger, so each group of ' + named + ' is scored against random groups of'
+      + ' its own size drawn from this ' + noun() + '\u2019s ' + named + ': the share of them it reaches ' + dataName(tb || 'the structure')
+      + ' closer than. That share is the number the chart plots, and 50% is what chance gives. Cyan groups are closer than their size explains,'
+      + ' magenta ones further. Pick a group to see its nearest member against what a random group of its size gets.'
+      + ' ' + dataName(tb || 'It') + ' is drawn see-through in amber; instances touching nothing are not groups and stay faint.' + gap;
+  } else if (aspect === 'reach') {
     var t = targets[0];
     spec.valueLabel = 'Closest approach of the group to ' + (t || 'the structure') + ' (µm)';
     spec.title = entity + ' group to ' + (t || (cols && cols[0]) || 'a structure');
@@ -149,10 +158,7 @@ function groupSpec(entity, aspect, cols) {
       + ': the nearest any member gets. Magenta is near, cyan is far. '
       + dataName(t || 'It') + ' is drawn see-through in amber; instances touching'
       + ' nothing are not groups and stay faint.'
-      + (aspect === 'baseline'
-          ? ' The chart scores each distance against groups of the same size that could have formed by chance, because'
-            + ' a larger group reaches closer whatever it is made of; the picture is the distance underneath the score.'
-          : '') + gap;
+      + gap;
   } else if (aspect === 'both') {
     spec.valueLabel = 'Closest approach to the further of ' + targets.join(' and ') + ' (µm)';
     spec.title = entity + ' groups near ' + targets.join(' and ');

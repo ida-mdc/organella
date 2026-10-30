@@ -98,4 +98,4 @@ var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: n
                    // The chart the viewer is explaining, if any (see pinToViewer), and the
                    // two things a reader can slide to see how the 3D feeds that chart.
                    explain: null, wedgePaused: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0,
-                   groupAt: 0, groupPaused: null };
+                   groupAt: null };

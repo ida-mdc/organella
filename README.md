@@ -116,7 +116,7 @@ structure (contacts), Polarity, and The files behind it.
 - The **Instances** tab is a gallery of individual shapes, sortable by any metric.
 
 **Colours.** All values use matplotlib's `cool_r` (magenta = low or near, cyan = high or far). The structure a distance
-is measured to is always amber. Contact groups are shown one at a time with play, back and next.
+is measured to is always amber. Contact groups are each coloured by the metric; a menu highlights one.
 
 **Distances against chance.** The per-voxel distance panels show how close every point of the object is to a structure,
 as the reference for the instances. `--baseline-exclude` leaves a structure (i.e. nucleus) out of that region.

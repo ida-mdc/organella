@@ -1,4 +1,4 @@
-/** Bring up the chart of one measurement of one structure, scroll to it, and flash it. */
+/** Bring up the chart of one measurement of one structure, scroll to it, flash it, and show it in the viewer as its own button would. */
 function goToChart(ent, col) {
   if (st.statsEntity !== ent) {
     st.statsEntity = ent;
@@ -16,6 +16,8 @@ function goToChart(ent, col) {
   cell.classList.remove('flash');
   void cell.offsetWidth;
   cell.classList.add('flash');
+  // Pressing the chart's button again lets go, so it is only pressed when the chart is not the one on show.
+  if (!cell.classList.contains('pinned')) button.click();
 }
 
 /**
@@ -89,7 +91,7 @@ function renderDifferences() {
           + (rest ? '<details class="per-object diff-more"><summary>Show the other '
               + (block.items.length - 6) + '</summary>' + rest + '</details>' : '') + '</div>';
       }).join('') + '</div>'
-    + '<p class="diff-note">Press a row to go to its chart. Bar: Cliff’s delta, the effect size of the'
+    + '<p class="diff-note">Press a row to go to its chart and show it in the viewer. Bar: Cliff’s delta, the effect size of the'
     + ' difference between two groups, from −1 to +1. 0 means the groups overlap completely; ±1 means every'
     + ' value in one group is higher than every value in the other.</p>';
 }
