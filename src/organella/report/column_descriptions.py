@@ -54,12 +54,6 @@ COLUMNS: dict[str, str] = {
         'it is the boundary estimator coming in short on a very small instance, and an elongated or ragged outline '
         'reads below.'
     ),
-    'coarse_factor': (
-        'Set when the object was measured a window at a time (--windowed): how many voxels wide the coarse view was '
-        'that the whole-object measurements ran on - the chance distributions, how deep each structure sits, the '
-        "shape of each whole-structure mask, and any distance past the window's reach. 1 means they ran at full "
-        'resolution. Null for an object measured whole.'
-    ),
     'contact_count': (
         'Number of instance pairs of one structure within the recorded gap threshold; on the object row.'
     ),
@@ -384,3 +378,18 @@ def descriptions_for(columns, noun: str | None = None) -> dict[str, str]:
     """The description of each of these columns that has one."""
     return {c: with_noun(describe(c), noun) for c in columns if describe(c)}
 
+
+
+def metrics_markdown() -> str:
+    """Every column and what it means, as the page ``docs/metrics.md``."""
+    rows = [f"| `{column}` | {text.replace('|', '/')} |" for column, text in COLUMNS.items()]
+    patterned = [f"| `{pattern.strip('^$')}` | {text} |" for pattern, text in PATTERNS]
+    return ("# What every column of a report means\n\nGenerated from `src/organella/report/column_descriptions.py`; "
+            "the report page shows the same text under each chart.\n\n| Column | Meaning |\n| --- | --- |\n"
+            + "\n".join(rows + patterned) + "\n")
+
+
+if __name__ == "__main__":   # python -m organella.report.column_descriptions docs/metrics.md
+    import sys
+    from pathlib import Path
+    Path(sys.argv[1]).write_text(metrics_markdown())

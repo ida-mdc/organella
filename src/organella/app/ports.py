@@ -7,6 +7,7 @@ from typing import Callable, Iterable, Mapping, Protocol
 import polars as pl
 
 from organella.app.settings import Settings
+from organella.app.shared import Shared
 from organella.core import RowType, Sample
 
 
@@ -27,14 +28,13 @@ class SampleSource(Protocol):
 class Measurement(Protocol):
     """One thing measured on a sample, as rows by type. One pass may feed several row types."""
 
-    def measure(self, sample: Sample, settings: Settings, shared: dict) -> Mapping[RowType, pl.DataFrame]: ...
-    # ``shared`` is the sample's scratchpad: what an earlier measurement found that a later one reads.
+    def measure(self, sample: Sample, settings: Settings, shared: Shared) -> Mapping[RowType, pl.DataFrame]: ...
 
 
 class GeometrySink(Protocol):
     """Where an object's drawable geometry goes; returns the file it wrote, which the object row records."""
 
-    def write(self, sample: Sample, shared: dict, settings: Settings) -> Path: ...
+    def write(self, sample: Sample, shared: Shared, settings: Settings) -> Path: ...
 
 
 class PartStore(Protocol):

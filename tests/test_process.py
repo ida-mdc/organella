@@ -3,6 +3,7 @@ import json
 import numpy as np
 import polars as pl
 import pytest
+import tifffile
 from scipy import ndimage
 
 from conftest import VOXEL_UM
@@ -14,14 +15,8 @@ from organella.sources import FolderSource
 
 
 @pytest.fixture(scope="module")
-def report(object_folder, tmp_path_factory) -> pl.DataFrame:
-    out = tmp_path_factory.mktemp("out") / "report.parquet"
-    failures = process(
-        FolderSource(object_folder.parent, object_mask="cell"),
-        DEFAULT, ParquetSink(out), Settings(reach_um=0.4),
-    )
-    assert failures == {}
-    return pl.read_parquet(out)
+def report(report_path) -> pl.DataFrame:
+    return pl.read_parquet(report_path)
 
 
 def rows(report, row_type):
@@ -46,11 +41,8 @@ def test_distances_match_an_in_memory_transform_up_to_the_reach(report, arrays):
     got = rows(report, "distance").filter(pl.col("distance_target") == "wall").sort("distance_label")
     expected = [min(exact[arrays["mito"] == i].min(), reach) for i in got["distance_label"]]
     assert got["distance_um"].to_numpy() == pytest.approx(expected, abs=1e-5)
-
-
-def test_distance_past_the_reach_is_flagged(report):
-    far = rows(report, "distance").filter(pl.col("distance_um") >= 0.4)
-    assert far["distance_beyond_reach"].all()
+    far = rows(report, "distance").filter(pl.col("distance_um") >= reach)
+    assert far.height and far["distance_beyond_reach"].all()      # and a distance that hit the reach says so
 
 
 def test_baseline_covers_the_object_without_the_target_itself(report, arrays):
@@ -58,17 +50,6 @@ def test_baseline_covers_the_object_without_the_target_itself(report, arrays):
     inside_wall = int(((arrays["wall"] > 0) & (arrays["cell"] > 0)).sum())
     assert baseline["baseline_voxels"][0] == int(arrays["cell"].sum()) - inside_wall
     assert sum(json.loads(baseline["baseline_hist_counts"][0])) == baseline["baseline_voxels"][0]
-
-
-def test_chunk_borders_change_nothing(object_folder, tmp_path, arrays):
-    reach = 0.4
-    out = tmp_path / "chunked.parquet"
-    process(FolderSource(object_folder.parent, object_mask="cell"), DEFAULT, ParquetSink(out),
-            Settings(reach_um=reach, chunk_edge=24))
-    got = rows(pl.read_parquet(out), "distance").filter(pl.col("distance_target") == "wall").sort("distance_label")
-    exact = ndimage.distance_transform_edt(arrays["wall"] == 0, sampling=VOXEL_UM)
-    expected = [min(exact[arrays["mito"] == i].min(), reach) for i in got["distance_label"]]
-    assert got["distance_um"].to_numpy() == pytest.approx(expected, abs=1e-5)
 
 
 def test_a_reach_wider_than_a_chunk_is_refused(object_folder, tmp_path):
@@ -97,3 +78,17 @@ def test_a_sample_of_masks_alone_is_measured_with_its_geometry(tmp_path, object_
     assert failures == {}
     rows = pl.read_parquet(report)
     assert set(rows["row_type"]) >= {"object", "entity"} and rows.filter(pl.col("row_type") == "object")["mesh_geometry_file"][0]
+
+
+def test_a_sample_that_cannot_be_opened_is_a_failure_and_the_others_still_run(tmp_path, object_folder):
+    batch = tmp_path / "batch"
+    (batch / "a_broken").mkdir(parents=True)
+    tifffile.imwrite(batch / "a_broken" / "x_cell_mask.tif", np.ones((4, 4, 4), np.uint8))
+    (batch / "z_good").symlink_to(object_folder)
+    out = tmp_path / "r.parquet"
+    failures = process(FolderSource(batch, object_mask="cell"), DEFAULT, ParquetSink(out), Settings(reach_um=0.4))
+    assert list(failures) == ["a_broken"] and "voxel size" in failures["a_broken"]
+    assert pl.read_parquet(out)["object_id"].unique().to_list() == ["z_good"]
+    (tmp_path / "empty").mkdir()
+    nothing = process(FolderSource(tmp_path / "empty"), DEFAULT, ParquetSink(tmp_path / "none.parquet"), Settings())
+    assert nothing and not (tmp_path / "none.parquet").exists()      # nothing to measure is a failure too

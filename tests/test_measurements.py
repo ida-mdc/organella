@@ -1,19 +1,17 @@
-"""Inputs that broke or silently misled the first version."""
+"""What the measurements come to on small arrays whose answer is known: against scipy where there is an exact one."""
 import json
+from dataclasses import replace
 
+import dask.array as da
 import numpy as np
 import polars as pl
 import pytest
-import tifffile
 from scipy import ndimage
 
-from organella.app.process import process
+from organella.app.process import _measure
 from organella.app.settings import Settings
 from organella.core import Kind, Sample, Structure, VoxelSize
-from organella.measure import DEFAULT
-from organella.sinks import ParquetSink
-from organella.sources import FolderSource, StoreSource
-import dask.array as da
+from organella.measure import DEFAULT, Statistics
 
 
 def sample_of(arrays: dict[str, np.ndarray], kinds: dict[str, Kind], voxel_um, mask=None) -> Sample:
@@ -21,9 +19,8 @@ def sample_of(arrays: dict[str, np.ndarray], kinds: dict[str, Kind], voxel_um, m
                   {n: Structure(n, kinds[n], da.from_array(a, chunks=a.shape)) for n, a in arrays.items()}, mask)
 
 
-def measure_all(sample: Sample, settings: Settings) -> pl.DataFrame:
-    from organella.app.process import _measure
-    return pl.concat(_measure(sample, DEFAULT, settings), how="diagonal_relaxed")
+def measure_all(sample: Sample, settings: Settings, measurements=DEFAULT) -> pl.DataFrame:
+    return pl.concat(_measure(sample, measurements, settings), how="diagonal_relaxed")
 
 
 def distances(report: pl.DataFrame, target: str) -> pl.DataFrame:
@@ -46,24 +43,6 @@ def test_a_shape_that_is_not_a_multiple_of_the_chunk_gives_the_in_memory_answer(
     exact = ndimage.distance_transform_edt(target == 0, sampling=voxel)
     expected = [min(exact[labels == i].min(), reach) for i in (1, 2)]
     assert distances(report, "t")["distance_um"].to_numpy() == pytest.approx(expected, abs=1e-6)
-
-
-def test_a_sample_that_cannot_be_opened_is_a_failure_and_the_others_still_run(tmp_path, object_folder):
-    batch = tmp_path / "batch"
-    batch.mkdir()
-    (batch / "a_broken").mkdir()
-    tifffile.imwrite(batch / "a_broken" / "x_cell_mask.tif", np.ones((4, 4, 4), np.uint8))
-    (batch / "z_good").symlink_to(object_folder)
-    out = tmp_path / "r.parquet"
-    failures = process(FolderSource(batch, object_mask="cell"), DEFAULT, ParquetSink(out), Settings(reach_um=0.4))
-    assert list(failures) == ["a_broken"] and "voxel size" in failures["a_broken"]
-    assert pl.read_parquet(out)["object_id"].unique().to_list() == ["z_good"]
-
-
-def test_nothing_to_measure_is_reported(tmp_path):
-    (tmp_path / "empty").mkdir()
-    failures = process(FolderSource(tmp_path / "empty"), DEFAULT, ParquetSink(tmp_path / "r.parquet"), Settings())
-    assert failures and not (tmp_path / "r.parquet").exists()
 
 
 @pytest.mark.parametrize("dtype", [np.uint8, np.int32, np.uint64])
@@ -91,17 +70,6 @@ def test_an_empty_object_mask_has_no_centre():
     assert row["object_volume_um3"] == 0 and row.get("object_center_z_um") is None
 
 
-def test_a_2d_sample_is_measured():
-    labels = np.zeros((30, 30), np.uint16)
-    labels[5:9, 5:9] = 1
-    target = np.zeros((30, 30), np.uint8)
-    target[20, :] = 1
-    report = measure_all(sample_of({"m": labels, "t": target}, {"m": Kind.LABEL, "t": Kind.MASK}, (0.1, 0.2)),
-                         Settings(reach_um=2.0, chunk_edge=32))
-    exact = ndimage.distance_transform_edt(target == 0, sampling=(0.1, 0.2))
-    assert distances(report, "t")["distance_um"][0] == pytest.approx(exact[labels == 1].min(), abs=1e-6)
-
-
 def test_a_voxel_size_of_the_wrong_rank_is_refused():
     with pytest.raises(ValueError, match="voxel size"):
         sample_of({"m": np.zeros((4, 4), np.uint8)}, {"m": Kind.LABEL}, (0.1, 0.1, 0.1))
@@ -117,6 +85,33 @@ def test_a_target_touching_the_volume_border_is_zero_away(tmp_path):
     assert distances(report, "t")["distance_um"][0] == 0.0
 
 
+def test_a_plane_is_measured_with_area_perimeter_circularity_and_distances():
+    labels = np.zeros((40, 40), np.uint16)
+    labels[8:20, 8:20] = 1
+    target = np.zeros((40, 40), np.uint8)
+    target[24, :] = 1
+    kinds = {"cell": Kind.MASK, "m": Kind.LABEL, "t": Kind.MASK}
+    s = sample_of({"cell": np.ones((40, 40), np.uint8), "m": labels, "t": target}, kinds, (0.1, 0.2), mask="cell")
+    report = measure_all(s, Settings(reach_um=1.0, chunk_edge=32))
+    exact = ndimage.distance_transform_edt(target == 0, sampling=(0.1, 0.2))
+    assert distances(report, "t")["distance_um"][0] == pytest.approx(exact[labels == 1].min(), abs=1e-6)
+    row = report.filter(pl.col("row_type") == "instance").row(0, named=True)
+    assert row["instance_area_um2"] == pytest.approx(144 * 0.02)
+    assert 0.7 < row["instance_circularity"] <= 1.1 and row["instance_perimeter_um"] > 0
+    assert "instance_volume_um3" not in report.columns and "total_area_um2" in report.columns
+    assert report.filter(pl.col("row_type") == "object")["object_area_um2"][0] == pytest.approx(1600 * 0.02)
+
+
+def test_a_structure_with_no_instances_or_no_voxels_sits_beside_a_measured_one():
+    present = np.zeros((16, 16, 16), np.uint16)
+    present[2:6, 2:6, 2:6] = 1
+    kinds = {"a": Kind.LABEL, "b": Kind.LABEL}
+    report = measure_all(sample_of({"a": present, "b": np.zeros_like(present)}, kinds, (0.1,) * 3), Settings(reach_um=0.3, chunk_edge=8))
+    assert report.filter(pl.col("row_type") == "instance")["instance_entity"].unique().to_list() == ["a"]
+    assert distances(report, "b")["distance_um"].to_list() == [0.3]                       # nothing to be near: the reach
+    assert report.filter(pl.col("row_type") == "baseline")["baseline_target"].to_list() == ["a"]   # and no baseline to it
+
+
 def test_clipping_to_the_object_mask_can_be_turned_off():
     cell = np.zeros((16, 16, 16), np.uint8)
     cell[:, :, :8] = 1
@@ -127,45 +122,6 @@ def test_clipping_to_the_object_mask_can_be_turned_off():
     clipped = vol(measure_all(s, Settings(reach_um=0.3, chunk_edge=8)))
     whole = vol(measure_all(s, Settings(reach_um=0.3, chunk_edge=8, clip_to_object_mask=False)))
     assert (clipped, whole) == pytest.approx((4 * 4 * 4 * 1e-3, 4 * 4 * 8 * 1e-3))
-
-
-def test_a_manifest_crop_accepts_open_ends_and_refuses_empty_or_strided(tmp_path):
-    import zarr
-    root = zarr.open_group(tmp_path / "c.zarr", mode="w")
-    root.create_array("a", data=np.ones((8, 8, 8), np.uint8), chunks=(4, 4, 4))
-    def sample(crop):
-        manifest = tmp_path / "m.json"
-        manifest.write_text(json.dumps({"store": str(tmp_path / "c.zarr"), "voxel_size_um": [1, 1, 1],
-                                        "crop": crop, "entities": {"a": "a"}}))
-        (ref,) = StoreSource(manifest).samples()
-        return ref.open()
-    assert sample(":,:,:").shape == (8, 8, 8)
-    assert sample("-5:,0:3,:3").shape == (5, 3, 3)
-    for bad in ("5:2,0:3,0:3", "::2,:,:"):
-        with pytest.raises(ValueError):
-            sample(bad)
-
-
-def test_prefixes_are_matched_longest_first_and_duplicates_are_refused(tmp_path):
-    folder = tmp_path / "o"
-    folder.mkdir()
-    for name in ("a.tif", "a_b.tif", "a_b_m_label.tif"):
-        tifffile.imwrite(folder / name, np.zeros((4, 4, 4), np.uint8))
-    from organella.sources.folder import object_files
-    assert [e.name for e in object_files(folder).entities] == ["m"]
-    tifffile.imwrite(folder / "a_m_label.tif", np.zeros((4, 4, 4), np.uint8))
-    with pytest.raises(ValueError, match="'m'"):
-        object_files(folder)
-
-
-def test_a_labelled_structure_with_no_instances_beside_one_with_instances():
-    present = np.zeros((16, 16, 16), np.uint16)
-    present[2:6, 2:6, 2:6] = 1
-    absent = np.zeros_like(present)
-    report = measure_all(sample_of({"a": present, "b": absent}, {"a": Kind.LABEL, "b": Kind.LABEL}, (0.1,) * 3),
-                         Settings(reach_um=0.3, chunk_edge=8))
-    assert report.filter(pl.col("row_type") == "instance")["instance_entity"].unique().to_list() == ["a"]
-    assert distances(report, "b")["distance_um"].to_list() == [0.3]
 
 
 def test_distance_to_the_object_mask_is_the_depth_inside_it():
@@ -182,36 +138,6 @@ def test_distance_to_the_object_mask_is_the_depth_inside_it():
     assert distances(report, "cell")["distance_um"].to_numpy() == pytest.approx(expected, abs=1e-6)
     baseline = report.filter((pl.col("row_type") == "baseline") & (pl.col("baseline_target") == "cell"))
     assert baseline["baseline_voxels"][0] == int(cell.sum())
-
-
-def test_a_target_with_no_voxels_has_no_baseline():
-    labels = np.zeros((16, 16, 16), np.uint16)
-    labels[2:6, 2:6, 2:6] = 1
-    report = measure_all(sample_of({"a": labels, "b": np.zeros_like(labels)}, {"a": Kind.LABEL, "b": Kind.LABEL}, (0.1,) * 3),
-                         Settings(reach_um=0.3, chunk_edge=8))
-    assert report.filter(pl.col("row_type") == "baseline")["baseline_target"].to_list() == ["a"]
-
-
-def test_a_plane_reports_area_perimeter_and_circularity():
-    labels = np.zeros((40, 40), np.uint16)
-    labels[8:20, 8:20] = 1
-    cell = np.ones((40, 40), np.uint8)
-    report = measure_all(sample_of({"cell": cell, "m": labels}, {"cell": Kind.MASK, "m": Kind.LABEL}, (0.1, 0.1), mask="cell"),
-                         Settings(reach_um=0.5, chunk_edge=16))
-    row = report.filter(pl.col("row_type") == "instance").row(0, named=True)
-    assert row["instance_area_um2"] == pytest.approx(144 * 0.01)
-    assert 0.7 < row["instance_circularity"] <= 1.1 and row["instance_perimeter_um"] > 0
-    assert "instance_volume_um3" not in report.columns and "total_area_um2" in report.columns
-    assert report.filter(pl.col("row_type") == "object")["object_area_um2"][0] == pytest.approx(16.0)
-
-
-def test_a_compressed_and_an_uncompressed_tiff_both_open_and_slice(tmp_path):
-    from organella.sources.arrays import open_tiff
-
-    volume = np.random.default_rng(4).integers(0, 9, (6, 20, 24)).astype(np.uint16)
-    for name, kwargs in (("plain.tif", {}), ("packed.tif", {"compression": "zlib"})):
-        tifffile.imwrite(tmp_path / name, volume, **kwargs)
-        np.testing.assert_array_equal(open_tiff(tmp_path / name)[1:4, 5:9].compute(), volume[1:4, 5:9])
 
 
 def test_contacts_are_rows_with_a_count_on_the_object_and_can_be_switched_off():
@@ -246,37 +172,24 @@ def test_skeleton_columns_and_how_far_the_tips_of_an_instance_are_from_a_structu
     assert far["distance_end_min_um"] == pytest.approx(far["distance_um"], abs=0.35)
 
 
-def test_without_a_skeleton_request_there_are_no_skeleton_or_end_columns():
-    labels = np.zeros((16, 16, 16), np.uint16)
-    labels[4:10, 4:10, 4:10] = 1
-    report = measure_all(sample_of({"t": labels, "w": np.ones_like(labels, np.uint8)}, {"t": Kind.LABEL, "w": Kind.MASK}, (0.1,) * 3),
-                         Settings(reach_um=0.5, chunk_edge=16, contacts=False))
-    assert not [c for c in report.columns if "branches" in c or "tortuosity" in c or "_end_" in c]
-
-
-def test_a_skeletonised_structure_beside_one_that_is_not():
+def test_skeleton_columns_exist_only_for_what_was_asked_and_tips_need_a_target_with_voxels():
     shape = (16, 16, 40)
     z, y, x = np.indices(shape)
     tube = (((y - 8) ** 2 + (z - 8) ** 2 <= 3.5 ** 2) & (x >= 5) & (x <= 34)).astype(np.uint16)
     blobs = np.zeros(shape, np.uint16)
     blobs[2:5, 2:5, 2:5] = 1
-    s = sample_of({"tube": tube, "blobs": blobs}, {"tube": Kind.LABEL, "blobs": Kind.LABEL}, (0.1,) * 3)
-    report = measure_all(s, Settings(reach_um=1.0, chunk_edge=48, contacts=False, skeletons=frozenset({"tube"})))
-    got = report.filter(pl.col("row_type") == "instance").sort("instance_entity").select("instance_entity", "instance_branches")
-    assert got["instance_entity"].to_list() == ["blobs", "tube"]
-    assert np.isnan(got["instance_branches"][0]) and got["instance_branches"][1] == 1
-
-
-def test_tip_distances_to_a_structure_with_no_voxels_are_null_where_another_target_has_them():
-    shape = (16, 16, 40)
-    z, y, x = np.indices(shape)
-    tube = (((y - 8) ** 2 + (z - 8) ** 2 <= 3.5 ** 2) & (x >= 5) & (x <= 34)).astype(np.uint16)
     wall = np.zeros(shape, np.uint8)
     wall[:, :, 0:2] = 1
-    s = sample_of({"tube": tube, "wall": wall, "ghost": np.zeros(shape, np.uint8)},
-                  {"tube": Kind.LABEL, "wall": Kind.MASK, "ghost": Kind.MASK}, (0.1,) * 3)
-    report = measure_all(s, Settings(reach_um=1.0, chunk_edge=48, contacts=False, skeletons=frozenset({"tube"})))
-    towards = lambda name: report.filter((pl.col("row_type") == "distance") & (pl.col("distance_target") == name)).row(0, named=True)
+    kinds = {"tube": Kind.LABEL, "blobs": Kind.LABEL, "wall": Kind.MASK, "ghost": Kind.MASK}
+    s = sample_of({"tube": tube, "blobs": blobs, "wall": wall, "ghost": np.zeros(shape, np.uint8)}, kinds, (0.1,) * 3)
+    settings = Settings(reach_um=1.0, chunk_edge=48, contacts=False)
+    plain = measure_all(s, settings)
+    assert not [c for c in plain.columns if "branches" in c or "tortuosity" in c or "_end_" in c]
+    report = measure_all(s, replace(settings, skeletons=frozenset({"tube"})))
+    got = report.filter(pl.col("row_type") == "instance").sort("instance_entity")
+    assert np.isnan(got["instance_branches"][0]) and got["instance_branches"][1] == 1          # blobs were not traced, the tube was
+    towards = lambda name: report.filter((pl.col("row_type") == "distance") & (pl.col("distance_entity") == "tube")
+                                         & (pl.col("distance_target") == name)).row(0, named=True)
     assert towards("wall")["distance_end_min_um"] is not None
     assert towards("ghost")["distance_end_min_um"] is None and towards("ghost")["distance_end_max_um"] is None
 
@@ -334,18 +247,7 @@ def test_polarity_spread_is_small_for_a_compact_instance_and_large_for_one_that_
 
 
 def test_without_instances_only_the_per_structure_rows_remain_and_contacts_stay_their_own_switch():
-    from organella.measure import Statistics
-    from organella.app.process import _measure
-    report = pl.concat(_measure(blobs_in_a_cell(), (Statistics(),), Settings(reach_um=1.0, chunk_edge=48, instances=False, contacts=False), None),
-                       how="diagonal_relaxed")
+    report = measure_all(blobs_in_a_cell(), Settings(reach_um=1.0, chunk_edge=48, instances=False, contacts=False), (Statistics(),))
     assert set(report["row_type"]) == {"object", "entity"}
     entities = report.filter(pl.col("row_type") == "entity")
     assert entities.filter(pl.col("entity_name") == "blobs")["instance_count"][0] == 2 and "surface_area_um2" in report.columns
-
-
-def test_only_the_named_structures_are_measured_and_the_object_mask_is_kept(object_folder):
-    from organella.sources import FolderSource
-    (ref,) = FolderSource(object_folder.parent, object_mask="cell", entities=frozenset({"mito"})).samples()
-    assert sorted(ref.open().structures) == ["cell", "mito"]
-    with pytest.raises(ValueError, match="nothing.*does not have|--entities names nothing"):
-        (FolderSource(object_folder.parent, object_mask="cell", entities=frozenset({"nothing"})).samples().__iter__().__next__()).open()

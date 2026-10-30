@@ -1,6 +1,7 @@
 """The options commands share, as groups, and the builders that turn parsed options into the things a run is made of."""
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import Callable
 
@@ -109,17 +110,16 @@ def source_from(path: Path, o: dict):
                        read_label_map(o["label_map"]) if o["label_map"] else None, o["label_map_entity"], o["chunk_edge"])
 
 
+# Options named for turning something off; the setting they switch is named for what it does.
+_SWITCHED_OFF = {"no_clip": "clip_to_object_mask", "no_contacts": "contacts", "no_instances": "instances"}
+_SETTINGS = {f.name for f in fields(Settings)}
+
+
 def settings_from(o: dict, *, geometry: bool) -> Settings:
-    return Settings(
-        reach_um=o.get("reach_um", Settings.reach_um), chunk_edge=o["chunk_edge"], clip_to_object_mask=not o["no_clip"], contacts=not o["no_contacts"],
-        contact_max_um=o["contact_max_um"], skeletons=o["skeletons"], max_skeleton_voxels=o["max_skeleton_voxels"],
-        skeleton_scale=o["skeleton_scale"], skeleton_const_voxels=o["skeleton_const_voxels"], skeleton_prune=o["skeleton_prune"],
-        instances=not o.get("no_instances", False), polarity_spread=o.get("polarity_spread", False),
-        distance_histograms=o.get("distance_histograms", False), baseline_exclude=o.get("baseline_exclude", frozenset()),
-        geometry_as=o["geometry_as"], keep_skeletons=geometry, mesh_smooth_sigma=o["mesh_smooth_sigma"],
-        mesh_step_size=o["mesh_step_size"], mesh_target_reduction=o["mesh_target_reduction"], mesh_level=o["mesh_level"],
-        mesh_max_vertices=o["mesh_max_vertices"],
-    )
+    """An option whose name is a ``Settings`` field is that setting; a command without the option leaves the default."""
+    given = {k: v for k, v in o.items() if k in _SETTINGS}
+    given.update({setting: not o[flag] for flag, setting in _SWITCHED_OFF.items() if flag in o})
+    return Settings(**given, keep_skeletons=geometry)
 
 
 def geometry_into(folder: Path, o: dict) -> GeometryWriter:

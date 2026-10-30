@@ -2,8 +2,8 @@ import dask.array as da
 import numpy as np
 import SimpleITK as sitk
 
-from organella.measure.surface import lazy_surface
-from organella.measure.windows import compute_in_batches as measure_surfaces
+from organella.measure.boundary import lazy_boundary
+from organella.measure.windows import compute_in_batches
 
 
 def itk_on_the_whole_volume(labels, spacing):
@@ -28,14 +28,14 @@ def test_a_window_gives_the_estimate_ITK_gives_on_the_whole_volume_including_at_
     lazies = []
     for label in (1, 2, 3):
         coords = np.argwhere(labels == label)
-        lazies.append(lazy_surface(data, coords.min(axis=0), coords.max(axis=0), label, spacing, 10**9))
-    for label, frame in zip((1, 2, 3), measure_surfaces(lazies, batch=2)):
+        lazies.append(lazy_boundary(data, coords.min(axis=0), coords.max(axis=0), label, spacing, 10**9))
+    for label, frame in zip((1, 2, 3), compute_in_batches(lazies, batch=2)):
         np.testing.assert_allclose([frame["boundary"][0], frame["roundness"][0]], expected[label], rtol=1e-9)
 
 
 def test_a_box_over_the_limit_is_read_coarser_and_still_measured():
     labels = np.zeros((40, 40, 40), np.uint8)
     labels[5:35, 5:35, 5:35] = 1
-    frame, = measure_surfaces([lazy_surface(da.from_array(labels, chunks=16), np.array([5, 5, 5]), np.array([34, 34, 34]),
+    frame, = compute_in_batches([lazy_boundary(da.from_array(labels, chunks=16), np.array([5, 5, 5]), np.array([34, 34, 34]),
                                             None, (0.1, 0.1, 0.1), 4000)], batch=1)
     assert 0.7 < frame["roundness"][0] <= 1.05      # a cube is somewhat round, and the estimate is finite

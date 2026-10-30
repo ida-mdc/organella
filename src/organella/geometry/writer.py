@@ -14,6 +14,7 @@ from pathlib import Path
 import polars as pl
 
 from organella.app.settings import Settings
+from organella.app.shared import Findings, Shared
 from organella.core import Kind, Sample
 from organella.geometry.payloads import payload_counts
 from organella.geometry.rows import CARRIED, contact_rows, instance_rows, mask_rows
@@ -78,13 +79,13 @@ class GeometryWriter:
     folder: Path
     reuse: bool = False
 
-    def write(self, sample: Sample, shared: dict, settings: Settings) -> Path:
+    def write(self, sample: Sample, shared: Shared, settings: Settings) -> Path:
         destination = self.folder / sample.id / FILENAME
         fingerprint = _fingerprint(sample, settings)
         if self.reuse and _usable(destination, fingerprint):
             log.info("%s: reusing the geometry already at %s", sample.id, destination)
             return destination.resolve()
-        rows, jobs = self._rows(sample, shared["findings"], settings)
+        rows, jobs = self._rows(sample, shared.findings, settings)
         done = compute_in_batches([job for _, job in jobs], settings.surface_batch)
         field = "outline" if len(sample.voxel_size.um) == 2 else "surface"
         for (row, _), (kind, payload) in zip(jobs, done):
@@ -98,7 +99,7 @@ class GeometryWriter:
         return path.resolve()
 
     @staticmethod
-    def _rows(sample: Sample, findings, settings: Settings):
+    def _rows(sample: Sample, findings: Findings, settings: Settings):
         rows, jobs = [], []
         entities = {e["entity_name"]: e for e in findings.entities.to_dicts()}
         for structure in sample.structures.values():

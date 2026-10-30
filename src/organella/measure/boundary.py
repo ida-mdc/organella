@@ -1,4 +1,4 @@
-"""Surface area and sphericity of instances (perimeter and circularity of a plane), by ITK's Crofton estimate."""
+"""Boundary (surface area, or perimeter of a plane) and roundness (sphericity, or circularity) of instances, by ITK's Crofton estimate."""
 from __future__ import annotations
 
 import dask
@@ -8,7 +8,9 @@ import polars as pl
 import SimpleITK as sitk
 from dask.delayed import Delayed
 
-from organella.measure.windows import box
+from organella.app.settings import Settings
+from organella.core import Kind, Sample
+from organella.measure.windows import box, over_instances
 
 
 def _crofton(window: np.ndarray, label: int | None, spacing_um: tuple[float, ...]) -> pl.DataFrame:
@@ -24,7 +26,7 @@ def _crofton(window: np.ndarray, label: int | None, spacing_um: tuple[float, ...
     return pl.DataFrame({"boundary": [statistics.GetPerimeter(1)], "roundness": [statistics.GetRoundness(1)]})
 
 
-def lazy_surface(data: da.Array, low: np.ndarray, high: np.ndarray, label: int | None,
+def lazy_boundary(data: da.Array, low: np.ndarray, high: np.ndarray, label: int | None,
                  spacing_um: tuple[float, ...], max_voxels: int) -> Delayed:
     """The estimate for the region in the box ``low``..``high`` (inclusive), as a one-row frame.
 
@@ -33,3 +35,17 @@ def lazy_surface(data: da.Array, low: np.ndarray, high: np.ndarray, label: int |
     """
     step = max(1, int(np.ceil((np.prod(high - low + 1) / max_voxels) ** (1 / len(low)))))
     return dask.delayed(_crofton)(box(data, low, high, step=step), label, tuple(s * step for s in spacing_um))
+
+
+def boundaries(sample: Sample, per_structure: dict[str, pl.DataFrame], settings: Settings) -> dict[str, pl.DataFrame]:
+    """Boundary and roundness of each instance of a labelled structure, and of each mask as a whole."""
+    spacing, found = tuple(sample.voxel_size.um), {}
+    for s in sample.structures.values():
+        stats = per_structure[s.name]
+        if not stats.height or (s.kind is Kind.LABEL and not settings.instances):
+            continue
+        data, labelled = (s.data, True) if s.kind is Kind.LABEL else (s.foreground, False)
+        found[s.name] = pl.concat(over_instances(
+            data, stats, lambda d, low, high, label: lazy_boundary(d, low, high, label if labelled else None, spacing, settings.coarse_voxels),
+            settings.surface_batch))
+    return found

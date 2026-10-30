@@ -8,6 +8,7 @@ from dask.delayed import Delayed
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
+from organella.core import Sample
 from organella.measure.per_label import chunks_with_origin, tree_merged
 
 
@@ -38,3 +39,13 @@ def depth_um(boundary: np.ndarray, voxel_um: np.ndarray, at_voxel: np.ndarray) -
     if not len(boundary):
         return np.full(len(at_voxel), np.nan)
     return cKDTree(boundary * voxel_um).query(at_voxel * voxel_um)[0]
+
+
+def centroid_depths(sample: Sample, boundary: np.ndarray | None, centroids: dict[str, np.ndarray | None]) -> dict[str, float]:
+    """How deep inside the object each structure's centroid sits, in µm; 0 where the centroid falls outside it."""
+    located = {name: c for name, c in centroids.items() if c is not None}
+    if sample.object_mask is None or boundary is None or not located:
+        return {}
+    at = np.clip(np.rint(np.array(list(located.values()))).astype(np.int64), 0, np.array(sample.shape) - 1)
+    inside = sample.structures[sample.object_mask].foreground.vindex[tuple(at.T)].compute()
+    return dict(zip(located, np.where(inside, depth_um(boundary, np.array(sample.voxel_size.um), at.astype(float)), 0.0)))

@@ -36,8 +36,9 @@ def parse_geometry_as(raw: str | None) -> dict[str, str]:
 
 @dataclass(frozen=True)
 class Settings:
-    """What a run was asked to do."""
+    """What a run was asked to do. A command-line option whose name is a field here sets it (see ``cli.options.settings_from``)."""
 
+    # What is measured.
     reach_um: float = 1.0
     instances: bool = True  # a row per instance, their distances and baselines; off leaves the per-structure rows
     contacts: bool = True
@@ -45,11 +46,15 @@ class Settings:
     distance_histograms: bool = False  # per instance and target, a histogram of its voxels' distances, not only the nearest
     baseline_exclude: frozenset[str] = frozenset()  # normalised names of structures left out of the region the baseline is read over
     contact_max_um: float = 0.5  # the largest gap between two instances of one structure that still counts as touching
+
+    # Skeletons.
     skeletons: frozenset[str] = frozenset()  # normalised names of the structures to trace a skeleton of
     max_skeleton_voxels: int | None = 500_000  # instances larger than this are not traced
     skeleton_scale: float = 3.0  # reach around a traced path, in local radii
     skeleton_const_voxels: float = 6.0  # reach added to it, in voxels of the coarsest axis
     skeleton_prune: float = 2.0  # terminal branches shorter than this many radii are cut
+
+    # Geometry, written with --with-mesh.
     geometry_as: Mapping[str, str] = field(default_factory=dict)  # per structure: mesh, ellipsoid or tube, plus skeleton
     keep_skeletons: bool = False  # keep each traced skeleton whole, for the geometry that draws it
     mesh_smooth_sigma: float | tuple[float, ...] = 0.7  # in voxels of the finest axis, or one per axis (z, y, x)
@@ -57,6 +62,8 @@ class Settings:
     mesh_target_reduction: float = 0.8
     mesh_level: float | None = None
     mesh_max_vertices: int = 0  # 0 is no cap
+
+    # Clipping, binning, and how the data is read and held (the chunk edge and batch sizes change no measured value).
     clip_to_object_mask: bool = True
     histogram_bins: int = 128
     instance_histogram_bins: int = 20

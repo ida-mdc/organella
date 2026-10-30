@@ -1,6 +1,7 @@
 import dask
 import dask.array as da
 import numpy as np
+import pytest
 from scipy import ndimage
 
 from organella.measure.per_label import chunks_with_origin, counts_and_centroids, minimised, minimum_in_chunk, smallest, tree_merged
@@ -13,13 +14,27 @@ def labels_across_chunks():
     return labels
 
 
-def test_counts_and_centroids_equal_the_in_memory_answer_across_chunk_borders():
+def test_counts_centroids_covariances_and_boxes_equal_numpy_across_chunk_borders():
     labels = labels_across_chunks()
+    labels *= np.random.default_rng(3).random(labels.shape) > 0.2        # ragged, so the covariance is not trivial
     found = counts_and_centroids(da.from_array(labels, chunks=8)).compute()
     ids = found["id"].to_numpy()
     assert ids.tolist() == [3, 7]
     assert found["count"].to_list() == [(labels == i).sum() for i in ids]
     np.testing.assert_allclose(found.select("c0", "c1", "c2").to_numpy(), ndimage.center_of_mass(labels > 0, labels, ids))
+    for row, label in enumerate(ids):
+        coords = np.argwhere(labels == label)
+        covariance = np.cov(coords.T.astype(float), bias=True)
+        for i in range(3):
+            for j in range(i, 3):
+                assert found[f"v{i}{j}"][row] == pytest.approx(covariance[i, j], rel=1e-9)
+        assert [found[f"lo{i}"][row] for i in range(3)] == coords.min(axis=0).tolist()
+        assert [found[f"hi{i}"][row] for i in range(3)] == coords.max(axis=0).tolist()
+
+
+def test_a_plane_has_a_two_by_two_covariance():
+    found = counts_and_centroids(da.from_array(np.ones((20, 24), np.uint8), chunks=7)).compute()
+    assert [c for c in found.columns if c.startswith("v")] == ["v00", "v01", "v11"]
 
 
 def test_minimum_equals_the_in_memory_answer_across_chunk_borders():

@@ -110,3 +110,27 @@ def test_an_array_whose_metadata_tensorstore_refuses_is_read_by_zarr_python(tmp_
     np.testing.assert_array_equal(array.compute(), data)
     with pytest.raises(FileNotFoundError):
         open_store_array(str(tmp_path), "labels/missing")
+
+
+def test_a_manifest_crop_accepts_open_ends_and_refuses_empty_or_strided(tmp_path):
+    import zarr
+    root = zarr.open_group(tmp_path / "c.zarr", mode="w")
+    root.create_array("a", data=np.ones((8, 8, 8), np.uint8), chunks=(4, 4, 4))
+    def sample(crop):
+        manifest = tmp_path / "m.json"
+        manifest.write_text(json.dumps({"store": str(tmp_path / "c.zarr"), "voxel_size_um": [1, 1, 1],
+                                        "crop": crop, "entities": {"a": "a"}}))
+        (ref,) = StoreSource(manifest).samples()
+        return ref.open()
+    assert sample(":,:,:").shape == (8, 8, 8)
+    assert sample("-5:,0:3,:3").shape == (5, 3, 3)
+    for bad in ("5:2,0:3,0:3", "::2,:,:"):
+        with pytest.raises(ValueError):
+            sample(bad)
+
+
+def test_the_cache_size_reaches_the_store_source(tmp_path):
+    manifest = tmp_path / "cell.json"
+    manifest.write_text("{}")
+    assert open_source(manifest, cache_bytes=123).cache_bytes == 123
+    assert isinstance(open_source(manifest), StoreSource)

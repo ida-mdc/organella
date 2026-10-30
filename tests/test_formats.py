@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 import pytest
 import SimpleITK as sitk
+import tifffile
 
 from organella.app.process import process
 from organella.app.settings import Settings
@@ -101,3 +102,32 @@ def test_a_split_volume_is_measured_like_any_other_object_and_the_map_file_is_re
     assert failures == {}
     entities = pl.read_parquet(out).filter(pl.col("row_type") == "entity")
     assert sorted(entities["entity_name"]) == ["liver", "spleen"]
+
+
+def test_prefixes_are_matched_longest_first_and_duplicates_are_refused(tmp_path):
+    folder = tmp_path / "o"
+    folder.mkdir()
+    for name in ("a.tif", "a_b.tif", "a_b_m_label.tif"):
+        tifffile.imwrite(folder / name, np.zeros((4, 4, 4), np.uint8))
+    from organella.sources.folder import object_files
+    assert [e.name for e in object_files(folder).entities] == ["m"]
+    tifffile.imwrite(folder / "a_m_label.tif", np.zeros((4, 4, 4), np.uint8))
+    with pytest.raises(ValueError, match="'m'"):
+        object_files(folder)
+
+
+def test_a_compressed_and_an_uncompressed_tiff_both_open_and_slice(tmp_path):
+    from organella.sources.arrays import open_tiff
+
+    volume = np.random.default_rng(4).integers(0, 9, (6, 20, 24)).astype(np.uint16)
+    for name, kwargs in (("plain.tif", {}), ("packed.tif", {"compression": "zlib"})):
+        tifffile.imwrite(tmp_path / name, volume, **kwargs)
+        np.testing.assert_array_equal(open_tiff(tmp_path / name)[1:4, 5:9].compute(), volume[1:4, 5:9])
+
+
+def test_only_the_named_structures_are_measured_and_the_object_mask_is_kept(object_folder):
+    from organella.sources import FolderSource
+    (ref,) = FolderSource(object_folder.parent, object_mask="cell", entities=frozenset({"mito"})).samples()
+    assert sorted(ref.open().structures) == ["cell", "mito"]
+    with pytest.raises(ValueError, match="nothing.*does not have|--entities names nothing"):
+        (FolderSource(object_folder.parent, object_mask="cell", entities=frozenset({"nothing"})).samples().__iter__().__next__()).open()

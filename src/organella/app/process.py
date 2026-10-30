@@ -9,6 +9,7 @@ import polars as pl
 from organella.app.prepare import prepared
 from organella.app.ports import GeometrySink, Measurement, PartStore, ReportSink, RunInfo, SampleSource
 from organella.app.settings import Settings
+from organella.app.shared import Shared
 from organella.core import OBS_LEVEL, RowType, Sample
 
 log = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ def process(
 
 def _measure(sample: Sample, measurements: Sequence[Measurement], settings: Settings,
              geometry: GeometrySink | None = None) -> list[pl.DataFrame]:
-    sample, shared = prepared(sample, settings), {}
+    sample, shared = prepared(sample, settings), Shared()
     frames = [
         (row_type, _stamped(rows, row_type, sample))
         for measurement in measurements

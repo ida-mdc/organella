@@ -8,7 +8,7 @@ import polars as pl
 from dask.delayed import Delayed
 
 from organella.app.settings import Settings
-from organella.core import Kind, Sample, Structure
+from organella.core import Sample, Structure
 from organella.geometry.payloads import ellipsoid_payload, skeleton_payload, tube_payload
 from organella.geometry.surfaces import (ELLIPSOID_MIN_FIT, choose_surface, ellipsoid_fit, generate_mesh, generate_outline,
                                          instance_sigma)

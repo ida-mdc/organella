@@ -5,8 +5,8 @@ from pathlib import Path
 import click
 
 from organella.cli import main
-from organella.cli.options import _names, _voxel_size
-from organella.core import Kind, normalised
+from organella.cli.options import _voxel_size
+from organella.core import Kind
 from organella.sources.survey import survey
 
 

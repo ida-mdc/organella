@@ -4,9 +4,12 @@ from __future__ import annotations
 import dask
 import dask.array as da
 import numpy as np
+import polars as pl
 from dask.delayed import Delayed
 
-from organella.measure.windows import box
+from organella.app.settings import Settings
+from organella.core import Sample
+from organella.measure.windows import box, over_instances
 
 # Below this share of the longest axis' variance an axis is rounding noise, not a shape.
 DEGENERATE = 1e-9
@@ -62,3 +65,14 @@ def _spread_of(window: np.ndarray, label: int, low: np.ndarray, voxel_um: np.nda
 
 def lazy_spread(data: da.Array, low: np.ndarray, high: np.ndarray, label: int, voxel_um: np.ndarray, centre_um: np.ndarray) -> Delayed:
     return dask.delayed(_spread_of)(box(data, low, high), label, low, voxel_um, centre_um)
+
+
+def spreads(sample: Sample, per_structure: dict[str, pl.DataFrame], settings: Settings, centre: np.ndarray | None) -> dict[str, np.ndarray]:
+    """The angular spread of each instance's voxels around the object centre, for the labelled structures; none unless asked."""
+    if not (settings.polarity_spread and settings.instances and centre is not None):
+        return {}
+    voxel = np.array(sample.voxel_size.um)
+    return {s.name: np.array(over_instances(s.data, per_structure[s.name],
+                                            lambda data, low, high, label: lazy_spread(data, low, high, label, voxel, centre),
+                                            settings.surface_batch), dtype=np.float64)
+            for s in sample.labelled() if per_structure[s.name].height}

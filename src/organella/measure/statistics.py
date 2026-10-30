@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import reduce
 
 import dask
@@ -10,59 +9,45 @@ import polars as pl
 from scipy.spatial import cKDTree
 
 from organella.app.settings import Settings
+from organella.app.shared import Findings, Shared
 from organella.core import Kind, RowType, Sample, Structure
 from organella.measure import columns
-from organella.measure.depth import boundary_voxels, depth_um
+from organella.measure.contacts import contacts_of
+from organella.measure.depth import boundary_voxels, centroid_depths
 from organella.measure.per_label import counts_and_centroids
-from organella.measure.polarity import aspect_ratio, polarity, spread_deg
-from organella.measure.contacts import lazy_gaps, merged
-from organella.measure.polarity import lazy_spread
-from organella.measure.skeletons import SkeletonParams, lazy_skeleton
-from organella.measure.surface import lazy_surface
-from organella.measure.windows import compute_in_batches
-
-
-@dataclass(frozen=True)
-class Findings:
-    """What the statistics pass found, left in the sample's ``shared`` for the geometry to draw from."""
-
-    stats: dict[str, pl.DataFrame]       # per structure: id, count, centroid, covariance, bounding box
-    entities: pl.DataFrame
-    instances: dict[str, pl.DataFrame]   # per labelled structure
-    skeletons: dict[str, list]           # per skeletonised structure, one Traced per instance
-    contacts: pl.DataFrame | None
+from organella.measure.polarity import aspect_ratio, polarity, spreads
+from organella.measure.skeletons import trace_all
+from organella.measure.boundary import boundaries
 
 
 class Statistics:
     """The object row, a row per structure, and a row per instance of the labelled ones.
 
     One pass reads each structure for counts, centroids, moments and boxes together, which matters when its
-    chunks come from a remote store; a second reads each instance's own box for its surface. The object's
-    centre, which every polarity column is measured from, comes out of the first pass.
+    chunks come from a remote store. Each metric that needs an instance whole (surface, skeleton, contacts, polarity
+    spread) then reads that instance's own box, in its own module. The object's centre, which every polarity column is
+    measured from, comes out of the first pass.
     """
 
-    def measure(self, sample: Sample, settings: Settings, shared: dict) -> dict[RowType, pl.DataFrame]:
+    def measure(self, sample: Sample, settings: Settings, shared: Shared) -> dict[RowType, pl.DataFrame]:
         structures = list(sample.structures.values())
-        mask = sample.structures[sample.object_mask] if sample.object_mask else None
-        # All delayed: computed together with arrays, dask hands the delayed results back out of order.
-        lazies = [counts_and_centroids(_origin_region(sample).astype(np.uint8)), *map(_lazy_statistics, structures)]
-        if mask is not None:
-            lazies.append(boundary_voxels(mask.foreground))
-        found = dask.compute(*lazies)
-        centre_stats, per_structure = found[0], dict(zip((s.name for s in structures), found[1:]))
-        boundary = found[-1] if mask is not None else None
-
+        centre_stats, per_structure, boundary = _first_pass(sample)
         edge = np.array(sample.voxel_size.um)
         centre = None if centre_stats.height == 0 else np.array(centre_stats.select(f"c{i}" for i in range(len(edge))).row(0)) * edge
         centroids = {s.name: _entity_centroid(per_structure[s.name]) for s in structures}
-        depths = self._depths(sample, mask, boundary, centroids, edge)
-        surfaces = self._surfaces(sample, structures, per_structure, settings)
-        contacts = self._contacts(sample, structures, per_structure, settings) if settings.contacts else None
-        skeletons = self._skeletons(sample, structures, per_structure, settings, shared)
-        spreads = self._spreads(sample, structures, per_structure, settings, centre)
-        entities = self._entities(sample, structures, per_structure, centroids, depths, surfaces, centre, edge)
-        instances = self._instances(sample, structures, per_structure, surfaces, skeletons, spreads, centre, edge)
-        shared["findings"] = Findings(per_structure, entities, instances, skeletons, contacts)
+
+        depths = centroid_depths(sample, boundary, centroids)
+        shapes = boundaries(sample, per_structure, settings)
+        contacts = contacts_of(sample, per_structure, settings) if settings.contacts else None
+        skeletons = trace_all(sample, per_structure, settings)
+        spread = spreads(sample, per_structure, settings, centre)
+        shared.tips = {name: {int(label): t.tips for label, t in zip(per_structure[name]["id"], traced)}
+                       for name, traced in skeletons.items()}
+
+        entities = _entity_rows(sample, per_structure, centroids, depths, shapes, centre, edge)
+        instances = {s.name: _instance_rows(s, per_structure[s.name], shapes[s.name], skeletons, spread.get(s.name), sample, centre, edge)
+                     for s in sample.labelled() if per_structure[s.name].height and s.name in shapes}
+        shared.findings = Findings(per_structure, entities, instances, skeletons, contacts)
         return {
             RowType.OBJECT: pl.DataFrame([_object_row(sample, centre_stats, centre, contacts)]),
             RowType.ENTITY: entities,
@@ -70,106 +55,36 @@ class Statistics:
             RowType.CONTACT: contacts if contacts is not None else pl.DataFrame(),
         }
 
-    @staticmethod
-    def _spreads(sample, structures, per_structure, settings, centre) -> dict[str, np.ndarray]:
-        """The angular spread of each instance's voxels around the object centre, for the structures that have instances."""
-        if not (settings.polarity_spread and settings.instances and centre is not None):
-            return {}
-        voxel, ndim = np.array(sample.voxel_size.um), len(sample.shape)
-        out = {}
-        for s in structures:
-            stats = per_structure[s.name]
-            if s.kind is not Kind.LABEL or not stats.height:
-                continue
-            lazies = [lazy_spread(s.data, *_bounds(stats, r, ndim), int(stats["id"][r]), voxel, centre) for r in range(stats.height)]
-            out[s.name] = np.array(compute_in_batches(lazies, settings.surface_batch), dtype=np.float64)
-        return out
 
-    @staticmethod
-    def _skeletons(sample, structures, per_structure, settings, shared) -> dict[str, list]:
-        """A skeleton traced for each instance of the structures asked for; their tips are left for the distances."""
-        params = SkeletonParams(settings.skeleton_scale, settings.skeleton_const_voxels, settings.skeleton_prune)
-        voxel_um, ndim, traced = tuple(sample.voxel_size.um), len(sample.shape), {}
-        for s in structures:
-            stats = per_structure[s.name]
-            if s.kind is not Kind.LABEL or not settings.instances or not settings.wants_skeleton(s.name) or not stats.height:
-                continue
-            lazies = [lazy_skeleton(s.data, np.array([stats[f"lo{i}"][r] for i in range(ndim)]),
-                                    np.array([stats[f"hi{i}"][r] for i in range(ndim)]), int(stats["id"][r]), voxel_um,
-                                    params, settings.max_skeleton_voxels, settings.keep_skeletons) for r in range(stats.height)]
-            traced[s.name] = compute_in_batches(lazies, settings.surface_batch)
-            shared.setdefault("tips", {})[s.name] = {int(label): t.tips for label, t in zip(stats["id"], traced[s.name])}
-        return traced
+def _first_pass(sample: Sample) -> tuple[pl.DataFrame, dict[str, pl.DataFrame], np.ndarray | None]:
+    """The object's own counts and centroid, the same for every structure, and the object mask's outside boundary."""
+    structures = list(sample.structures.values())
+    mask = sample.structures[sample.object_mask] if sample.object_mask else None
+    # All delayed: computed together with arrays, dask hands the delayed results back out of order.
+    lazies = [counts_and_centroids(_origin_region(sample).astype(np.uint8)), *map(_lazy_statistics, structures)]
+    if mask is not None:
+        lazies.append(boundary_voxels(mask.foreground))
+    found = dask.compute(*lazies)
+    return found[0], dict(zip((s.name for s in structures), found[1:1 + len(structures)])), found[-1] if mask is not None else None
 
-    @staticmethod
-    def _contacts(sample, structures, per_structure, settings) -> pl.DataFrame:
-        """Each pair of instances of one structure within the contact distance of each other."""
-        spacing, tables = tuple(sample.voxel_size.um), []
-        for s in structures:
-            stats = per_structure[s.name]
-            if s.kind is not Kind.LABEL or stats.height < 2:
-                continue
-            lazies = [lazy_gaps(s.data, np.array([stats[f"lo{i}"][r] for i in range(len(spacing))]),
-                                np.array([stats[f"hi{i}"][r] for i in range(len(spacing))]),
-                                int(stats["id"][r]), sample.voxel_size, settings.contact_max_um)
-                      for r in range(stats.height)]
-            tables.append(merged(compute_in_batches(lazies, settings.surface_batch), s.name))
-        return pl.concat(tables) if tables else merged([], "")
 
-    @staticmethod
-    def _depths(sample, mask, boundary, centroids, edge) -> dict[str, float]:
-        """How deep inside the object each structure's centroid sits; 0 where the centroid falls outside it."""
-        located = {name: c for name, c in centroids.items() if c is not None}
-        if mask is None or not located:
-            return {}
-        at = np.clip(np.rint(np.array(list(located.values()))).astype(np.int64), 0, np.array(sample.shape) - 1)
-        inside = mask.foreground.vindex[tuple(at.T)].compute()
-        return dict(zip(located, np.where(inside, depth_um(boundary, edge, at.astype(float)), 0.0)))
-
-    @staticmethod
-    def _surfaces(sample, structures, per_structure, settings) -> dict[str, pl.DataFrame]:
-        """Boundary and roundness of each instance of a labelled structure, and of each mask as a whole."""
-        spacing = tuple(sample.voxel_size.um)
-        wanted: list[tuple[str, int]] = []
-        lazies = []
-        for s in structures:
-            stats = per_structure[s.name]
-            if s.kind is Kind.LABEL and not settings.instances:
-                continue
-            for row in range(stats.height):
-                low = np.array([stats[f"lo{i}"][row] for i in range(len(spacing))])
-                high = np.array([stats[f"hi{i}"][row] for i in range(len(spacing))])
-                label = int(stats["id"][row]) if s.kind is Kind.LABEL else None
-                data = s.data if s.kind is Kind.LABEL else s.foreground
-                lazies.append(lazy_surface(data, low, high, label, spacing, settings.coarse_voxels))
-                wanted.append((s.name, row))
-        frames = compute_in_batches(lazies, settings.surface_batch)
-        return {s.name: pl.concat([f for (n, _), f in zip(wanted, frames) if n == s.name])
-                for s in structures if s.name in {n for n, _ in wanted}}
-
-    @staticmethod
-    def _entities(sample, structures, per_structure, centroids, depths, surfaces, centre, edge) -> pl.DataFrame:
-        ndim, rows = len(edge), []
-        for s in structures:
-            stats = per_structure[s.name]
-            total = float(stats["count"].sum()) * sample.voxel_size.volume
-            row = {"entity_name": s.name, "entity_kind": s.kind.value, columns.total_size(ndim): total,
-                   "instance_count": stats.height if s.kind is Kind.LABEL else None}
-            if s.kind is Kind.MASK and stats.height:
-                shape = surfaces[s.name]
-                row.update({columns.size(ndim): total, columns.boundary(ndim): shape["boundary"][0],
-                            columns.roundness(ndim): shape["roundness"][0],
-                            "aspect_ratio_major_minor": float(aspect_ratio(_covariance(stats, edge))[0])})
-                if centre is not None:
-                    row.update({k: float(v[0]) for k, v in polarity((centroids[s.name] * edge - centre)[None, :]).items()})
-            row["polar_depth_um"] = depths.get(s.name)
-            rows.append(row)
-        return pl.DataFrame(rows, schema_overrides={"instance_count": pl.Int64}, infer_schema_length=None)
-
-    @staticmethod
-    def _instances(sample, structures, per_structure, surfaces, skeletons, spreads, centre, edge) -> dict[str, pl.DataFrame]:
-        return {s.name: _instance_rows(s, per_structure[s.name], surfaces[s.name], skeletons, spreads.get(s.name), sample, centre, edge)
-                for s in structures if s.kind is Kind.LABEL and per_structure[s.name].height and surfaces.get(s.name) is not None}
+def _entity_rows(sample, per_structure, centroids, depths, shapes, centre, edge) -> pl.DataFrame:
+    structures, ndim, rows = list(sample.structures.values()), len(edge), []
+    for s in structures:
+        stats = per_structure[s.name]
+        total = float(stats["count"].sum()) * sample.voxel_size.volume
+        row = {"entity_name": s.name, "entity_kind": s.kind.value, columns.total_size(ndim): total,
+               "instance_count": stats.height if s.kind is Kind.LABEL else None}
+        if s.kind is Kind.MASK and stats.height:
+            shape = shapes[s.name]
+            row.update({columns.size(ndim): total, columns.boundary(ndim): shape["boundary"][0],
+                        columns.roundness(ndim): shape["roundness"][0],
+                        "aspect_ratio_major_minor": float(aspect_ratio(_covariance(stats, edge))[0])})
+            if centre is not None:
+                row.update({k: float(v[0]) for k, v in polarity((centroids[s.name] * edge - centre)[None, :]).items()})
+        row["polar_depth_um"] = depths.get(s.name)
+        rows.append(row)
+    return pl.DataFrame(rows, schema_overrides={"instance_count": pl.Int64}, infer_schema_length=None)
 
 
 def _origin_region(sample: Sample) -> da.Array:
@@ -244,7 +159,3 @@ def _instance_rows(structure: Structure, stats: pl.DataFrame, surface: pl.DataFr
         **({"instance_polar_spread_deg": spread} if spread is not None else {}),
         **polar,
     })
-
-
-def _bounds(stats: pl.DataFrame, row: int, ndim: int) -> tuple[np.ndarray, np.ndarray]:
-    return (np.array([stats[f"lo{i}"][row] for i in range(ndim)]), np.array([stats[f"hi{i}"][row] for i in range(ndim)]))

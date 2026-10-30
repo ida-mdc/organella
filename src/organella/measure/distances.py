@@ -4,11 +4,11 @@ import json
 from dataclasses import dataclass, field as dataclass_field
 
 import dask
-import dask.array as da
 import numpy as np
 import polars as pl
 
 from organella.app.settings import Settings
+from organella.app.shared import Shared
 from organella.core import RowType, Sample, Structure, normalised
 from organella.measure.distance_field import distance_to, reach_cap
 from organella.measure.per_label import (chunks_with_origin, ends_in_chunk, extremes, histogram_in_chunk, histograms_of,
@@ -26,9 +26,9 @@ class Distances:
     is close or merely as close as anything would be.
     """
 
-    def measure(self, sample: Sample, settings: Settings, shared: dict) -> dict[RowType, pl.DataFrame]:
+    def measure(self, sample: Sample, settings: Settings, shared: Shared) -> dict[RowType, pl.DataFrame]:
         _require_halo_fits(sample, settings)
-        tips = _tip_voxels(sample, shared.get("tips", {}))
+        tips = _tip_voxels(sample, shared.tips)
         plans = [_Plan.of(sample, target, settings, tips) for target in sample.structures.values()]
         # A slab of chunks at a time, every target in it: what is read and decoded is shared by the targets, and only one
         # slab's chunks are ever in flight, however large the volume.

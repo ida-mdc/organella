@@ -12,10 +12,13 @@ import dask
 import dask.array as da
 import kimimaro
 import numpy as np
+import polars as pl
 from dask.delayed import Delayed
 from skimage.morphology import skeletonize
 
-from organella.measure.windows import box
+from organella.app.settings import Settings
+from organella.core import Sample
+from organella.measure.windows import box, over_instances
 
 # Below this many voxels there is nothing to trace.
 DUST_VOXELS = 2
@@ -264,3 +267,15 @@ def lazy_skeleton(data: da.Array, low: np.ndarray, high: np.ndarray, label: int,
     pad = 1 if len(low) == 3 else 0
     origin = np.maximum(low - pad, 0)
     return dask.delayed(_summarise)(box(data, low, high, pad=pad), label, origin, voxel_um, params, max_voxels, keep)
+
+
+def trace_all(sample: Sample, per_structure: dict[str, pl.DataFrame], settings: Settings) -> dict[str, list[Traced]]:
+    """A skeleton traced for each instance of the structures asked for, in the order of their rows in ``per_structure``."""
+    params = SkeletonParams(settings.skeleton_scale, settings.skeleton_const_voxels, settings.skeleton_prune)
+    voxel_um = tuple(sample.voxel_size.um)
+    return {s.name: over_instances(s.data, per_structure[s.name],
+                                   lambda data, low, high, label: lazy_skeleton(data, low, high, label, voxel_um, params,
+                                                                                settings.max_skeleton_voxels, settings.keep_skeletons),
+                                   settings.surface_batch)
+            for s in sample.labelled()
+            if settings.instances and settings.wants_skeleton(s.name) and per_structure[s.name].height}

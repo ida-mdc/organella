@@ -19,7 +19,7 @@ import edt
 import fast_simplification
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from skimage.measure import approximate_polygon, find_contours, marching_cubes
+from skimage.measure import find_contours, marching_cubes
 
 from organella.geometry.payloads import quantised_payload
 

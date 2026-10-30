@@ -1,6 +1,5 @@
 import json
 
-import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 import pytest
@@ -40,6 +39,14 @@ def test_every_column_that_has_a_meaning_carries_it_in_the_footer_and_on_the_fie
     assert "distance_beyond_reach" in described and "pixel_size_z" in described
     schema = pq.read_schema(written)
     assert schema.field("instance_volume_um3").metadata[b"description"].decode() == described["instance_volume_um3"]
+
+
+def test_no_column_goes_undescribed_and_the_metrics_page_is_the_text_the_report_carries(written):
+    from pathlib import Path
+    from organella.report.column_descriptions import describe, metrics_markdown
+    assert [c for c in pl.read_parquet(written).columns if not describe(c)] == []
+    assert (Path(__file__).parent.parent / "docs" / "metrics.md").read_text() == metrics_markdown(), \
+        "regenerate it: python -m organella.report.column_descriptions docs/metrics.md"
 
 
 def test_structures_named_in_the_colour_file_are_coloured_and_the_others_are_left_to_the_page(written):

@@ -1,7 +1,6 @@
 import struct
 
 import numpy as np
-import pytest
 
 from organella.geometry.payloads import (
     NARROW_INDEX_LIMIT, ellipsoid_payload, payload_counts, quantised_payload, skeleton_payload, smooth_centre_line,

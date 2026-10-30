@@ -15,9 +15,10 @@ import numpy as np
 import polars as pl
 from dask.delayed import Delayed
 
-from organella.core import VoxelSize
+from organella.app.settings import Settings
+from organella.core import Sample, VoxelSize
 from organella.measure.transform import distance_to_voxels
-from organella.measure.windows import box
+from organella.measure.windows import box, over_instances
 
 _PAIRS = {"a": pl.Int64, "b": pl.Int64, "gap": pl.Float64}
 # An instance whose box, widened by the contact distance, is past this many voxels is searched a tile at a time: a network
@@ -74,3 +75,16 @@ def merged(frames: list[pl.DataFrame], entity: str) -> pl.DataFrame:
     return (pairs.group_by("a", "b").agg(pl.col("gap").min()).sort("a", "b")
             .select(pl.lit(entity).alias("contact_entity"), pl.col("a").alias("contact_label_a"),
                     pl.col("b").alias("contact_label_b"), pl.col("gap").alias("contact_gap_um")))
+
+
+def contacts_of(sample: Sample, per_structure: dict[str, pl.DataFrame], settings: Settings) -> pl.DataFrame:
+    """Each pair of instances of one structure within the contact distance of each other."""
+    tables = []
+    for s in sample.labelled():
+        if per_structure[s.name].height < 2:
+            continue
+        frames = over_instances(s.data, per_structure[s.name],
+                                lambda data, low, high, label: lazy_gaps(data, low, high, label, sample.voxel_size, settings.contact_max_um),
+                                settings.surface_batch)
+        tables.append(merged(frames, s.name))
+    return pl.concat(tables) if tables else merged([], "")

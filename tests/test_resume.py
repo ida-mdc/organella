@@ -50,22 +50,18 @@ def test_a_failed_run_keeps_what_it_measured_and_resuming_measures_only_the_rest
     assert not (tmp_path / "r_parts").exists()                                   # the report exists, so the insurance is gone
 
 
-def test_without_resume_every_sample_is_measured_again(tmp_path):
-    run(tmp_path, Source("a"), Counting(fail_on={"zzz"}), resume=False)          # leaves a part behind only if something failed
-    run(tmp_path, Source("a", "b"), Counting(fail_on={"b"}), resume=False)
+def test_without_resume_a_part_is_never_read_back(tmp_path):
+    run(tmp_path, Source("a", "b"), Counting(fail_on={"b"}), resume=False)        # leaves a's part behind
     again = Counting()
     run(tmp_path, Source("a", "b"), again, resume=False)
     assert again.seen == ["a", "b"]
 
 
-def test_a_part_made_under_other_settings_is_not_trusted(tmp_path):
+def test_a_part_is_trusted_only_if_it_is_readable_and_made_under_the_same_settings(tmp_path):
     run(tmp_path, Source("a", "b"), Counting(fail_on={"b"}), resume=False, settings=Settings(reach_um=1.0))
     changed = Counting()
     run(tmp_path, Source("a", "b"), changed, resume=True, settings=Settings(reach_um=2.0))
     assert changed.seen == ["a", "b"]
-
-
-def test_an_unreadable_or_empty_part_is_measured_again(tmp_path):
     parts = ParquetParts(tmp_path / "p", reuse=True)
     parts.folder.mkdir()
     (parts.folder / "a.parquet").write_bytes(b"not parquet")
