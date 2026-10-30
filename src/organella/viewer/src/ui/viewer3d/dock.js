@@ -782,6 +782,10 @@ function sceneColouring(ctx) {
     var byGroup = sceneColourByGroup(ctx, inSubject);
     colourOf = byGroup.colourOf;
     offFocus = byGroup.offFocus;
+  } else if (ctx.explain && ctx.explain.kind === 'polarity' && ctx.explain.aspect === 'angle') {
+    // What lies in the wedge is the subject of the picture, so it is in a strong colour of its own and the wedge is behind it.
+    var inWedge = toLinearRgb(POLAR_FOCUS_COLOUR);
+    colourOf = function(item){ return item.entity === ctx.subject ? inWedge : toLinearRgb(litEntColour(item.entity)); };
   } else {
     colourOf = function(item){ return toLinearRgb(litEntColour(item.entity)); };
   }
@@ -847,8 +851,7 @@ function sceneAddInstances(ctx, stage, style) {
   var outlines = mergeInstances(THREE, ctx.loaded.instances
     .filter(function(i){ return i.flat && !style.ghostly(i); }).map(style.asItem));
   if (outlines) {
-    stage.scene.add(new THREE.LineSegments(outlines,
-      new THREE.LineBasicMaterial({ vertexColors: true })));
+    stage.scene.add(drawnLines(THREE, outlines));
   }
   var targetSurfaces = mergeInstances(THREE, targetItems);
   if (targetSurfaces) {
@@ -859,8 +862,7 @@ function sceneAddInstances(ctx, stage, style) {
   var faintOutlines = mergeInstances(THREE, ctx.loaded.instances
     .filter(function(i){ return i.flat && style.ghostly(i); }).map(style.asGhost));
   if (faintOutlines) {
-    stage.scene.add(new THREE.LineSegments(faintOutlines, new THREE.LineBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.3 })));
+    stage.scene.add(drawnLines(THREE, faintOutlines, 0.3));
   }
 }
 
@@ -879,8 +881,7 @@ function sceneAddMasks(ctx, stage, style) {
     if (!geometry) return;
     var asContext = style.ghostly(mask);
     if (mask.flat) {
-      stage.scene.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-        vertexColors: true, transparent: true, opacity: asContext ? 0.3 : 0.55 })));
+      stage.scene.add(drawnLines(THREE, geometry, asContext ? 0.3 : 0.55));
       return;
     }
     var encloses = bounding != null && mask.entity === String(bounding);
@@ -1224,7 +1225,10 @@ function scenePolarityExplain(ctx) {
   var aspect = ctx.explain.aspect;
   key.innerHTML = swatch('#5a6e88', 'towards ' + escHtml(ctx.explain.ref) + ' (0\u00b0)')
     + (aspect === 'angle'
-        ? swatch('#1b222b', 'the wedge of angles, and the average direction (length R)')
+        ? swatch(POLAR_FOCUS_COLOUR, escHtml(ctx.explain.structure) + ', in the wedge')
+          + swatch('#c5c9d0', 'outside the wedge, faint')
+          + swatch('#d9dce1', 'the wedge of angles')
+          + swatch('#1b222b', 'the average direction (length R)')
         : aspect === 'index'
           ? swatch(litEntColour(ctx.explain.structure), escHtml(ctx.explain.structure) + ', one dot each')
             + swatch('#1b222b', 'the average (length R); the dark dot is V')

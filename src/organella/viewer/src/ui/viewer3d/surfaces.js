@@ -445,6 +445,77 @@ function vertexNormals(positions, indices) {
   return normals;
 }
 
+// How wide the outlines of a plane are drawn, in screen pixels.
+var PLANAR_LINE_PX = 2;
+
+/**
+ * Line segments of a merged geometry, as the viewer draws them: a plane's outlines are two pixels wide, which WebGL's own
+ * lines cannot be (they are one pixel on every browser), so each segment becomes a quad that a vertex shader widens in screen
+ * space and the width holds while the camera zooms. A volume's lines stay the plain one-pixel kind.
+ */
+function drawnLines(THREE, geometry, opacity) {
+  var alpha = opacity === undefined ? 1 : opacity;
+  if (!PLANAR) {
+    return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: alpha < 1, opacity: alpha }));
+  }
+  var at = geometry.getAttribute('position'), colour = geometry.getAttribute('color'), index = geometry.index;
+  var ends = index ? index.array : null, segments = (ends ? ends.length : at.count) / 2;
+  var positions = new Float32Array(segments * 4 * 3), others = new Float32Array(segments * 4 * 3);
+  var colours = new Float32Array(segments * 4 * 3), sides = new Float32Array(segments * 4);
+  var indices = new Uint32Array(segments * 6);
+  // Per segment, A = (start, +), B = (start, -), C = (end, -), D = (end, +): the end's own sideways is the start's reversed,
+  // so C lies on A's side and D on B's, and the two triangles A B D and A D C cover the quad.
+  for (var s = 0; s < segments; s++) {
+    var p = ends ? ends[2 * s] : 2 * s, q = ends ? ends[2 * s + 1] : 2 * s + 1;
+    [[p, q, 1], [p, q, -1], [q, p, -1], [q, p, 1]].forEach(function(v, k) {
+      var o = (s * 4 + k) * 3;
+      for (var c = 0; c < 3; c++) {
+        positions[o + c] = at.array[v[0] * 3 + c];
+        others[o + c] = at.array[v[1] * 3 + c];
+        colours[o + c] = colour.array[v[0] * 3 + c];
+      }
+      sides[s * 4 + k] = v[2];
+    });
+    var b = s * 4, t = s * 6;
+    indices.set([b, b + 1, b + 3, b, b + 3, b + 2], t);
+  }
+  var wide = new THREE.BufferGeometry();
+  wide.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  wide.setAttribute('other', new THREE.BufferAttribute(others, 3));
+  wide.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  wide.setAttribute('side', new THREE.BufferAttribute(sides, 1));
+  wide.setIndex(new THREE.BufferAttribute(indices, 1));
+  var material = new THREE.ShaderMaterial({
+    transparent: alpha < 1, opacity: alpha,
+    uniforms: { resolution: { value: new THREE.Vector2(1, 1) }, width: { value: PLANAR_LINE_PX }, opacity: { value: alpha } },
+    vertexShader: [
+      'attribute vec3 other; attribute float side; attribute vec3 color;',
+      'uniform vec2 resolution; uniform float width; varying vec3 vColor;',
+      'void main() {',
+      '  vec4 a = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+      '  vec4 b = projectionMatrix * modelViewMatrix * vec4(other, 1.0);',
+      '  vec2 pa = a.xy / a.w * resolution * 0.5, pb = b.xy / b.w * resolution * 0.5;',
+      '  vec2 d = normalize(pb - pa + vec2(1e-6));',
+      '  vec2 shift = (vec2(-d.y, d.x) * side - d) * width * 0.5;',
+      '  gl_Position = vec4(a.xy + shift * 2.0 / resolution * a.w, a.z, a.w);',
+      '  vColor = color;',
+      '}'].join('\n'),
+    fragmentShader: [
+      'uniform float opacity; varying vec3 vColor;',
+      'void main() { gl_FragColor = linearToOutputTexel(vec4(vColor, opacity)); }'].join('\n')
+  });
+  var mesh = new THREE.Mesh(wide, material);
+  // The canvas's own size, in device pixels, is what the width is measured against.
+  mesh.onBeforeRender = function(renderer) {
+    var size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    material.uniforms.resolution.value.copy(size);
+    material.uniforms.width.value = PLANAR_LINE_PX * renderer.getPixelRatio();
+    material.uniforms.opacity.value = material.opacity;
+  };
+  return mesh;
+}
+
 /**
  * Merge decoded instances into one geometry with per-vertex colours: one draw call for the
  * whole object, however it is coloured, because the colour rides on the vertices.

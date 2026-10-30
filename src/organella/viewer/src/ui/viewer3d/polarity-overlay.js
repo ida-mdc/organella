@@ -67,11 +67,15 @@ function polarityOverlay(THREE, frame, o) {
     var geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     var made = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
-      color: colour, transparent: true, opacity: opacity, depthTest: false }));
+      color: colour, transparent: opacity < 1, opacity: opacity, depthTest: false }));
     made.renderOrder = 4;
     group.add(made);
     return made;
   };
+  // The wedge is the backdrop to the instances, not part of them: a pale solid colour in place of a see-through one,
+  // because see-through things are drawn after the instances and would lie over them. Drawn first, it sits beneath.
+  var BEHIND_FILL = new THREE.Color('#d9dce1'), BEHIND_RIM = new THREE.Color('#a3abb6');
+  var behind = function(object, order) { object.renderOrder = order; return object; };
   var sT0 = function(oo){ return POLAR_FLATTENS[oo.aspect] ? oo.t : 0; };
   var morphing = !!POLAR_LAYOUTS[o.aspect];
   var layout = POLAR_LAYOUTS[o.aspect];
@@ -89,16 +93,18 @@ function polarityOverlay(THREE, frame, o) {
     for (var e = 0; e <= POLAR_ANGLE_BINS; e++) {
       [1, -1].forEach(function(sign){ edges.push([c, rimAt(e * binRad, sign)]); });
     }
-    segments(edges, BLUE, 0.22);
+    behind(segments(edges, BEHIND_RIM, 1), -1);
     [1, -1].forEach(function(sign) {
       var arc = [], fan = [], STEPS = 12;
       for (var n = 0; n <= STEPS; n++) arc.push(rimAt((o.wedge + n / STEPS) * binRad, sign));
       for (var m = 0; m < STEPS; m++) fan.push(c, arc[m], arc[m + 1]);
       var sector = new THREE.BufferGeometry();
       sector.setAttribute('position', new THREE.Float32BufferAttribute([].concat.apply([], fan), 3));
-      group.add(new THREE.Mesh(sector, new THREE.MeshBasicMaterial({
-        color: BLUE, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, depthTest: false })));
-      line([c].concat(arc, [c]), BLUE, 1);
+      var fill = new THREE.Mesh(sector, new THREE.MeshBasicMaterial({
+        color: BEHIND_FILL, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+      fill.renderOrder = -2;
+      group.add(fill);
+      behind(line([c].concat(arc, [c]), BEHIND_RIM, 1), -1);
     });
   // The shell of angles between two cones about the axis: what one wedge of the rose counts.
   } else if (o.aspect === 'angle') {
@@ -125,12 +131,15 @@ function polarityOverlay(THREE, frame, o) {
     }
     var shell = new THREE.BufferGeometry();
     shell.setAttribute('position', new THREE.Float32BufferAttribute([].concat.apply([], tri), 3));
-    group.add(new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
-      color: BLUE, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })));
+    var body = new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
+      color: BEHIND_FILL, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    body.renderOrder = -2;
+    group.add(body);
     [rings[0], rings[J]].forEach(function(rim) {
       var loop = new THREE.LineLoop(
         new THREE.BufferGeometry().setFromPoints(rim.map(vec)),
-        new THREE.LineBasicMaterial({ color: BLUE }));
+        new THREE.LineBasicMaterial({ color: BEHIND_RIM, depthTest: false }));
+      behind(loop, -1);
       group.add(loop);
     });
   }

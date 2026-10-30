@@ -36,7 +36,6 @@ async function thumbStage() {
  * thing the skeleton metrics are about. Outlines need no such help.
  */
 function instanceMaterial(THREE, item) {
-  if (item.flat) return new THREE.LineBasicMaterial({ vertexColors: true });
   return new THREE.MeshPhongMaterial(Object.assign({
     vertexColors: true, side: THREE.DoubleSide, shininess: 26, specular: 0x0d0d10
   }, item.skeleton ? { transparent: true, opacity: 0.35, depthWrite: false } : {}));
@@ -48,15 +47,14 @@ function addInstance(stage, item, hex) {
   var geometry = mergeInstances(THREE, [{ geometry: item.geometry, rgb: toLinearRgb(hex) }]);
   if (geometry) {
     stage.scene.add(item.flat
-      ? new THREE.LineSegments(geometry, instanceMaterial(THREE, item))
+      ? drawnLines(THREE, geometry)
       : new THREE.Mesh(geometry, instanceMaterial(THREE, item)));
   }
   if (item.skeleton) {
     var lines = mergeInstances(THREE, [{ geometry: item.skeleton,
                                          rgb: [0.09, 0.08, 0.06].map(toLinear) }]);
     if (lines) {
-      stage.scene.add(new THREE.LineSegments(lines,
-        new THREE.LineBasicMaterial({ vertexColors: true })));
+      stage.scene.add(drawnLines(THREE, lines));
     }
   }
 }

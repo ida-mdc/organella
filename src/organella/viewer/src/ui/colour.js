@@ -94,6 +94,8 @@ function distRampAt(t) { return viridisAt(t); }
  * can never be mistaken for a value, and it does not change with the structure.
  */
 var REFERENCE_COLOUR = '#ffb000';
+// What lies in a polarity wedge, drawn in front of the wedge: strong against the pale wedge and the faint rest, and no structure's colour.
+var POLAR_FOCUS_COLOUR = '#6d28d9';
 
 function viridisHexAt(t) {
   return '#' + viridisAt(t).map(function(channel) {
