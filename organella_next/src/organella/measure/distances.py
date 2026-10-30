@@ -12,7 +12,7 @@ from organella.app.settings import Settings
 from organella.core import RowType, Sample, Structure, normalised
 from organella.measure.distance_field import distance_to, reach_cap
 from organella.measure.per_label import (chunks_with_origin, ends_in_chunk, extremes, histogram_in_chunk, histograms_of,
-                                         minimised, minimum_in_chunk, smallest, summed, tree_merged)
+                                         minimised, minimum_in_chunk, smallest, summed)
 
 # The baseline is binned this much finer than it is stored, so its median is exact to a small fraction of the reach.
 FINE_PER_STORED_BIN = 32
@@ -30,12 +30,17 @@ class Distances:
         _require_halo_fits(sample, settings)
         tips = _tip_voxels(sample, shared.get("tips", {}))
         plans = [_Plan.of(sample, target, settings, tips) for target in sample.structures.values()]
-        # One compute for every target: dask reads and decodes each chunk of a structure once and shares it.
-        results = iter(dask.compute(*(lazy for plan in plans for lazy in plan.lazies())))
+        # A slab of chunks at a time, every target in it: what is read and decoded is shared by the targets, and only one
+        # slab's chunks are ever in flight, however large the volume.
+        partials: list[list[dict]] = [[] for _ in plans]
+        for slab in range(len(plans[0].slabs)):
+            reports = iter(dask.compute(*(report for plan in plans for report in plan.slabs[slab])))
+            for plan, parts in zip(plans, partials):
+                parts.append(_merged([next(reports) for _ in plan.slabs[slab]]))
         distance_rows: list[pl.DataFrame] = []
         baseline_rows: list[pl.DataFrame] = []
-        for plan in plans:
-            found = plan.unpack(results)
+        for plan, parts in zip(plans, partials):
+            found = plan.unpack(_finished(_merged(parts)))
             for source in plan.sources:
                 if found.minima[source.name].height:
                     distance_rows.append(_distance_frame(source, plan.target, found.minima[source.name], found, settings))
@@ -60,12 +65,11 @@ class _Found:
 
 @dataclass(frozen=True)
 class _Plan:
-    """What measuring one target needs, still lazy: one report per chunk of its field, merged in a tree."""
+    """What measuring one target needs, still lazy: one report per chunk of its field, the chunks grouped in slabs."""
 
     target: Structure
     sources: list[Structure]
-    bundle: object
-    exists: object
+    slabs: list[list]     # per slab of chunks along the first axis, one lazy report each
     excluded: tuple[str, ...]
 
     @staticmethod
@@ -83,19 +87,16 @@ class _Plan:
         upper = float(reach_cap(settings.reach_um))
         instance_bins = settings.instance_histogram_bins if settings.distance_histograms else None
         known_tips = dask.delayed(tips)
-        reports = [dask.delayed(_chunk_report)(origin, f, r, {s.name: c for s, c in zip(sources, labels)}, known_tips,
-                                               instance_bins, upper, FINE_PER_STORED_BIN * settings.histogram_bins)
-                   for origin, (f, r, *labels) in chunks_with_origin(field, region, *(s.data for s in sources))]
-        return _Plan(target, sources, dask.delayed(_finished)(tree_merged(reports, _merged)),
-                     dask.delayed(bool)(target_voxels.any()), tuple(s.name for s in named))
+        slabs: dict[int, list] = {}
+        for origin, (f, r, *labels) in chunks_with_origin(field, region, *(s.data for s in sources)):
+            slabs.setdefault(int(origin[0]), []).append(
+                dask.delayed(_chunk_report)(origin, f, r, {s.name: c for s, c in zip(sources, labels)}, known_tips,
+                                            instance_bins, upper, FINE_PER_STORED_BIN * settings.histogram_bins))
+        return _Plan(target, sources, [slabs[start] for start in sorted(slabs)], tuple(s.name for s in named))
 
-    def lazies(self) -> list:
-        return [self.bundle, self.exists]
-
-    def unpack(self, results) -> _Found:
-        bundle, exists = next(results), next(results)
+    def unpack(self, bundle: dict) -> _Found:
         found = _Found(minima=bundle["minima"], histograms=bundle["histograms"], ends=bundle["ends"],
-                       fine_counts=bundle["fine"], target_exists=exists)
+                       fine_counts=bundle["fine"], target_exists=bundle["exists"])
         if not found.target_exists:
             found.ends = {}   # nothing to be near: no tip distance, where the whole-instance one reads as the cap
         return found
@@ -105,6 +106,7 @@ def _chunk_report(origin: np.ndarray, field: np.ndarray, region: np.ndarray, lab
                   instance_bins: int | None, upper: float, fine_bins: int) -> dict:
     """Everything one chunk of a target's field says about the instances and the object's voxels in it."""
     return {
+        "exists": bool((field == 0).any()),   # the field is zero exactly on the target's own voxels
         "fine": np.histogram(field[region], bins=fine_bins, range=(0.0, upper))[0].astype(np.int64),
         "minima": {name: minimum_in_chunk(chunk, field) for name, chunk in labels.items()},
         "histograms": {name: histogram_in_chunk(chunk, field, instance_bins, upper) for name, chunk in labels.items()}
@@ -116,6 +118,7 @@ def _chunk_report(origin: np.ndarray, field: np.ndarray, region: np.ndarray, lab
 def _merged(reports: list[dict]) -> dict:
     first = reports[0]
     return {
+        "exists": any(r["exists"] for r in reports),
         "fine": np.sum([r["fine"] for r in reports], axis=0),
         "minima": {name: smallest([r["minima"][name] for r in reports]) for name in first["minima"]},
         "histograms": {name: summed([r["histograms"][name] for r in reports]) for name in first["histograms"]},
@@ -125,7 +128,7 @@ def _merged(reports: list[dict]) -> dict:
 
 def _finished(report: dict) -> dict:
     merged = _merged([report])
-    return {"fine": merged["fine"], "ends": merged["ends"],
+    return {"exists": merged["exists"], "fine": merged["fine"], "ends": merged["ends"],
             "minima": {name: minimised(frame) for name, frame in merged["minima"].items()},
             "histograms": {name: histograms_of(frame) for name, frame in merged["histograms"].items()}}
 
