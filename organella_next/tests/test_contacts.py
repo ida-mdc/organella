@@ -19,13 +19,18 @@ def brute_force(labels, spacing, max_gap):
     return found
 
 
-def test_the_gaps_between_instances_equal_a_transform_per_instance_across_chunk_borders():
+def _instances():
     labels = np.zeros((30, 40, 40), np.uint16)
     labels[2:8, 3:12, 3:12] = 1
     labels[8:14, 3:12, 3:12] = 2          # shares a face with 1
     labels[10:16, 14:20, 3:12] = 3        # a few voxels from 2
     labels[22:28, 30:38, 30:38] = 4       # far from everything
     labels[22:28, 25:29, 30:38] = 5       # 1-3 voxels from 4
+    return labels
+
+
+def _checked_against_a_transform_per_instance():
+    labels = _instances()
     voxel_size, max_gap = VoxelSize((0.1, 0.05, 0.05)), 0.4
     data = da.from_array(labels, chunks=9)
     lazies = []
@@ -37,6 +42,18 @@ def test_the_gaps_between_instances_equal_a_transform_per_instance_across_chunk_
     expected = brute_force(labels, voxel_size.um, max_gap)
     assert got.keys() == expected.keys() and got
     np.testing.assert_allclose([got[k] for k in expected], list(expected.values()), rtol=1e-6)
+
+
+def test_the_gaps_between_instances_equal_a_transform_per_instance_across_chunk_borders():
+    _checked_against_a_transform_per_instance()
+
+
+def test_an_instance_searched_in_tiles_finds_the_same_gaps(monkeypatch):
+    """Tiles of 7 voxels, far smaller than the instances, so every pair is found across a tile border or two."""
+    from organella.measure import contacts
+    monkeypatch.setattr(contacts, "WHOLE_WINDOW_VOXELS", 1)
+    monkeypatch.setattr(contacts, "TILE_EDGE", 7)
+    _checked_against_a_transform_per_instance()
 
 
 def test_no_pairs_gives_an_empty_table_with_its_columns():

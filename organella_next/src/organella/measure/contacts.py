@@ -7,6 +7,8 @@ step apart, not zero.
 """
 from __future__ import annotations
 
+from itertools import product
+
 import dask
 import dask.array as da
 import numpy as np
@@ -18,6 +20,10 @@ from organella.measure.transform import distance_to_voxels
 from organella.measure.windows import box
 
 _PAIRS = {"a": pl.Int64, "b": pl.Int64, "gap": pl.Float64}
+# An instance whose box, widened by the contact distance, is past this many voxels is searched a tile at a time: a network
+# that runs through the whole cell would otherwise be read and transformed whole.
+WHOLE_WINDOW_VOXELS = 50_000_000
+TILE_EDGE = 128
 
 
 def _gaps_around(window: np.ndarray, label: int, spacing_um: tuple[float, ...], max_gap_um: float) -> pl.DataFrame:
@@ -34,11 +40,32 @@ def _gaps_around(window: np.ndarray, label: int, spacing_um: tuple[float, ...], 
     )
 
 
+def _gaps_in_tile(window: np.ndarray, label: int, spacing_um: tuple[float, ...], max_gap_um: float) -> pl.DataFrame:
+    if not (window == label).any():
+        return pl.DataFrame(schema=_PAIRS)
+    return _gaps_around(window, label, spacing_um, max_gap_um)
+
+
+def _joined(frames: list[pl.DataFrame]) -> pl.DataFrame:
+    return pl.concat(frames)
+
+
 def lazy_gaps(data: da.Array, low: np.ndarray, high: np.ndarray, label: int, voxel_size: VoxelSize,
               max_gap_um: float) -> Delayed:
-    """The pairs instance ``label`` is in contact with, as a frame of ``a``, ``b`` and ``gap``."""
-    window = box(data, low, high, pad=np.array(voxel_size.voxels_within(max_gap_um)))
-    return dask.delayed(_gaps_around)(window, label, tuple(voxel_size.um), max_gap_um)
+    """The pairs instance ``label`` is in contact with, as a frame of ``a``, ``b`` and ``gap``.
+
+    A big instance is searched in tiles, each widened by the contact distance. A tile gives only distances between real
+    voxels, never smaller than the truth, and the tile that holds the nearer voxel of a pair finds its exact gap; the
+    closest one is kept when the frames are merged.
+    """
+    pad = np.array(voxel_size.voxels_within(max_gap_um))
+    spacing = tuple(voxel_size.um)
+    if np.prod(high - low + 1 + 2 * pad, dtype=np.float64) <= WHOLE_WINDOW_VOXELS:
+        return dask.delayed(_gaps_around)(box(data, low, high, pad=pad), label, spacing, max_gap_um)
+    tiles = [dask.delayed(_gaps_in_tile)(box(data, np.array(start), np.minimum(np.array(start) + TILE_EDGE - 1, high), pad=pad),
+                                         label, spacing, max_gap_um)
+             for start in product(*(range(int(lo), int(hi) + 1, TILE_EDGE) for lo, hi in zip(low, high)))]
+    return dask.delayed(_joined)(tiles)
 
 
 def merged(frames: list[pl.DataFrame], entity: str) -> pl.DataFrame:
