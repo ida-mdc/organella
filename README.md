@@ -16,6 +16,8 @@ FIB-SEM, seven cells grouped in two conditions (stimulated with low and high glu
 segmented into plasma membrane, nucleus, Golgi apparatus, mitochondria, insulin secretory
 granules, microtubules, centrioles and axoneme.
 
+Or try the viewer on two synthetic datasets with known answers, in [3D](https://ida-mdc.github.io/organella/?data=examples/synthetic-3d.parquet) and in [2D](https://ida-mdc.github.io/organella/?data=examples/synthetic-2d.parquet) (made by the tests, not biology).
+
 <br clear="right">
 
 ## Screenshots from the reports

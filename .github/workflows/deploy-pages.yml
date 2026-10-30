@@ -11,6 +11,7 @@ on:
       - 'src/organella/viewer/**'
       - 'tools/viewer/**'
       - 'docs/**'
+      - 'tests/synthetic.py'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -48,7 +49,7 @@ jobs:
           VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[test]'
 
       - name: Check the page reads a report and draws every section
-        run: .venv/bin/python -m pytest -q tests/test_viewer_build.py tests/test_viewer_dependencies.py tests/test_viewer_in_browser.py
+        run: .venv/bin/python -m pytest -q tests/test_viewer.py
 
       - name: Publish the page
         run: |
@@ -56,6 +57,18 @@ jobs:
           page=$(.venv/bin/organella page)
           cp "$page" _site/organella_report.html
           cp "$page" _site/index.html
+
+      # Two small datasets with known answers, measured here and published with their geometry, so the page can be tried
+      # without any data of one's own: <page>/?data=examples/synthetic-3d.parquet
+      - name: Publish the synthetic example reports
+        run: |
+          for dim in 3d 2d; do
+            .venv/bin/python tests/synthetic.py make $dim "batch-$dim"
+            .venv/bin/organella process "batch-$dim" -p control -p treated -o "_site/examples/synthetic-$dim.parquet" \
+              --object-mask pm --object-noun cell --skeletons mito --with-mesh \
+              --description "Synthetic $dim cells, two groups of two, made by organella's own tests (tests/synthetic.py): a ragged outline, a nucleus, a Golgi crescent, mitochondria and granules. Every number in it is checked against the arrays. Not biology."
+            .venv/bin/python tests/synthetic.py check $dim "_site/examples/synthetic-$dim.parquet"
+          done
 
       - name: Publish the imprint and the privacy policy
         run: cp docs/impressum.html docs/privacy.html docs/_legal.css _site/

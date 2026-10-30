@@ -53,3 +53,22 @@ def report_path(object_folder, tmp_path_factory) -> Path:
     out = tmp_path_factory.mktemp("report") / "report.parquet"
     assert process(FolderSource(object_folder.parent, object_mask="cell"), DEFAULT, ParquetSink(out), Settings(reach_um=0.4)) == {}
     return out
+
+
+@pytest.fixture(scope="session")
+def synthetic_reports(tmp_path_factory) -> dict[str, Path]:
+    """The 2D and the 3D batch of ``tests/synthetic.py``, measured through the command line with geometry."""
+    from click.testing import CliRunner
+
+    import synthetic
+    from organella.cli import main
+
+    reports = {}
+    for ndim in (2, 3):
+        folder = tmp_path_factory.mktemp(f"synthetic{ndim}d")
+        synthetic.make_batch(folder / "batch", ndim)
+        reports[f"{ndim}d"] = folder / "report.parquet"
+        result = CliRunner().invoke(main, ["process", str(folder / "batch"), "-p", "control", "-p", "treated", "-o", str(reports[f"{ndim}d"]),
+                                           "--object-mask", "pm", "--object-noun", "cell", "--skeletons", "mito", "--with-mesh"])
+        assert result.exit_code == 0, result.output
+    return reports

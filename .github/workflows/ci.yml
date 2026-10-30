@@ -125,13 +125,14 @@ jobs:
         run: |
           "$PY" -m pip install --disable-pip-version-check "$(ls dist/*.whl)"
 
-      - name: A batch to measure
+      - name: A batch to measure, in 3D and in 2D
         run: |
-          "$PY" tests/synthetic.py batch
+          "$PY" tests/synthetic.py make 3d batch
+          "$PY" tests/synthetic.py make 2d batch2d
 
       - name: Survey it
         run: |
-          "$ORG" dry-run batch -p control --object-mask pm
+          "$ORG" dry-run batch -p control -p treated --object-mask pm
 
       # dry-run's whole job is to say what is wrong with a batch, so it is run against one
       # that has something wrong with it: a structure present in three objects of four.
@@ -139,7 +140,7 @@ jobs:
         run: |
           cp -r batch partial
           rm partial/control/object_a/*nucleus*
-          "$ORG" dry-run partial -p control --object-mask pm
+          "$ORG" dry-run partial -p control -p treated --object-mask pm
 
       # Not only on Windows, so the check is the same everywhere and does not depend on
       # which code page a runner happens to boot with. A Windows console is the reason it
@@ -150,41 +151,25 @@ jobs:
         env:
           PYTHONIOENCODING: cp1252
         run: |
-          "$ORG" dry-run partial -p control --object-mask pm
-          "$ORG" mesh batch -p control -o geometry-cp1252 --object-mask pm
+          "$ORG" dry-run partial -p control -p treated --object-mask pm
+          "$ORG" mesh batch -p control -p treated -o geometry-cp1252 --object-mask pm
 
       # The whole pipeline: the chunked measurements, kimimaro for the skeletons, the meshes, and a
       # parquet at the end.
       - name: Measure it
         run: |
-          "$ORG" process batch -p control -o report.parquet \
+          "$ORG" process batch -p control -p treated -o report.parquet \
             --object-mask pm --object-noun cell \
             --with-mesh --skeletons mito --distance-histograms
 
-      - name: The report is a report
+      # Measured, not merely written: every number in the report is compared with what numpy and scipy say of the arrays
+      # the batch was made from, and the geometry file of each object is opened. The 2D batch goes the same way.
+      - name: The report says what the arrays say
         run: |
-          "$PY" - <<'EOF'
-          import pathlib
-          import polars as pl
-          from organella.report.file import read_report
-
-          rows, footer = read_report(pathlib.Path("report.parquet"))
-          objects = rows.filter(pl.col("row_type") == "object")
-          assert objects.height == 4, f"{objects.height} object rows"
-          assert sorted(objects["object_id"]) == ["object_a", "object_b", "object_c",
-                                                  "object_d"]
-          # Measured, not merely written: a batch that read no pixels still has rows.
-          assert rows.filter(pl.col("row_type") == "instance").height > 0, "no instances"
-          assert objects["object_volume_um3"].min() > 0, "nothing was measured"
-          assert footer["organella_object_noun"] == "cell"
-
-          # The geometry goes beside the report, one file per object, and the object row is
-          # how a reader finds it - an absolute path, which is the part that differs by
-          # platform.
-          for path in objects["mesh_geometry_file"]:
-              assert pathlib.Path(path).is_file(), path
-          print(f"{rows.height} rows, {objects.height} objects, geometry for each")
-          EOF
+          "$PY" tests/synthetic.py check 3d report.parquet
+          "$ORG" process batch2d -p control -p treated -o report2d.parquet --object-mask pm --object-noun cell \
+            --with-mesh --skeletons mito
+          "$PY" tests/synthetic.py check 2d report2d.parquet
 
       # Both rewrite the parquet where it already is. On Windows a file cannot be replaced
       # while something still holds it open, which is a failure no Linux run can produce.
@@ -198,8 +183,8 @@ jobs:
       # they were in.
       - name: Measure it again, resuming
         run: |
-          "$ORG" process batch -p control -o resumed.parquet --object-mask pm --resume
-          "$ORG" process batch -p control -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -p control -p treated -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -p control -p treated -o resumed.parquet --object-mask pm --resume
 
       - name: The installed CLI finds its page
         run: |

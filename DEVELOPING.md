@@ -69,9 +69,10 @@ pytest
 | `test_process.py`, `test_resume.py`, `test_report_file.py`, `test_commands.py` | A run end to end: the report, its footer, resuming, the commands |
 | `test_formats.py`, `test_store_source.py`, `test_cells.py` | Reading input: TIFF, NIfTI, label maps, N5 and Zarr, cells cut from a volume |
 | `test_geometry.py`, `test_surfaces.py`, `test_payloads.py` | The geometry file and the surfaces in it |
+| `test_end_to_end.py` | The command line on a synthetic 2D and 3D batch (`tests/synthetic.py`): every number in the report against the arrays |
 | `test_viewer.py` | The page builds, its files respect their layers, and a report draws in headless Chrome |
 
-`conftest.py` makes one small object folder and the report measured from it; `tests/synthetic.py` writes the same kind of batch for CI's install job.
+`conftest.py` makes one small object folder and the report measured from it, and the two synthetic reports. `tests/synthetic.py` makes the synthetic batches (`make`) and checks a report against them (`check`); CI's install job runs it on the installed wheel, and the Pages workflow publishes both reports with their geometry as `examples/synthetic-3d.parquet` and `examples/synthetic-2d.parquet`.
 
 ## The viewer
 
