@@ -104,6 +104,33 @@ function polarShapeShare(objectId, axis) {
   return total ? share.map(function(v){ return v / total; }) : null;
 }
 
+/**
+ * A plane's angle to the axis with its side, in degrees on the circle a rose is drawn on: 0 along the axis, counted the way the
+ * viewer shows the plane (above the axis on screen is positive, since an array's y runs downward).
+ */
+function polarSignedDeg(unit, axis) {
+  // axis x unit with x = nx and y = ny; y runs down the screen, so a turn that is positive there is clockwise on it.
+  var cross = axis[1] * unit[0] - axis[0] * unit[1];
+  var deg = Math.atan2(-cross, polDot(unit, axis)) * 180 / Math.PI;
+  return (deg + 360) % 360;
+}
+
+/** `polarShapeShare` for a plane, on the full circle in `bins` equal parts, in the angles `polarSignedDeg` gives. */
+function polarShapeShareFull(objectId, axis, bins) {
+  polarShapeShare(objectId, axis);   // reads the object's counts into the cache
+  var counts = _SHAPE_COUNTS[objectId];
+  if (!counts || Array.isArray(counts[0])) return null;
+  var share = new Array(bins).fill(0), total = 0, here = Math.atan2(axis[0], axis[1]);
+  counts.forEach(function(n, i) {
+    if (!n) return;
+    var around = -Math.PI + (i + 0.5) * 2 * Math.PI / counts.length - here;
+    var deg = (Math.atan2(-Math.sin(around), Math.cos(around)) * 180 / Math.PI + 360) % 360;
+    share[Math.min(bins - 1, Math.floor(deg / (360 / bins)))] += n;
+    total += n;
+  });
+  return total ? share.map(function(v){ return v / total; }) : null;
+}
+
 /** The value a fraction `q` of the total weight lies at or below: a median that counts by size. */
 function weightedQuantile(values, weights, q) {
   if (!values.length) return null;

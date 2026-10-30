@@ -333,45 +333,69 @@ function renderPolarity() {
     explainButton(el, polaritySpec(name, ref, 'angle'));
   });
 
-  // Each object's own rose, kept out of the way: its wedges, its chance outline and its average vector, with R and V in the title.
-  perObjectFold(document.getElementById('pol-angle-fold'), 'Show each ' + noun() + '\u2019s own rose, with its average vector',
+  // Each object's own rose, kept out of the way: its wedges, its chance outline and its average vector, with R and V in the title,
+  // for the one structure chosen above them. In a plane an object's angle has a side, so its rose is the full circle; in a volume
+  // the rotation about the axis is arbitrary and the half rose stays.
+  var foldStructures = structures.filter(function(name){ return kinds[name] !== 'mask'; });
+  if (foldStructures.length) perObjectFold(document.getElementById('pol-angle-fold'),
+    'Show each ' + noun() + '\u2019s own rose, with its average vector',
     function(body) {
-      structures.forEach(function(name) {
-        if (kinds[name] === 'mask') return;
-        var grid = document.createElement('div');
-        grid.className = 'charts-row';
-        var heading = document.createElement('div');
-        heading.className = 'subsection-label mt-2';
-        heading.innerHTML = dataName(name);
-        body.append(heading, grid);
+      var bar = document.createElement('div');
+      bar.className = 'd-flex align-items-center mb-2';
+      bar.style.gap = '.4rem';
+      var pick = document.createElement('select');
+      pick.className = 'form-select form-select-sm';
+      pick.style.width = 'auto';
+      pick.innerHTML = foldStructures.map(function(n){ return '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>'; }).join('');
+      var word = document.createElement('span');
+      word.className = 'small';
+      word.style.color = 'var(--ink-3)';
+      word.textContent = 'Structure';
+      bar.append(word, pick);
+      var grid = document.createElement('div');
+      grid.className = 'charts-row';
+      body.append(bar, grid);
+      var BINS = PLANAR ? 2 * ANGLE_BINS : ANGLE_BINS, BIN_DEG = 180 / ANGLE_BINS;
+      // Where an angle goes on the circle: a plane's is signed (above the axis on screen is positive); a volume's folds onto 0..180.
+      var thetaOf = function(unit, axisUnit) {
+        return PLANAR ? polarSignedDeg(unit, axisUnit) : polarConeDeg(unit, axisUnit);
+      };
+      var draw = function(name) {
+        grid.innerHTML = '';
         mapObjects.forEach(function(id) {
           var mine = relative[name].filter(function(r){ return String(r.object_id) === String(id); });
           var axis = polarOffset(id, ref);
           if (!mine.length || !axis) return;
-          var weights = polarWeights(mine), share = new Array(ANGLE_BINS).fill(0), whole = 0;
-          mine.forEach(function(r, i){ share[polarBinOf(r.angle_deg)] += weights[i]; whole += weights[i]; });
+          var weights = polarWeights(mine), share = new Array(BINS).fill(0), whole = 0;
+          mine.forEach(function(r, i) {
+            share[Math.min(BINS - 1, Math.floor(thetaOf(r.unit, axis.unit) / BIN_DEG))] += weights[i];
+            whole += weights[i];
+          });
           share = share.map(function(v){ return v / (whole || 1); });
           var group = groupOfObject[String(id)], colour = group ? gColor(group) : entColor(name);
-          var chance = polarShapeShare(id, axis.unit);
+          var chanceShare = (PLANAR ? polarShapeShareFull(id, axis.unit, BINS) : polarShapeShare(id, axis.unit))
+            || share.map(function(_, b) {
+              return PLANAR ? 1 / BINS : (Math.cos(b * Math.PI / ANGLE_BINS) - Math.cos((b + 1) * Math.PI / ANGLE_BINS)) / 2;
+            });
           var found = polarityIndices(mine.map(function(r){ return r.unit; }), axis.unit, weights);
-          var chanceShare = chance || share.map(function(_, b) {
-            return PLANAR ? 1 / ANGLE_BINS : (Math.cos(b * Math.PI / ANGLE_BINS) - Math.cos((b + 1) * Math.PI / ANGLE_BINS)) / 2;
-          });
           var top = Math.max(Math.max.apply(null, share), Math.max.apply(null, chanceShare));
           var traces = [{ type: 'barpolar', name: String(id), showlegend: false,
             r: share.map(function(v){ return v / top; }),
-            theta: share.map(function(_, b){ return (b + 0.5) * 180 / ANGLE_BINS; }), width: 180 / ANGLE_BINS,
+            theta: share.map(function(_, b){ return (b + 0.5) * BIN_DEG; }), width: BIN_DEG,
             marker: { color: withAlpha(colour, 0.35), line: { color: colour, width: 1 } },
-            hovertemplate: '%{theta:.0f}°: %{customdata:.1f}%<extra></extra>',
+            hovertemplate: '%{theta:.0f}\u00b0: %{customdata:.1f}%<extra></extra>',
             customdata: share.map(function(v){ return 100 * v; }) },
             steppedOutline(chanceShare, top, colour, false)];
           // The arrow is R long, a stub where the directions mostly cancel: a faint ray carries its direction to the rim.
           if (found && found.mean) {
-            var at = polarConeDeg(found.mean, axis.unit);
+            var at = thetaOf(found.mean, axis.unit);
             traces.push({ type: 'scatterpolar', mode: 'lines', r: [0, 1], theta: [at, at], showlegend: false, hoverinfo: 'skip',
                           line: { color: '#1b222b', width: 1, dash: 'dash' }, opacity: 0.5 });
+            traces.push({ type: 'scatterpolar', mode: 'lines+markers', name: String(id), r: [0, found.R], theta: [at, at],
+                          line: { color: colour, width: 2 }, marker: { size: [0, 8], color: colour }, showlegend: false,
+                          customdata: [found.R, found.R],
+                          hovertemplate: 'R %{customdata:.2f} at %{theta:.0f}\u00b0<br>V ' + found.V.toFixed(2) + '<extra></extra>' });
           }
-          traces = traces.concat(arrowsOf(name, id));
           var cell = document.createElement('div');
           cell.className = 'chart-cell';
           var plotEl = document.createElement('div');
@@ -379,11 +403,21 @@ function renderPolarity() {
           grid.appendChild(cell);
           var layout = roseLayout(name);
           layout.title = { text: escHtml(String(id)) + (found ? '<br><span style="font-size:11px">R ' + found.R.toFixed(2) + ' \u00b7 V '
-            + found.V.toFixed(2) + '</span>' : '') };
-          layout.height = 330; layout.margin.t = 84; layout.title.y = 0.97; layout.title.yanchor = 'top';
+            + found.V.toFixed(2) + '</span>' : ''), y: 0.97, yanchor: 'top' };
+          layout.height = 330; layout.margin.t = 84;
+          if (PLANAR) {
+            layout.margin.b = 24;
+            layout.polar.sector = [0, 360];
+            layout.polar.angularaxis.tickvals = [0, 90, 180, 270];
+            layout.polar.angularaxis.ticktext = [ref, '90\u00b0', 'away', '270\u00b0'];
+          }
           drawPlot(plotEl, traces, layout, { responsive: true, displayModeBar: false });
         });
-      });
+      };
+      if (foldStructures.indexOf(st.polarFold) < 0) st.polarFold = foldStructures[0];
+      pick.value = st.polarFold;
+      pick.onchange = function() { st.polarFold = pick.value; draw(pick.value); };
+      draw(st.polarFold);
     });
 
   // ── the two collective measures, one per object ────────────────────────────
