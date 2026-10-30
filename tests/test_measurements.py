@@ -246,6 +246,19 @@ def test_polarity_spread_is_small_for_a_compact_instance_and_large_for_one_that_
     assert "instance_polar_spread_deg" not in measure_all(blobs_in_a_cell(), Settings(reach_um=1.0, chunk_edge=48, contacts=False)).columns
 
 
+def test_the_object_row_says_which_directions_its_voxels_lie_in_from_its_centre():
+    from organella.measure.polarity import direction_counts
+    long_box = np.zeros((9, 9, 61), dtype=bool)
+    long_box[:, :, :] = True
+    sample = sample_of({"cell": long_box}, {"cell": Kind.MASK}, (1.0, 1.0, 1.0), mask="cell")
+    counts = np.array(json.loads(measure_all(sample, Settings(contacts=False)).filter(pl.col("row_type") == "object")["polar_shape_counts"][0]))
+    assert counts.shape == (32, 32) and counts.sum() == long_box.size - 1       # every voxel but the centre itself
+    along_x = counts[:, [0, 15, 16, 31]].sum()                                   # azimuth bins nearest the x axis
+    assert along_x > counts.sum() / 2                                            # most of a long box lies along its length
+    plane = direction_counts(np.array([[0.0, 1.0], [0.0, -1.0], [1.0, 0.0], [0.0, 0.0]]))
+    assert plane.shape == (360,) and plane.sum() == 3
+
+
 def test_without_instances_only_the_per_structure_rows_remain_and_contacts_stay_their_own_switch():
     report = measure_all(blobs_in_a_cell(), Settings(reach_um=1.0, chunk_edge=48, instances=False, contacts=False), (Statistics(),))
     assert set(report["row_type"]) == {"object", "entity"}

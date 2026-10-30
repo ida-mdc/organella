@@ -131,3 +131,4 @@ var REPORT_DESCRIPTION = '';
 // Grouped once per report: an offset is asked for per object x structure by four rows of
 // panels, and each answer walks that structure's instances.
 var _POLAR_OFFSETS = {};
+var _SHAPE_COUNTS = {};   // each object's count of its voxels per direction, parsed once

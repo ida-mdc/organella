@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from functools import reduce
 
 import dask
@@ -15,7 +16,7 @@ from organella.measure import columns
 from organella.measure.contacts import contacts_of
 from organella.measure.depth import boundary_voxels, centroid_depths
 from organella.measure.per_label import counts_and_centroids
-from organella.measure.polarity import aspect_ratio, polarity, spreads
+from organella.measure.polarity import aspect_ratio, direction_profile, polarity, spreads
 from organella.measure.skeletons import trace_all
 from organella.measure.boundary import boundaries
 
@@ -41,6 +42,7 @@ class Statistics:
         contacts = contacts_of(sample, per_structure, settings) if settings.contacts else None
         skeletons = trace_all(sample, per_structure, settings)
         spread = spreads(sample, per_structure, settings, centre)
+        directions = None if centre is None else dask.compute(direction_profile(_origin_region(sample), edge, centre))[0]
         shared.tips = {name: {int(label): t.tips for label, t in zip(per_structure[name]["id"], traced)}
                        for name, traced in skeletons.items()}
 
@@ -49,7 +51,7 @@ class Statistics:
                      for s in sample.labelled() if per_structure[s.name].height and s.name in shapes}
         shared.findings = Findings(per_structure, entities, instances, skeletons, contacts)
         return {
-            RowType.OBJECT: pl.DataFrame([_object_row(sample, centre_stats, centre, contacts)]),
+            RowType.OBJECT: pl.DataFrame([_object_row(sample, centre_stats, centre, contacts, directions)]),
             RowType.ENTITY: entities,
             RowType.INSTANCE: pl.concat(instances.values(), how="diagonal_relaxed") if instances else pl.DataFrame(),
             RowType.CONTACT: contacts if contacts is not None else pl.DataFrame(),
@@ -116,19 +118,21 @@ def _covariance(stats: pl.DataFrame, edge: np.ndarray) -> np.ndarray:
     return covariance
 
 
-def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl.DataFrame | None) -> dict:
+def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl.DataFrame | None, directions: np.ndarray | None) -> dict:
     axes, edge = sample.voxel_size.axes, sample.voxel_size.um
     row = {
         "imported_path_short": sample.group,
         **{f"pixel_size_{a}": e for a, e in zip(axes, edge)},
         **{f"size_{a}": n for a, n in zip(axes, sample.shape)},
         "object_mask_name": sample.object_mask,
+        "spatial_dims": len(edge),
     }
     if sample.object_mask:
-        "spatial_dims": len(edge),
         row[columns.object_size(len(edge))] = float(centre_stats["count"].sum()) * sample.voxel_size.volume
     if centre is not None:
         row.update({f"object_center_{a}_um": float(c) for a, c in zip(axes, centre)})
+    if directions is not None:
+        row["polar_shape_counts"] = json.dumps(directions.tolist())
     if contacts is not None:
         row["contact_count"] = contacts.height
     return row

@@ -309,6 +309,12 @@ COLUMNS: dict[str, str] = {
     'polar_nz': (
         "Z component of the unit vector from the object centre to this structure's centroid."
     ),
+    'polar_shape_counts': (
+        "How many of the object's own voxels (pixels in a plane) lie in each direction from its centre, on a grid of "
+        'equal shares of all directions: 360 angles for a plane, 32 z bins by 32 azimuths for a volume. What a structure '
+        "scattered anywhere in the object would be spread over, so the polarity charts' chance outline follows the "
+        "object's shape."
+    ),
     'row_type': (
         "What this row is: 'object' (obs_level 0), 'entity' (obs_level 1, one per structure), or one of 'instance', "
         "'distance' and 'contact' below them."

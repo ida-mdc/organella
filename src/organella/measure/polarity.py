@@ -14,6 +14,38 @@ from organella.measure.windows import box, over_instances
 # Below this share of the longest axis' variance an axis is rounding noise, not a shape.
 DEGENERATE = 1e-9
 
+# The grid directions are counted on: a plane has this many angles; a volume has this many bins in z (an equal share of the
+# sphere each) by this many in azimuth, so every bin spans the same solid angle.
+PLANE_BINS = 360
+VOLUME_BINS = 32
+
+
+def direction_counts(offsets_um: np.ndarray) -> np.ndarray:
+    """How many of the offsets ``(n, ndim)`` point into each bin of an equal-share grid of directions: ``(360,)`` for a
+    plane, ``(32, 32)`` (z, azimuth) for a volume. An offset of 0 has no direction and is not counted."""
+    dist = np.linalg.norm(offsets_um, axis=1)
+    units = offsets_um[dist > 0] / dist[dist > 0, None]
+    if offsets_um.shape[1] == 2:
+        angle = np.arctan2(units[:, 0], units[:, 1])
+        bins = np.clip(((angle + np.pi) / (2 * np.pi) * PLANE_BINS).astype(int), 0, PLANE_BINS - 1)
+        return np.bincount(bins, minlength=PLANE_BINS)
+    z = np.clip(((units[:, 0] + 1) / 2 * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
+    azimuth = np.clip(((np.arctan2(units[:, 1], units[:, 2]) + np.pi) / (2 * np.pi) * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
+    return np.bincount(z * VOLUME_BINS + azimuth, minlength=VOLUME_BINS ** 2).reshape(VOLUME_BINS, VOLUME_BINS)
+
+
+def _block_directions(block: np.ndarray, origin: np.ndarray, voxel_um: np.ndarray, centre_um: np.ndarray) -> np.ndarray:
+    return direction_counts((np.argwhere(block) + origin) * voxel_um - centre_um)
+
+
+def direction_profile(region: da.Array, voxel_um: np.ndarray, centre_um: np.ndarray) -> Delayed:
+    """Which directions the object's own voxels lie in as seen from its centre: what a structure scattered anywhere in the
+    object would be spread over, so an elongated object has more of it along its long axis than across."""
+    starts = [np.concatenate([[0], np.cumsum(c)[:-1]]) for c in region.chunks]
+    parts = [dask.delayed(_block_directions)(block, np.array([starts[axis][i] for axis, i in enumerate(index)]), voxel_um, centre_um)
+             for index, block in np.ndenumerate(region.to_delayed())]
+    return dask.delayed(sum)(parts)
+
 
 def polarity(offsets_um: np.ndarray) -> dict[str, np.ndarray]:
     """From offsets ``(n, ndim)`` in array order: distance, unit vector, and azimuth and elevation (a plane: one angle).

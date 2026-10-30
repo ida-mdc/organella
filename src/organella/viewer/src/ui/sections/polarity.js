@@ -158,9 +158,11 @@ function renderPolarity() {
   setHtml('pol-angle-label', 'Which way does each structure point, relative to '
     + dataName(ref) + '?');
   setHtml('pol-angle-desc', 'Each <b>wedge</b> shows how much of the structure lies at that angle to the axis,'
-    + ' with instances weighted by size. The <b>dashed outline</b> is the distribution expected if the'
-    + ' structure ignored the axis. It is not a circle, because a volume has more of its extent at 90° to'
-    + ' an axis than along it. Wedge heights are relative: the tallest reaches the rim.'
+    + ' with instances weighted by size. The <b>dotted outline</b> is the distribution expected if the'
+    + ' structure ignored the axis and lay anywhere in the ' + noun() + ': the directions of the ' + noun() + '’s own '
+    + (PLANAR ? 'area' : 'volume') + ' seen from its centre, so the shape of the ' + noun() + ' is in it, one outline per group.'
+    + ' Where a report did not measure that shape, it is the outline for ' + (PLANAR ? 'a circle' : 'a sphere') + ' instead.'
+    + ' Wedge heights are relative: the tallest reaches the rim.'
     + ' Each <b>line with a dot at its end</b> is one ' + noun() + '. It runs from the centre in the average direction of the structure in that '
     + noun() + ', and its length is <b>R</b> measured against the rim as 1, from 0 (the directions cancel) to 1'
     + ' (all directions agree). A structure with a single centre per ' + noun() + ' is drawn as one dot.');
@@ -199,8 +201,25 @@ function renderPolarity() {
       });
       return { facet: f, share: counts.map(function(c){ return c / (whole || 1); }) };
     });
+    // What each facet would have if its structure ignored the axis and lay anywhere in the object: the share of its
+    // objects' own volume in each wedge, an object counting by how much of the structure it has - the way the
+    // wedges themselves are pooled. Null where the report did not measure the object's shape.
+    var chance = shares.map(function(x) {
+      var sum = new Array(ANGLE_BINS).fill(0), whole = 0, byObject = {};
+      var sizes = polarWeights(x.facet.rows);
+      x.facet.rows.forEach(function(r, i){ byObject[r.object_id] = (byObject[r.object_id] || 0) + sizes[i]; });
+      var complete = Object.keys(byObject).every(function(id) {
+        var axis = polarOffset(id, ref), mine = axis && polarShapeShare(id, axis.unit);
+        if (!mine) return false;
+        mine.forEach(function(v, k){ sum[k] += v * byObject[id]; });
+        whole += byObject[id];
+        return true;
+      });
+      return complete && whole ? sum.map(function(v){ return v / whole; }) : null;
+    });
     var top = Math.max.apply(null, [Math.max.apply(null, expected)].concat(
-      shares.map(function(x){ return Math.max.apply(null, x.share); })));
+      shares.map(function(x){ return Math.max.apply(null, x.share); }),
+      chance.filter(Boolean).map(function(c){ return Math.max.apply(null, c); })));
     if (!isMask) {
       shares.forEach(function(x) {
         traces.push({ type: 'barpolar', name: x.facet.label,
@@ -212,11 +231,17 @@ function renderPolarity() {
             + '<extra></extra>',
           customdata: x.share.map(function(v){ return 100 * v; }) });
       });
-      traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false,
-        r: expected.map(function(v){ return v / top; }).concat([expected[0] / top]),
-        theta: centres.concat([centres[0]]),
-        line: { color: CS.ink3, width: 1, dash: 'dot', shape: 'spline' },
-        hoverinfo: 'skip' });
+      // One outline per facet where the shape of its objects is known; one for a uniform population where it is not.
+      var outlines = chance.every(Boolean)
+        ? chance.map(function(c, i){ return { share: c, colour: shares[i].facet.color }; })
+        : [{ share: expected, colour: CS.ink3 }];
+      outlines.forEach(function(o) {
+        traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false,
+          r: o.share.map(function(v){ return v / top; }).concat([o.share[0] / top]),
+          theta: centres.concat([centres[0]]),
+          line: { color: o.colour, width: 1.2, dash: 'dot', shape: 'spline' },
+          hoverinfo: 'skip' });
+      });
     }
     // The average, one per object: length R, angle to the axis.
     mapObjects.forEach(function(id) {

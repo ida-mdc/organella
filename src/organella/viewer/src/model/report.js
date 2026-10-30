@@ -202,6 +202,7 @@ function adapt(rows) {
   CHANCE = {};
   // Per object x structure, and both change with the report.
   _POLAR_OFFSETS = {};
+  _SHAPE_COUNTS = {};
   baselineRows.forEach(function(r) {
     if (r.baseline_target == null) return;
     var id = String(r.object_id);

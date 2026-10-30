@@ -59,6 +59,51 @@ function polarWeights(rows) {
     ? sizes : rows.map(function(){ return 1; });
 }
 
+/**
+ * The share of an object's own volume (area, in a plane) that lies in each wedge of the rose, for one axis: what a structure
+ * scattered anywhere in the object would put in each wedge, so that the shape of the object is in it. From the report's
+ * count of the object's voxels per direction; null for an object that has none (a report from before it was measured).
+ */
+function polarShapeShare(objectId, axis) {
+  var counts = _SHAPE_COUNTS[objectId];
+  if (counts === undefined) {
+    var row = OBJECTS.find(function(o){ return o.object_id === String(objectId); });
+    try { counts = row && row.polar_shape_counts ? JSON.parse(row.polar_shape_counts) : null; } catch (error) { counts = null; }
+    _SHAPE_COUNTS[objectId] = counts;
+  }
+  if (!counts || !axis) return null;
+  var share = new Array(POLAR_ANGLE_BINS).fill(0), total = 0;
+  if (!Array.isArray(counts[0])) {
+    // A plane: one count per degree of angle round the centre; the angle to the axis folds onto 0..180.
+    var at = Math.atan2(axis[0], axis[1]);
+    counts.forEach(function(n, i) {
+      if (!n) return;
+      var diff = Math.abs(((-Math.PI + (i + 0.5) * 2 * Math.PI / counts.length - at + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+      share[polarBinOf(diff * 180 / Math.PI)] += n;
+      total += n;
+    });
+  } else {
+    // A volume: a bin is a patch of the sphere, so it is placed at a few points in it and not at its middle.
+    var nz = counts.length, naz = counts[0].length, SUB = 3;
+    counts.forEach(function(rowOf, zi) {
+      rowOf.forEach(function(n, ai) {
+        if (!n) return;
+        for (var a = 0; a < SUB; a++) {
+          for (var b = 0; b < SUB; b++) {
+            var z = -1 + (zi + (a + 0.5) / SUB) * 2 / nz;
+            var az = -Math.PI + (ai + (b + 0.5) / SUB) * 2 * Math.PI / naz;
+            var ring = Math.sqrt(Math.max(0, 1 - z * z));
+            var along = z * axis[0] + ring * Math.sin(az) * axis[1] + ring * Math.cos(az) * axis[2];
+            share[polarBinOf(Math.acos(Math.max(-1, Math.min(1, along))) * 180 / Math.PI)] += n / (SUB * SUB);
+          }
+        }
+        total += n;
+      });
+    });
+  }
+  return total ? share.map(function(v){ return v / total; }) : null;
+}
+
 /** The value a fraction `q` of the total weight lies at or below: a median that counts by size. */
 function weightedQuantile(values, weights, q) {
   if (!values.length) return null;
