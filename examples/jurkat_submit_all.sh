@@ -4,7 +4,7 @@
 #
 #   SCALE=s1 CHUNK_EDGE=192 THREADS=16 MEM=192G TIME=1-00:00:00 sh examples/jurkat_submit_all.sh OUT
 #
-# Run from organella_next/, on the login node. MEM and TIME are asked for each measuring job; the other settings are
+# Run from the repository root, on the login node. MEM and TIME are asked for each measuring job; the other settings are
 # those of jurkat_slurm.sh and reach it as they are. CELLS (default all 11) limits which cells are submitted. A cell
 # that fails stops the merge: submit that cell again with STEP=cell, then the merge with STEP=merge.
 set -eu

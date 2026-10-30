@@ -2,7 +2,7 @@
 name = "organella"
 # Read from organella.__version__ by hatchling (see [tool.hatch.version])
 dynamic = ["version"]
-description ="Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
+description = "Spatial analysis of segmented objects: measure a batch of them, and read the result in one standalone page"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -27,18 +27,20 @@ classifiers = [
 
 dependencies = [
     "click>=8.1",
-    "numpy>=2.0.0",
-    "pyarrow",
-    "polars>=1.0.0",
-    "scipy>=1.13.0",
-    "scikit-image>=0.23.0",
-    "SimpleITK>=2.3",
+    "dask[array]>=2025.1",
+    "zarr[remote]>=3",
+    "tensorstore",
     "tifffile>=2024.5.0",
     "imagecodecs",
     "edt>=2.4.0",
-    "fast-simplification>=0.1.6",
     "kimimaro>=4.0.0",
-    "psutil",
+    "fast-simplification>=0.1.6",
+    "scikit-image>=0.23.0",
+    "SimpleITK>=2.3",
+    "polars>=1.0.0",
+    "pyarrow",
+    "numpy>=2.0.0",
+    "scipy>=1.13.0",
 ]
 
 [project.urls]
@@ -47,18 +49,14 @@ Repository = "https://github.com/ida-mdc/organella"
 Issues = "https://github.com/ida-mdc/organella/issues"
 
 [project.optional-dependencies]
-remote = [
-    "zarr>=2.16,<3",
-    "s3fs>=2023.6.0",
-]
-
+# Reading S3 stores is part of the install now; the extra stays so `pip install "organella[remote]"` still works.
+remote = []
 test = [
     "pytest>=8.3.5",
-    "duckdb>=1.0",
 ]
 
 [project.scripts]
-organella = "organella.cli:cli"
+organella = "organella.cli:main"
 
 [build-system]
 requires = ["hatchling"]

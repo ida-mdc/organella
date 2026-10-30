@@ -1,96 +1,76 @@
-"""Which instances of a structure touch each other, and how closely.
+"""Which instances of one structure touch, and how closely.
 
-A contact is a property of an instance *pair*, so it belongs to no single instance: each
-pair becomes one row of its own (``row_type='contact'``, see
-:mod:`organella.model.rows`), and the object row keeps the count.
-
-    SELECT object_id, contact_entity, contact_label_a, contact_label_b, contact_gap_um
-    FROM pp_all WHERE row_type = 'contact' AND contact_gap_um <= 0.1
-
-Both instances of a pair are of the *same* structure, and only label entities take part;
-:mod:`organella.analysis.gaps` says why. One row per contact, not list columns on the object row, so
-the gap threshold is a WHERE and needs no unnest of every contact in the batch.
-
-Skip it with ``organella process --no-contacts``, which is what a batch that only wants
-morphology should do: finding the pairs is minutes on a large object.
+Only between instances of the same structure, and only for labelled structures: two mitochondria touching is
+a network of mitochondria, where a mitochondrion touching the nucleus is a distance to the nucleus, which the
+distance rows carry. The gap is the smallest voxel-to-voxel distance, so instances sharing a face are one voxel
+step apart, not zero.
 """
-
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, Optional, Sequence
+from itertools import product
 
+import dask
+import dask.array as da
 import numpy as np
+import polars as pl
+from dask.delayed import Delayed
 
-from organella.config import RunConfig
-from organella.model import CONTACT_ROW, ObjectMeasurement, ObjectStack
-from organella.analysis.cache import contacts_for
-from organella.analysis.gaps import Contact
+from organella.core import VoxelSize
+from organella.measure.transform import distance_to_voxels
+from organella.measure.windows import box
 
-logger = logging.getLogger(__name__)
-
-# The count and nothing more: it is what a per-object comparison needs, and the pairs
-# themselves are rows.
-_OBJECT_COLUMNS: Dict[str, Any] = {
-    "contact_count": np.int64,
-}
-
-# One row per touching pair. One entity column, not two: both instances are of the same
-# structure, which is the only kind of pair there is.
-_CONTACT_COLUMNS: Dict[str, Any] = {
-    "contact_entity": str,
-    "contact_label_a": np.int64,
-    "contact_label_b": np.int64,
-    "contact_gap_um": np.float64,
-}
-
-_DESCRIPTIONS: Dict[str, str] = {
-    "contact_count": "Number of instance pairs of one structure within the recorded gap threshold; on the object row.",
-    "contact_entity": "Structure both instances of this pair belong to; a pair is always within one structure.",
-    "contact_label_a": "Label id of the first instance of the pair, the lower of the two.",
-    "contact_label_b": "Label id of the second instance of the pair.",
-    "contact_gap_um": "Surface-to-surface gap of the pair in µm, measured in whole voxel steps, so instances sharing a face read one voxel step.",
-}
+_PAIRS = {"a": pl.Int64, "b": pl.Int64, "gap": pl.Float64}
+# An instance whose box, widened by the contact distance, is past this many voxels is searched a tile at a time: a network
+# that runs through the whole cell would otherwise be read and transformed whole.
+WHOLE_WINDOW_VOXELS = 50_000_000
+TILE_EDGE = 128
 
 
-class ContactMeasurer:
-    """Pairwise surface-to-surface gaps between the instances of one object."""
-
-    NAME = "organella-contacts"
-    DESCRIPTION = (
-        "Records which instances of a structure lie within a gap threshold of each other, one "
-        "row per pair with its surface-to-surface gap in µm. Pairs are within one structure and "
-        "only for structures that have instances: how close an instance gets to a different "
-        "structure is a distance, and is measured as one."
+def _gaps_around(window: np.ndarray, label: int, spacing_um: tuple[float, ...], max_gap_um: float) -> pl.DataFrame:
+    """Gaps from instance ``label`` to every other instance in a window that reaches ``max_gap_um`` past it."""
+    others = (window > 0) & (window != label)
+    if not others.any():
+        return pl.DataFrame(schema=_PAIRS)
+    to_this_one = distance_to_voxels(window == label, spacing_um)
+    nearest = pl.DataFrame({"b": window[others], "gap": to_this_one[others].astype(np.float64)}).group_by("b").min()
+    return nearest.filter(pl.col("gap") <= max_gap_um).select(
+        pl.min_horizontal(pl.lit(label), pl.col("b")).cast(pl.Int64).alias("a"),
+        pl.max_horizontal(pl.lit(label), pl.col("b")).cast(pl.Int64).alias("b"),
+        "gap",
     )
 
-    # The object row's own columns, then the columns of the contact rows below it.
-    OBJECT_COLUMNS: Dict[str, Any] = dict(_OBJECT_COLUMNS)
-    ROW_SCHEMAS: Dict[str, Dict[str, Any]] = {CONTACT_ROW: dict(_CONTACT_COLUMNS)}
-    COLUMN_DESCRIPTIONS: Dict[str, str] = dict(_DESCRIPTIONS)
 
-    def __init__(self, config: Optional[RunConfig] = None) -> None:
-        self._config = config if config is not None else RunConfig()
-
-    def measure(self, stack: ObjectStack) -> ObjectMeasurement:
-        # Views, not copies: a real entity volume is hundreds of megabytes.
-        contacts = contacts_for(
-            stack.object_id, stack.volumes(), stack.kinds, stack.sample_size,
-            self._config.contact_max_um, self._config.edt_threads,
-        )
-        logger.info(
-            "organella: %s: %d instance pairs within %.3g µm",
-            stack.object_id, len(contacts), self._config.contact_max_um,
-        )
-        return contact_measurement(contacts)
+def _gaps_in_tile(window: np.ndarray, label: int, spacing_um: tuple[float, ...], max_gap_um: float) -> pl.DataFrame:
+    if not (window == label).any():
+        return pl.DataFrame(schema=_PAIRS)
+    return _gaps_around(window, label, spacing_um, max_gap_um)
 
 
-def contact_measurement(contacts: Sequence[Contact]) -> ObjectMeasurement:
-    """The object row's count and the contact rows of a list of (entity, label a, label b, gap) pairs."""
-    table = {
-        "contact_entity": [c[0] for c in contacts],
-        "contact_label_a": [c[1] for c in contacts],
-        "contact_label_b": [c[2] for c in contacts],
-        "contact_gap_um": [c[3] for c in contacts],
-    }
-    return ObjectMeasurement(columns={"contact_count": len(contacts)}, tables={CONTACT_ROW: table})
+def _joined(frames: list[pl.DataFrame]) -> pl.DataFrame:
+    return pl.concat(frames)
+
+
+def lazy_gaps(data: da.Array, low: np.ndarray, high: np.ndarray, label: int, voxel_size: VoxelSize,
+              max_gap_um: float) -> Delayed:
+    """The pairs instance ``label`` is in contact with, as a frame of ``a``, ``b`` and ``gap``.
+
+    A big instance is searched in tiles, each widened by the contact distance. A tile gives only distances between real
+    voxels, never smaller than the truth, and the tile that holds the nearer voxel of a pair finds its exact gap; the
+    closest one is kept when the frames are merged.
+    """
+    pad = np.array(voxel_size.voxels_within(max_gap_um))
+    spacing = tuple(voxel_size.um)
+    if np.prod(high - low + 1 + 2 * pad, dtype=np.float64) <= WHOLE_WINDOW_VOXELS:
+        return dask.delayed(_gaps_around)(box(data, low, high, pad=pad), label, spacing, max_gap_um)
+    tiles = [dask.delayed(_gaps_in_tile)(box(data, np.array(start), np.minimum(np.array(start) + TILE_EDGE - 1, high), pad=pad),
+                                         label, spacing, max_gap_um)
+             for start in product(*(range(int(lo), int(hi) + 1, TILE_EDGE) for lo, hi in zip(low, high)))]
+    return dask.delayed(_joined)(tiles)
+
+
+def merged(frames: list[pl.DataFrame], entity: str) -> pl.DataFrame:
+    """Each pair once, at the closer of the two gaps its instances found, sorted so a report is reproducible."""
+    pairs = pl.concat(frames) if frames else pl.DataFrame(schema=_PAIRS)
+    return (pairs.group_by("a", "b").agg(pl.col("gap").min()).sort("a", "b")
+            .select(pl.lit(entity).alias("contact_entity"), pl.col("a").alias("contact_label_a"),
+                    pl.col("b").alias("contact_label_b"), pl.col("gap").alias("contact_gap_um")))

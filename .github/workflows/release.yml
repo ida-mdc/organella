@@ -40,10 +40,18 @@ jobs:
 
       # A release should not be the first place a failure turns up, so the suite runs here
       # too, and does not trust that CI ran on this commit.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Node tools for the viewer tests
+        run: npm ci
+        working-directory: tools/viewer
+
       - name: Test
         run: |
           uv venv --python 3.12 .venv
-          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote,test]'
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[test]'
           .venv/bin/python -m pytest -q
 
       - name: Build
@@ -52,7 +60,7 @@ jobs:
       # The report page is a data file inside the package: a wheel without it installs a CLI
       # with nothing to open, and no test would notice.
       - name: The wheel carries the page
-        run: unzip -l dist/*.whl | grep -q 'organella/report/organella_report.html'
+        run: unzip -l dist/*.whl | grep -q 'organella/viewer/index.html'
 
       - uses: actions/upload-artifact@v4
         with:

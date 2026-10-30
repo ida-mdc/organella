@@ -25,20 +25,21 @@ jobs:
         with:
           enable-cache: true
 
-      # The report page is JavaScript, and parts of the suite run it through node: the way a
-      # report is read into the page, the geometry decoder, the merge arithmetic, the contact
-      # clustering, every query the geometry sections build, and every section drawn against a
-      # stub DOM. Without node those tests fail; they do not skip.
+      # The report page is JavaScript, and the suite checks it with node: which file may read which
+      # (acorn and eslint-scope), and the page drawn in headless Chrome, which the runner provides.
+      # Without node and its packages those tests fail; they do not skip.
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # With the remote extra, so the manifest reader is installed: a
-      # folder holding one source.json is an object too, and nothing else covers that path.
+      - name: Node tools for the viewer tests
+        run: npm ci
+        working-directory: tools/viewer
+
       - name: Install
         run: |
           uv venv --python ${{ matrix.python }} .venv
-          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[remote,test]'
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[test]'
 
       - name: Test
         run: .venv/bin/python -m pytest -q
@@ -100,8 +101,8 @@ jobs:
           echo "PY=$dir/python$exe" >> "$GITHUB_ENV"
           echo "ORG=$dir/organella$exe" >> "$GITHUB_ENV"
 
-      # The page is a data file inside the package, and the suite reads it out of the source
-      # tree - so a wheel built without it passes every test and still installs a CLI whose
+      # The page is built from files inside the package, and the suite reads them out of the source
+      # tree - so a wheel built without them passes every test and still installs a CLI whose
       # `view` and `page` have nothing to open.
       - name: The wheel carries the report page
         run: |
@@ -109,7 +110,8 @@ jobs:
           import glob, zipfile
           wheel = glob.glob("dist/*.whl")[0]
           inside = zipfile.ZipFile(wheel).namelist()
-          assert "organella/report/organella_report.html" in inside, inside
+          for needed in ("organella/viewer/index.html", "organella/viewer/load-order.txt", "organella/viewer/assets/masthead.png"):
+              assert needed in inside, (needed, inside)
           print(f"{wheel} carries the page")
           EOF
 
@@ -129,7 +131,7 @@ jobs:
 
       - name: Survey it
         run: |
-          "$ORG" dry-run batch --object-mask pm
+          "$ORG" dry-run batch -p control --object-mask pm
 
       # dry-run's whole job is to say what is wrong with a batch, so it is run against one
       # that has something wrong with it: a structure present in three objects of four.
@@ -137,7 +139,7 @@ jobs:
         run: |
           cp -r batch partial
           rm partial/control/object_a/*nucleus*
-          "$ORG" dry-run partial --object-mask pm
+          "$ORG" dry-run partial -p control --object-mask pm
 
       # Not only on Windows, so the check is the same everywhere and does not depend on
       # which code page a runner happens to boot with. A Windows console is the reason it
@@ -148,14 +150,14 @@ jobs:
         env:
           PYTHONIOENCODING: cp1252
         run: |
-          "$ORG" dry-run partial --object-mask pm
-          "$ORG" mesh batch/control/object_a -o geometry-cp1252 --object-mask pm
+          "$ORG" dry-run partial -p control --object-mask pm
+          "$ORG" mesh batch -p control -o geometry-cp1252 --object-mask pm
 
-      # The whole pipeline: a spawned worker per object, a mesh pool inside each, kimimaro
-      # for the skeletons, and a parquet at the end.
+      # The whole pipeline: the chunked measurements, kimimaro for the skeletons, the meshes, and a
+      # parquet at the end.
       - name: Measure it
         run: |
-          "$ORG" process batch -o report.parquet \
+          "$ORG" process batch -p control -o report.parquet \
             --object-mask pm --object-noun cell \
             --with-mesh --skeletons mito --distance-histograms
 
@@ -164,10 +166,10 @@ jobs:
           "$PY" - <<'EOF'
           import pathlib
           import polars as pl
-          from organella import report_io
+          from organella.report.file import read_report
 
-          rows, footer = report_io.read("report.parquet")
-          objects = rows.filter(pl.col("obs_level") == 0)
+          rows, footer = read_report(pathlib.Path("report.parquet"))
+          objects = rows.filter(pl.col("row_type") == "object")
           assert objects.height == 4, f"{objects.height} object rows"
           assert sorted(objects["object_id"]) == ["object_a", "object_b", "object_c",
                                                   "object_d"]
@@ -196,10 +198,10 @@ jobs:
       # they were in.
       - name: Measure it again, resuming
         run: |
-          "$ORG" process batch -o resumed.parquet --object-mask pm --resume
-          "$ORG" process batch -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -p control -o resumed.parquet --object-mask pm --resume
+          "$ORG" process batch -p control -o resumed.parquet --object-mask pm --resume
 
       - name: The installed CLI finds its page
         run: |
           "$ORG" page
-          "$PY" -c "from organella.report_page import report_page; p = report_page(); print(p); assert p.is_file()"
+          "$PY" -c "from organella.viewer.build import build; page = build(); assert page.lstrip().lower().startswith('<!doctype html'), page[:80]"

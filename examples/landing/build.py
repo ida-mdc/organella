@@ -76,7 +76,7 @@ PROFILES = {
 # ── the report's payloads ──────────────────────────────────────────────────
 
 def decode_mesh(payload: bytes):
-    """Vertices (xyz, µm) and triangles of a surface payload; see organella.analysis.meshes.quantised_payload."""
+    """Vertices (xyz, µm) and triangles of a surface payload; see organella.geometry.payloads.quantised_payload."""
     nv, nf = (int(v) for v in np.frombuffer(payload, "<u4", 2))
     lo = np.frombuffer(payload, "<f4", 3, 8)
     span = np.frombuffer(payload, "<f4", 3, 20)

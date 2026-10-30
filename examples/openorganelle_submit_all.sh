@@ -3,7 +3,7 @@
 #
 #   sh examples/openorganelle_submit_all.sh OUT
 #
-# Run from organella_next/, on the login node. Settings (SCALE, REACH_UM, THREADS, ...) are those of
+# Run from the repository root, on the login node. Settings (SCALE, REACH_UM, THREADS, ...) are those of
 # openorganelle_slurm.sh and reach it as they are; MEM and TIME are asked for each job. DATASETS limits which are submitted.
 set -eu
 

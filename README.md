@@ -68,8 +68,7 @@ Every argument is listed under [Parameters of `process`](#parameters-of-process)
 **Check the input first.** `dry-run` reads image headers only and prints, per object:
 
 - the label and mask entities found (`*` marks the object mask),
-- which entities are missing in which objects,
-- a suggested `--max-workers`.
+- which entities are missing in which objects.
 
 It exits with `1` if any object cannot be analysed.
 
@@ -137,7 +136,7 @@ folder is what `-p` imports.
 - **Entities in a subfolder:** a `segmentations/`, `masks/` or `labels/` folder beside the source image. The folder name
   says label or mask, and there is no prefix to strip.
 - **A remote store, read as a crop:** a folder with one `source.json` and no images names an N5 or Zarr store (local or
-  S3), its arrays and the window to read. Needs `pip install 'organella[remote]'`.
+  S3), its arrays and the window to read.
 
 ```json
 {
@@ -204,6 +203,7 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `organella mesh DIR -o OUTDIR` | Process geometry only, for a report you already have. |
 | `organella view REPORT` | Serve the report, its geometry and the page, and open it. `--port N` (default 8052), `--no-browser`. |
 | `organella page` | Print the path of the standalone page. |
+| `organella merge REPORTS... -o OUT` | Join the reports of objects measured in separate runs, e.g. one Slurm job per cell. An object in two reports is refused. |
 | `organella colours REPORT PALETTE` | Recolour a report. |
 | `organella describe REPORT TEXT` | Add a description to an existing report. This will be shown at the top of the report. |
 
@@ -223,7 +223,6 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 | `--entities NAMES` | Measure only these, plus the object mask. |
 | `--label-map FILE` | JSON of `{"1": "liver"}`, splitting one volume whose ids each mean a different structure into an entity per id. Only named ids become entities. |
 | `--label-map-entity NAME` | Which entity `--label-map` splits. Needed only when a folder has more than one label entity. |
-| `--auto-label-masks` | Automatically convert masks (binary datasets) with several connected components to label entities. |
 
 **What gets measured**
 
@@ -248,30 +247,28 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 |  |  |
 | --- | --- |
 | `--with-mesh` | Write per-object geometry for the 3D views and Blender. Goes to `<output>_meshes/`, or to `--mesh-dir DIR`. |
-| `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `*` stands for every structure not named (`*=mesh,vesicle=ellipsoid`); `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
+| `--geometry-as NAME=KIND,...` | How a surface is stored: `mesh`, `ellipsoid` or `tube`, e.g. `vesicle=ellipsoid`; `+skeleton` also skeletonises. Unnamed: decided from the shape. Measurements do not change. |
 | `--mesh-dir DIR` | Where the geometry goes. Default `<output>_meshes`. |
 | `--mesh-max-vertices N` | Max number of vertices per surface. Default 0: no cap. |
-| `--mesh-smooth-sigma SIGMA` or `Z,Y,X` | Gaussian smoothing before marching cubes. Default 0.7; 0 disables it. One number is in voxels of the finest axis, the same blur in µm along every axis, so on anisotropic data it is a fraction of a voxel along the coarse one; `Z,Y,X` gives each axis its own, in voxels of that axis. Each instance gets from 0.3 voxels to twice that, more the rounder it is, and never more than half its inscribed radius. |
-| `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 2. |
+| `--mesh-smooth-sigma SIGMA` | Gaussian sigma before marching cubes. Default 0.7; 0 disables smoothing. |
+| `--mesh-step-size N` | Marching-cubes step size; 1 is full resolution. Default 1. |
 | `--mesh-target-reduction F` | Decimation fraction. Default 0.8, keeping ~20% of faces. |
 | `--mesh-level L` | Iso-surface level on the signed distance field. Default 0. |
-| `--mesh-workers N` | Processes working on the instances of one object: meshing and, with `--windowed`, measuring. Default: the cores the object pool is not using. |
 | `--reuse-geometry` | Keep any `geometry.parquet` an object already has. |
 
-**Objects too big to hold**
+**Volumes too big to hold.** Zarr and N5 stores are read a chunk at a time, so memory follows the chunk and not the volume.
 
 |  |  |
 | --- | --- |
-| `--windowed` | Measure each instance in a window around it, read a tile at a time, and the rest of the object on a coarse view, so memory no longer grows with the object. The instance, distance and contact rows and the meshes of instances are the full-resolution ones; chance distributions, how deep a structure sits, the shape of a whole-structure mask (its volume is exact) and any distance past the window are read off the coarse view, and `coarse_factor` on the object row says how coarse. Not available with `--skeletons` or `--distance-histograms`; needs `--object-mask`; a label array holding one id (a binary mask) must be declared a mask. |
-| `--coarse-voxels N` | With `--windowed`, the most voxels a structure has in the coarse view, which keeps every nth voxel. Default 200000000. |
-| `--window-reach-um D` | With `--windowed`, how far from an instance its window sees, in µm: a distance to another structure is exact up to this. Default 1. |
+| `--chunk-edge N` | Voxels along an edge of the chunks the volume is read in. Must exceed the reach in voxels; memory per thread grows with its cube. Default 128. |
+| `--reach-um D` | How far a distance to another structure is exact, in µm. Default 1. Past it a distance reads as the reach. |
+| `--cache-gb G` | Memory for decoded chunks of a store. |
 
 **The run**
 
 |  |  |
 | --- | --- |
-| `--max-workers N` | Worker processes. Default: worked out from memory. |
-| `--num-threads N` | Accepted so existing commands keep running; nothing reads it. |
+| `--threads N` | Most threads the run uses. Default: one per core. |
 | `--resume` | Skip objects an interrupted run already measured. Each object's rows go to `<output>_parts/` as it finishes and are removed once the report is written. |
 
 ## Sharing a report
@@ -285,13 +282,13 @@ outline, for a 2D object), the skeletons, and the touching pairs.
 ```bash
 uv venv --python 3.12 .venv
 source .venv/bin/activate
-uv pip install -e '.[test]'      # the suite needs pytest and duckdb
+uv pip install -e '.[test]'
+(cd tools/viewer && npm ci)      # the viewer tests need node
 .venv/bin/python -m pytest
 ```
 
-The report page is one file with no build step, edit
-[`src/organella/report/organella_report.html`](src/organella/report/organella_report.html)
-and reload the browser. 
+The report page is built from the files of [`src/organella/viewer/`](src/organella/viewer/):
+`organella page` assembles it, `organella view` serves it. [DEVELOPING.md](DEVELOPING.md) says how the code is laid out.
 
 
 ## Blender

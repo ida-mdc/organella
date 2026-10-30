@@ -34,7 +34,7 @@ PALETTE = ["#2db98a", "#ff8c73", "#00a1ff", "#ffcc66", "#c63929", "#531c87", "#e
 
 
 def decode_mesh(payload: bytes):
-    """Vertices (xyz) and triangles of a surface payload; see organella.analysis.meshes.quantised_payload."""
+    """Vertices (xyz) and triangles of a surface payload; see organella.geometry.payloads.quantised_payload."""
     nv, nf = (int(v) for v in np.frombuffer(payload, "<u4", 2))
     lo = np.frombuffer(payload, "<f4", 3, 8)
     span = np.frombuffer(payload, "<f4", 3, 20)

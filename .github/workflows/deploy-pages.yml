@@ -1,14 +1,15 @@
 name: Deploy the report page to GitHub Pages
 
 # The report is read by one standalone HTML page: it loads a report.parquet in the browser
-# and draws every chart from it, so publishing it is a copy, not a build. It is served at
-# / and at /organella_report.html.
+# and draws every chart from it. `organella page` assembles it from the files of the viewer
+# folder, and it is served at / and at /organella_report.html.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'src/organella/report/**'
+      - 'src/organella/viewer/**'
+      - 'tools/viewer/**'
       - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
@@ -28,12 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node, because the page is checked before it is published: it is one file with no
-      # build step and nothing imports it, so this is the only thing standing between a
-      # typo in it and whoever opens the published copy.
+      # Node, because the page is checked before it is published: which file may read which, and the
+      # page drawn in headless Chrome, which is the only thing standing between a typo in it and
+      # whoever opens the published copy.
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Node tools for the viewer tests
+        run: npm ci
+        working-directory: tools/viewer
 
       - uses: astral-sh/setup-uv@v5
 
@@ -43,7 +48,7 @@ jobs:
           VIRTUAL_ENV=$PWD/.venv uv pip install -e '.[test]'
 
       - name: Check the page reads a report and draws every section
-        run: .venv/bin/python -m pytest -q tests/test_report_page.py
+        run: .venv/bin/python -m pytest -q tests/test_viewer_build.py tests/test_viewer_dependencies.py tests/test_viewer_in_browser.py
 
       - name: Publish the page
         run: |

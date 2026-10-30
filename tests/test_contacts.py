@@ -1,148 +1,60 @@
-import os
+import dask.array as da
 import numpy as np
-import pytest
+from scipy import ndimage
 
-from organella.config import RunConfig
-from organella.measure.contacts import ContactMeasurer
-
-from conftest import object_stack
-
-SHAPE = (10, 20, 20)
-VOXEL = (0.1, 0.02, 0.02)   # anisotropic, as in real data
+from organella.core import VoxelSize
+from organella.measure.contacts import lazy_gaps, merged
+from organella.measure.windows import compute_in_batches
 
 
-def _object(**entities):
-    return object_stack(entities, voxel_size=VOXEL)
+def brute_force(labels, spacing, max_gap):
+    """The smallest voxel-to-voxel distance of every pair of instances, from one transform per instance."""
+    found = {}
+    ids = [i for i in np.unique(labels) if i]
+    for a in ids:
+        distance = ndimage.distance_transform_edt(labels != a, sampling=spacing)
+        for b in ids:
+            if b > a and (gap := distance[labels == b].min()) <= max_gap:
+                found[(int(a), int(b))] = gap
+    return found
 
 
-def _blocks(*specs: tuple[int, tuple[int, int, int], tuple[int, int, int]]) -> np.ndarray:
-    """Label volume from (label, origin, size) blocks."""
-    vol = np.zeros(SHAPE, dtype=np.int32)
-    for label, origin, size in specs:
-        vol[tuple(slice(o, o + s) for o, s in zip(origin, size))] = label
-    return vol
+def _instances():
+    labels = np.zeros((30, 40, 40), np.uint16)
+    labels[2:8, 3:12, 3:12] = 1
+    labels[8:14, 3:12, 3:12] = 2          # shares a face with 1
+    labels[10:16, 14:20, 3:12] = 3        # a few voxels from 2
+    labels[22:28, 30:38, 30:38] = 4       # far from everything
+    labels[22:28, 25:29, 30:38] = 5       # 1-3 voxels from 4
+    return labels
 
 
-def _measure(stack, config: RunConfig | None = None):
-    """The contact rows as columns, plus what landed on the object row.
-
-    One list per column, one element per contact row: the shape these assertions were
-    written against, now that a contact is a row of the report instead of an element of a
-    list column on the object row.
-    """
-    measured = ContactMeasurer(config or RunConfig()).measure(stack)
-    return {**measured.tables["contact"], **measured.columns}
-
-
-def test_touching_instances_report_the_smallest_possible_gap():
-    mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 5), (3, 3, 3)))  # share an X face
-    row = _measure(_object(mito=(mito, "label")))
-
-    assert row["contact_count"] == 1
-    assert row["contact_entity"] == ["mito"]
-    assert row["contact_label_a"] == [1]
-    assert row["contact_label_b"] == [2]
-    # One voxel step, not zero: the gap is a distance to the nearest voxel *of* the
-    # other instance, and its own voxels are one step away. Matches the original standalone script.
-    assert row["contact_gap_um"] == pytest.approx([VOXEL[2]], abs=1e-6)
+def _checked_against_a_transform_per_instance():
+    labels = _instances()
+    voxel_size, max_gap = VoxelSize((0.1, 0.05, 0.05)), 0.4
+    data = da.from_array(labels, chunks=9)
+    lazies = []
+    for label in np.unique(labels)[1:]:
+        where = np.argwhere(labels == label)
+        lazies.append(lazy_gaps(data, where.min(axis=0), where.max(axis=0), int(label), voxel_size, max_gap))
+    table = merged(compute_in_batches(lazies, batch=3), "m")
+    got = {(a, b): gap for a, b, gap in zip(table["contact_label_a"], table["contact_label_b"], table["contact_gap_um"])}
+    expected = brute_force(labels, voxel_size.um, max_gap)
+    assert got.keys() == expected.keys() and got
+    np.testing.assert_allclose([got[k] for k in expected], list(expected.values()), rtol=1e-6)
 
 
-def test_gap_grows_by_one_voxel_step_per_empty_voxel():
-    # Two empty voxels along X (0.02 µm per voxel) → three steps.
-    mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 7), (3, 3, 3)))
-    row = _measure(_object(mito=(mito, "label")))
-
-    assert row["contact_gap_um"] == pytest.approx([3 * VOXEL[2]], abs=1e-6)
+def test_the_gaps_between_instances_equal_a_transform_per_instance_across_chunk_borders():
+    _checked_against_a_transform_per_instance()
 
 
-def test_the_step_size_follows_the_axis_of_approach():
-    """Anisotropy is respected: the same voxel distance along Z is 5× larger."""
-    mito = _blocks((1, (2, 2, 2), (2, 3, 3)), (2, (5, 2, 2), (2, 3, 3)))  # one empty Z plane
-    row = _measure(_object(mito=(mito, "label")))
-
-    assert row["contact_gap_um"] == pytest.approx([2 * VOXEL[0]], abs=1e-6)
-
-
-def test_pairs_beyond_the_threshold_are_not_recorded():
-    mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 8), (3, 3, 3)))  # 3 empty = 0.08 µm
-    row = _measure(_object(mito=(mito, "label")), RunConfig(contact_max_um=0.05))
-
-    assert row["contact_count"] == 0
-    assert row["contact_gap_um"] == []
+def test_an_instance_searched_in_tiles_finds_the_same_gaps(monkeypatch):
+    """Tiles of 7 voxels, far smaller than the instances, so every pair is found across a tile border or two."""
+    from organella.measure import contacts
+    monkeypatch.setattr(contacts, "WHOLE_WINDOW_VOXELS", 1)
+    monkeypatch.setattr(contacts, "TILE_EDGE", 7)
+    _checked_against_a_transform_per_instance()
 
 
-def test_a_pair_is_always_within_one_structure():
-    """Touching a different structure is a distance, not a contact, and a mask has no pairs."""
-    mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 5), (3, 3, 3)))
-    er = _blocks((1, (2, 2, 8), (3, 3, 3)))          # right beside mito 2
-    nucleus = _blocks((1, (6, 2, 2), (3, 3, 3)))     # a whole structure, not instances
-    row = _measure(_object(mito=(mito, "label"), er=(er, "label"),
-                           nucleus=(nucleus, "mask")))
-
-    # Only mito 1 ↔ mito 2. The mito/er pair is a distance, and the mask has no instances.
-    assert row["contact_count"] == 1
-    assert row["contact_entity"] == ["mito"]
-    assert row["contact_label_a"] == [1]
-    assert row["contact_label_b"] == [2]
-
-
-def test_the_object_mask_is_not_a_contact_partner():
-    pm = np.ones(SHAPE, dtype=np.int32)          # encloses everything
-    mito = _blocks((1, (2, 2, 2), (3, 3, 3)), (2, (2, 2, 5), (3, 3, 3)))
-    row = _measure(_object(pm=(pm, "mask"), mito=(mito, "label")))
-
-    # Only mito 1 ↔ mito 2. Membrane proximity is a distance, not a contact.
-    assert row["contact_count"] == 1
-    assert "pm" not in row["contact_entity"]
-
-
-def test_an_object_with_one_instance_has_no_pairs():
-    row = _measure(_object(mito=(_blocks((1, (2, 2, 2), (3, 3, 3))), "label")))
-
-    assert row["contact_count"] == 0
-
-
-# ── how long it takes, and what that must not change ─────────────────────────
-
-
-def test_threads_change_how_fast_the_pairs_are_found_and_nothing_else():
-    """The one place in a run that walks every instance, so it is the one to thread.
-    """
-    from organella.analysis.gaps import pairwise_instance_gaps
-
-    labels = np.zeros((12, 40, 40), dtype=np.int32)
-    for i in range(6):
-        labels[4:8, 6:10, 4 + i * 6:8 + i * 6] = i + 1
-    volumes, kinds = {"mito": labels}, {"mito": "label"}
-
-    serial = pairwise_instance_gaps(volumes, kinds, VOXEL, 0.5, num_threads=1)
-    threaded = pairwise_instance_gaps(volumes, kinds, VOXEL, 0.5, num_threads=4)
-
-    assert serial, "the fixture should hold some touching pairs"
-    assert serial == threaded
-
-
-def test_the_two_pools_share_the_machine_between_them(monkeypatch):
-    """Cores are shared out per object, for meshing and for the transforms alike.
-
-    The object pool is sized by memory, so on objects of tens of gigabytes it is one at a
-    time and the rest of the machine is free - which is why each object's own work is
-    given a share, not a single core. An explicit setting is left alone.
-    """
-    from organella.config import RunConfig
-    from organella.pipeline.batch import _plan_the_two_pools
-
-    monkeypatch.setattr(os, "cpu_count", lambda: 16)
-
-    workers, planned = _plan_the_two_pools(requested=1, n_objects=7, peak_gb=30.0,
-                                           config=RunConfig())
-    assert workers == 1
-    # One object at a time, so that object gets the whole machine for its own work.
-    assert planned.edt_threads == 16
-    assert planned.mesh_workers >= 1
-
-    # The planning goes onto the config the workers are handed, and an explicit setting
-    # already on it is left alone.
-    _, planned = _plan_the_two_pools(requested=4, n_objects=7, peak_gb=1.0,
-                                     config=RunConfig(edt_threads=3))
-    assert planned.edt_threads == 3
+def test_no_pairs_gives_an_empty_table_with_its_columns():
+    assert merged([], "m").columns == ["contact_entity", "contact_label_a", "contact_label_b", "contact_gap_um"]

@@ -9,7 +9,7 @@ CLI (headless):
 Reading parquet needs pandas and pyarrow inside Blender's own Python:
     <blender>/python/bin/python3 -m pip install pandas pyarrow
 
-Only `surface_kind == "mesh"` rows are imported: an ellipsoid is stored as ten numbers
+Only `surface_kind == "mesh"` rows are imported: an ellipsoid is stored as fifteen numbers
 and a tube as its centre line, and turning either into triangles is the report page's job,
 not this one. Re-run the batch with `--geometry-as NAME=mesh` to get meshes for a structure
 you want in Blender.

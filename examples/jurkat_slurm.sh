@@ -5,7 +5,7 @@
 #   sbatch examples/jurkat_slurm.sh OUT                  everything in one job
 #   sh examples/jurkat_submit_all.sh OUT                 one job per cell, side by side, then the merged report
 #
-# Run from organella_next/. OUT gets <OUT>/cells (a manifest and a mask per cell), the report <OUT>/jurkat.parquet and
+# Run from the repository root. OUT gets <OUT>/cells (a manifest and a mask per cell), the report <OUT>/jurkat.parquet and
 # its geometry <OUT>/jurkat_meshes. A job that is killed and submitted again carries on where it stopped (--resume).
 # One OUT per scale: a report at one scale is not comparable with one at another.
 #
