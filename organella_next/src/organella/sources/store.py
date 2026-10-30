@@ -20,6 +20,7 @@ from organella.app.ports import SampleRef
 from organella.core import Kind, Sample, Structure, VoxelSize
 from organella.sources.selection import selected
 from organella.sources.arrays import DEFAULT_CACHE_BYTES, cache_context, open_store_array, open_tiff
+from organella.sources.cell_mask import open_cell_mask
 from organella.sources.store_metadata import voxel_size_from_store
 
 MANIFEST = "source.json"
@@ -35,6 +36,10 @@ def _crop(spec: str | None) -> tuple[slice, ...]:
 
 def _manifests(root: Path) -> list[Path]:
     return [root] if root.is_file() else sorted(root.glob(f"*/{MANIFEST}"))
+
+
+def _open_mask(path: Path):
+    return open_cell_mask(path) if path.suffix == ".npz" else open_tiff(path)
 
 
 @dataclass(frozen=True)
@@ -65,7 +70,7 @@ class StoreSource:
             structures[name] = Structure(name, Kind.MASK if name in masks and isinstance(masks, list) else kind,
                                          open_store_array(spec["store"], arrays[name], cache)[window])
         if isinstance(masks, dict):
-            structures.update({name: Structure(name, Kind.MASK, open_tiff(manifest.parent / file))
+            structures.update({name: Structure(name, Kind.MASK, _open_mask(manifest.parent / file))
                                for name, file in masks.items()})
         mask_name = self.object_mask or spec.get("object_mask")
         return Sample(

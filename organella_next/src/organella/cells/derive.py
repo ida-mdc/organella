@@ -68,9 +68,16 @@ class Cell:
 
     number: int
     window: tuple[slice, ...]     # in working-scale voxels, array order
-    mask: np.ndarray              # bool, the window's shape
+    coarse: np.ndarray            # bool, the cell's box of the coarse labels
+    picks: tuple[np.ndarray, ...]  # per axis, the coarse voxel each working voxel of the window takes
     touches_edge: str = ""        # axes (z, y, x) whose volume face it reaches
     volume_um3: float = 0.0
+
+    @property
+    def mask(self) -> np.ndarray:
+        """The mask at the working scale, in the window's shape. It is as large as the window: only a small volume or a
+        test should ask for it, since the folder written for a cell holds the coarse block and these picks instead."""
+        return self.coarse[np.ix_(*self.picks)]
 
 
 def cells_at_scale(labels: np.ndarray, coarse_um: Sequence[float], work_um: Sequence[float], work_shape: Sequence[int], *,
@@ -99,6 +106,10 @@ def cells_at_scale(labels: np.ndarray, coarse_um: Sequence[float], work_um: Sequ
             window.append(slice(start, stop))
             at = np.floor((np.arange(start, stop) + 0.5) * ratio[axis]).astype(int)
             picks.append(np.clip(at, low[axis], high[axis] - 1) - low[axis])
-        block = found[tuple(slice(int(lo), int(hi)) for lo, hi in zip(low, high))][np.ix_(*picks)]
-        cells.append(Cell(number, tuple(window), block, edge, float(block.sum()) * float(np.prod(work_um))))
+        coarse = found[tuple(slice(int(lo), int(hi)) for lo, hi in zip(low, high))]
+        # How many working voxels take each coarse voxel, so the volume is known without building the mask.
+        weights = [np.bincount(pick, minlength=n) for pick, n in zip(picks, coarse.shape)]
+        voxels = float(np.einsum("ijk,i,j,k->", coarse.astype(np.float64), *weights)) if coarse.ndim == 3 else \
+            float(np.einsum("ij,i,j->", coarse.astype(np.float64), *weights))
+        cells.append(Cell(number, tuple(window), coarse, tuple(picks), edge, voxels * float(np.prod(work_um))))
     return cells

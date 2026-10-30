@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import tifffile
 
 from organella.cells.derive import Cell
 
@@ -17,8 +16,10 @@ def write_cell_folder(folder: Path, cell: Cell, *, store: str, scale: str, sourc
                       derived_from: dict) -> Path:
     """A folder ``organella process`` reads: a manifest naming the store and the cell's window, and the cell's mask."""
     folder.mkdir(parents=True, exist_ok=True)
-    mask_file = f"{object_name}_mask.tif"
-    tifffile.imwrite(folder / mask_file, cell.mask.astype(np.uint8), compression="zlib")
+    mask_file = f"{object_name}_mask.npz"
+    # The coarse block and which of its voxels each working voxel takes: the mask at the working scale is rebuilt a chunk at
+    # a time, so a cell is never held whole however fine the scale.
+    np.savez_compressed(folder / mask_file, coarse=cell.coarse, **{f"pick{axis}": pick for axis, pick in enumerate(cell.picks)})
     manifest = {
         "store": store, "scale": scale, "crop": box_string(cell.window), "source": source, "entities": entities,
         "masks": {object_name: mask_file}, "object_mask": object_name,
