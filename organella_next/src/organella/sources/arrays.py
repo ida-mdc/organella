@@ -58,13 +58,13 @@ def cache_context(cache_bytes: int = DEFAULT_CACHE_BYTES) -> ts.Context:
     return ts.Context({"cache_pool": {"total_bytes_limit": cache_bytes}})
 
 
-def open_tiff(path: Path) -> da.Array:
+def open_tiff(path: Path, chunks: int = 128) -> da.Array:
     """Read lazily by the operating system when the file allows it, else whole: a compressed TIFF cannot be sliced."""
     try:
         pixels = tifffile.memmap(path, mode="r")
     except ValueError:
         pixels = tifffile.imread(path)
-    return da.from_array(pixels, chunks=128)
+    return da.from_array(pixels, chunks=chunks)
 
 
 def kvstore_spec(url: str) -> dict:
@@ -82,8 +82,12 @@ def _is_n5(url: str) -> bool:
     return url.rstrip("/").endswith(".n5")
 
 
-def open_store_array(url: str, array_path: str, context: ts.Context | None = None) -> da.Array:
-    """Always in C order (z, y, x): N5 lists dimensions fastest-varying first, and tensorstore passes that order on."""
+def open_store_array(url: str, array_path: str, context: ts.Context | None = None, window: tuple[slice, ...] | None = None,
+                     chunks: int | None = None) -> da.Array:
+    """Always in C order (z, y, x): N5 lists dimensions fastest-varying first, and tensorstore passes that order on.
+
+    ``window`` crops it, and ``chunks`` is the edge in voxels of the blocks dask reads, counted from the crop's corner;
+    the store's own chunks otherwise. Read in the edge a run will use, nothing regroups them afterwards."""
     drivers = ["n5"] if _is_n5(url) else ["zarr3", "zarr"]
     for driver in drivers:
         try:
@@ -96,10 +100,17 @@ def open_store_array(url: str, array_path: str, context: ts.Context | None = Non
     else:
         if _is_n5(url):
             raise FileNotFoundError(f"no {' or '.join(drivers)} array '{array_path}' in {url}")
-        return _open_with_zarr(url, array_path)
+        array = _open_with_zarr(url, array_path)
+        array = array[window] if window is not None else array
+        return array.rechunk(chunks) if chunks else array
     if _is_n5(url):
         store = store.T
-    return da.from_array(_Readable(store), chunks=tuple(store.chunk_layout.read_chunk.shape), asarray=False)
+    if window is not None:   # tensorstore does not count a negative start from the end, as a slice does
+        resolved = tuple(slice(*w.indices(n)) for w, n in zip(window, store.shape))
+        if any(r.stop <= r.start for r in resolved):
+            raise ValueError(f"the crop is empty in a volume of shape {tuple(store.shape)}")
+        store = store[resolved].translate_to[0]
+    return da.from_array(_Readable(store), chunks=chunks or tuple(store.chunk_layout.read_chunk.shape), asarray=False)
 
 
 def _open_with_zarr(url: str, array_path: str) -> da.Array:

@@ -38,8 +38,8 @@ def _manifests(root: Path) -> list[Path]:
     return [root] if root.is_file() else sorted(root.glob(f"*/{MANIFEST}"))
 
 
-def _open_mask(path: Path):
-    return open_cell_mask(path) if path.suffix == ".npz" else open_tiff(path)
+def _open_mask(path: Path, chunks: int):
+    return open_cell_mask(path, chunks) if path.suffix == ".npz" else open_tiff(path, chunks)
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,7 @@ class StoreSource:
     object_mask: str | None = None
     cache_bytes: int = DEFAULT_CACHE_BYTES  # decoded chunks kept in memory, shared by the sample's arrays
     entities: frozenset[str] = frozenset()
+    chunk_edge: int | None = None           # edge in voxels of the blocks the arrays are read in; the store's own if None
 
     def samples(self) -> Iterator[SampleRef]:
         for manifest in _manifests(self.root):
@@ -68,9 +69,9 @@ class StoreSource:
             path, kind = (entry, Kind.LABEL) if isinstance(entry, str) else (entry["array"], Kind(entry.get("kind", "label")))
             arrays[name] = path + level
             structures[name] = Structure(name, Kind.MASK if name in masks and isinstance(masks, list) else kind,
-                                         open_store_array(spec["store"], arrays[name], cache)[window])
+                                         open_store_array(spec["store"], arrays[name], cache, window, self.chunk_edge))
         if isinstance(masks, dict):
-            structures.update({name: Structure(name, Kind.MASK, _open_mask(manifest.parent / file))
+            structures.update({name: Structure(name, Kind.MASK, _open_mask(manifest.parent / file, self.chunk_edge or 128))
                                for name, file in masks.items()})
         mask_name = self.object_mask or spec.get("object_mask")
         return Sample(

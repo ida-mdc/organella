@@ -51,6 +51,11 @@ def _mesh_job(window: np.ndarray, label: int | None, origin: np.ndarray, voxel_u
                          max_vertices=settings.mesh_max_vertices)
 
 
+def _step_for(voxels: float, settings: Settings, ndim: int) -> int:
+    """Every n-th voxel along each axis of a box past ``coarse_voxels``, so a nucleus is never read whole to be meshed."""
+    return max(1, int(np.ceil((voxels / settings.coarse_voxels) ** (1 / ndim))))
+
+
 def _bounds(stats: pl.DataFrame, row: int, ndim: int) -> tuple[np.ndarray, np.ndarray]:
     return (np.array([stats[f"lo{i}"][row] for i in range(ndim)]), np.array([stats[f"hi{i}"][row] for i in range(ndim)]))
 
@@ -86,9 +91,11 @@ def instance_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, rep
                "skeleton": skeleton_payload(skeleton.vertices, skeleton.edges) if has_skeleton else b""}
         rows.append(row)
         if kind == "mesh":
-            fill = float(stats["count"][r]) / float(np.prod(high - low + 1))
+            voxels = float(np.prod(high - low + 1))
+            fill = float(stats["count"][r]) / voxels
             sigma = instance_sigma(settings.mesh_smooth_sigma, roundness, fill)
-            jobs.append((row, dask.delayed(_mesh_job)(box(structure.data, low, high), label, low, tuple(voxel), settings, sigma, 1)))
+            step = _step_for(voxels, settings, ndim)
+            jobs.append((row, dask.delayed(_mesh_job)(box(structure.data, low, high, step=step), label, low, tuple(voxel), settings, sigma, step)))
     return rows, jobs
 
 
@@ -103,8 +110,7 @@ def mask_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, entity:
     row = {**{k: v for k, v in entity.items() if k in SHAPE[ndim] or k == "aspect_ratio_major_minor"},
            "entity_name": structure.name, "entity_kind": "mask", "row_type": "file", "label_id": None,
            "spatial_dims": ndim, "surface_kind": "mesh", "surface": b"", "outline": b"", "skeleton": b""}
-    voxels = int(np.prod(high - low + 1))
-    step = max(1, int(np.ceil((voxels / settings.coarse_voxels) ** (1 / ndim))))
+    step = _step_for(float(np.prod(high - low + 1)), settings, ndim)
     job = dask.delayed(_mesh_job)(box(structure.foreground, low, high, step=step), None, low, tuple(sample.voxel_size.um),
                                   settings, instance_sigma(settings.mesh_smooth_sigma, roundness, fill), step)
     return [row], [(row, job)]

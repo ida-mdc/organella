@@ -106,7 +106,7 @@ report_options = _group(
 
 def source_from(path: Path, o: dict):
     return open_source(path, o["groups"], o["object_mask"], o["voxel_size_um"], int(o["cache_gb"] * 2**30), o["entities"],
-                       read_label_map(o["label_map"]) if o["label_map"] else None, o["label_map_entity"])
+                       read_label_map(o["label_map"]) if o["label_map"] else None, o["label_map_entity"], o["chunk_edge"])
 
 
 def settings_from(o: dict, *, geometry: bool) -> Settings:

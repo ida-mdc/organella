@@ -152,3 +152,22 @@ def test_every_instance_row_holds_the_surface_of_its_own_instance(tmp_path):
         assert ((centre >= low - 0.1) & (centre <= high + 0.1)).all(), f"label {row['label_id']} holds another instance's mesh"
         checked += 1
     assert checked >= 30
+
+
+def test_an_instance_past_the_voxel_cap_is_meshed_from_every_nth_voxel_and_still_fills_its_extent(tmp_path):
+    from test_payloads import decode
+
+    def kinked_extent(coarse_voxels):
+        settings = Settings(reach_um=0.5, chunk_edge=32, contact_max_um=0.3, mesh_target_reduction=0.0, coarse_voxels=coarse_voxels)
+        process(OneSample(build_sample()), DEFAULT, ParquetSink(tmp_path / f"r{coarse_voxels}.parquet"), settings,
+                GeometryWriter(tmp_path / f"m{coarse_voxels}"))
+        geometry = pl.read_parquet(tmp_path / f"m{coarse_voxels}" / "cell_a" / FILENAME)
+        row = geometry.filter((pl.col("entity_name") == "mito") & (pl.col("label_id") == 2)).row(0, named=True)
+        vertices, _, _ = decode(row["surface"])
+        return vertices.min(axis=0), vertices.max(axis=0), len(vertices)
+
+    whole_low, whole_high, whole_n = kinked_extent(200_000_000)
+    coarse_low, coarse_high, coarse_n = kinked_extent(2_000)      # the L is about 13,000 voxels: read every 2nd voxel
+    assert coarse_n < whole_n
+    np.testing.assert_allclose(coarse_low, whole_low, atol=0.25)
+    np.testing.assert_allclose(coarse_high, whole_high, atol=0.25)
