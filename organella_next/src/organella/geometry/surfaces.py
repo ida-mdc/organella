@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import struct
 import threading
 from typing import Sequence
 
@@ -30,6 +31,9 @@ ELLIPSOID_MIN_SPHERICITY = 0.75
 ELLIPSOID_MAX_ASPECT = 3.0
 # Only small instances: its coarse sphere and its mismatch with the real outline show on a big one, a nucleus above all.
 ELLIPSOID_MAX_VOLUME_UM3 = 0.5
+# An ellipsoid is kept only if it covers this much of the instance's voxels (intersection over union, 1 is the same
+# shape): the measurements that pick the kind cannot tell a good fit from a loose one, so the voxels are asked.
+ELLIPSOID_MIN_FIT = 0.85
 # A blob's skeleton is one branch the length of its own diameter, which a tube would draw as a stubby cylinder.
 TUBE_MIN_ASPECT = 3.0
 # Below this an aspect ratio is a collapsed measurement, not a flat shape.
@@ -58,6 +62,26 @@ def choose_surface(sphericity: float | None, aspect: float | None, branches: flo
             and known(volume_um3) and volume_um3 <= ELLIPSOID_MAX_VOLUME_UM3):
         return "ellipsoid"
     return "mesh"
+
+
+def ellipsoid_fit(binary: np.ndarray, origin_zyx: Sequence[float], voxel_um: Sequence[float], payload: bytes) -> float:
+    """Intersection over union of an ellipsoid payload and the voxels of one instance, 0 if it has no usable payload.
+
+    ``binary`` is the instance's bounding box in (Z, Y, X) and ``origin_zyx`` its first voxel, in voxels of ``voxel_um``.
+    The ellipsoid may reach past the box, so the part outside is counted from its volume, not from voxels.
+    """
+    if len(payload) != 60:
+        return 0.0
+    centre, radii, axes = (np.array(v, dtype=float) for v in (struct.unpack_from("<3f", payload, 0),
+                                                              struct.unpack_from("<3f", payload, 12),
+                                                              struct.unpack_from("<9f", payload, 24)))
+    spacing = np.asarray(voxel_um, dtype=float)
+    grid = np.meshgrid(*[(np.arange(n) + o) * s for n, o, s in zip(binary.shape, origin_zyx, spacing)], indexing="ij")
+    offset = np.stack(grid[::-1], axis=-1) - centre          # x, y, z, as the payload is
+    inside = (((offset @ axes.reshape(3, 3).T) / radii) ** 2).sum(axis=-1) <= 1.0
+    overlap = float(np.count_nonzero(binary & inside))
+    total = float(np.count_nonzero(binary)) + 4.0 / 3.0 * math.pi * float(np.prod(radii)) / float(np.prod(spacing)) - overlap
+    return overlap / total if total > 0 else 0.0
 
 
 def sigma_for_shape(sphericity: float, fill_ratio: float, sigma_min: float = 0.3, sigma_max: float = 1.5) -> float:

@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from organella.geometry.surfaces import choose_surface, generate_mesh, generate_outline, instance_sigma, sigma_for_shape
+from organella.geometry.rows import ellipsoid_of
+from organella.geometry.surfaces import ELLIPSOID_MIN_FIT, choose_surface, ellipsoid_fit, generate_mesh, generate_outline, instance_sigma, sigma_for_shape
 from test_payloads import decode
 
 
@@ -72,3 +73,28 @@ def test_meshes_made_in_threads_are_the_meshes_made_one_at_a_time():
     for _ in range(3):
         with ThreadPoolExecutor(8) as pool:
             assert list(pool.map(job, masks)) == alone
+
+
+def _own_ellipsoid(mask: np.ndarray, voxel=(0.1, 0.1, 0.1)) -> bytes:
+    """The ellipsoid of a mask's own moments, as the measurement writes it."""
+    points = np.argwhere(mask).astype(float)
+    return ellipsoid_of(np.cov(points.T, bias=True), points.mean(axis=0), np.array(voxel), len(points))
+
+
+def test_an_ellipsoid_fits_a_digital_ellipsoid_and_a_cube_fits_badly():
+    z, y, x = np.indices((40, 40, 40))
+    blob = ((z - 20) / 12.0) ** 2 + ((y - 20) / 8.0) ** 2 + ((x - 20) / 6.0) ** 2 <= 1
+    cube = np.zeros((40, 40, 40), bool)
+    cube[8:32, 8:32, 8:32] = True
+    assert ellipsoid_fit(blob, (0, 0, 0), (0.1,) * 3, _own_ellipsoid(blob)) > ELLIPSOID_MIN_FIT
+    assert ellipsoid_fit(cube, (0, 0, 0), (0.1,) * 3, _own_ellipsoid(cube)) < ELLIPSOID_MIN_FIT
+    assert ellipsoid_fit(blob, (0, 0, 0), (0.1,) * 3, b"") == 0.0
+
+
+def test_the_fit_does_not_depend_on_where_the_box_sits_or_if_it_cuts_the_ellipsoid_short():
+    z, y, x = np.indices((40, 40, 40))
+    blob = ((z - 20) / 10.0) ** 2 + ((y - 20) / 7.0) ** 2 + ((x - 20) / 5.0) ** 2 <= 1
+    payload = _own_ellipsoid(blob)
+    shifted = ellipsoid_fit(blob, (0, 0, 0), (0.1,) * 3, payload)
+    cropped = ellipsoid_fit(blob[8:33, 11:30, 14:27], (8, 11, 14), (0.1,) * 3, payload)
+    assert cropped == pytest.approx(shifted, abs=0.03)

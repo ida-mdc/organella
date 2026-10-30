@@ -10,7 +10,8 @@ from dask.delayed import Delayed
 from organella.app.settings import Settings
 from organella.core import Kind, Sample, Structure
 from organella.geometry.payloads import ellipsoid_payload, skeleton_payload, tube_payload
-from organella.geometry.surfaces import choose_surface, generate_mesh, generate_outline, instance_sigma
+from organella.geometry.surfaces import (ELLIPSOID_MIN_FIT, choose_surface, ellipsoid_fit, generate_mesh, generate_outline,
+                                         instance_sigma)
 from organella.measure.windows import box
 
 # Measurements carried onto each row beside its size and shape, so a row sorts and colours on its own.
@@ -37,6 +38,18 @@ def ellipsoid_of(covariance_voxels: np.ndarray, centroid_voxels: np.ndarray, vox
     if implied > 0:
         diameters = diameters * (voxels * np.prod(voxel_um) / implied) ** (1.0 / 3.0)
     return ellipsoid_payload((centroid_voxels * voxel_um)[::-1], diameters, vectors.T[:, ::-1].ravel())
+
+
+def _surface_job(window: np.ndarray, label: int | None, origin: np.ndarray, voxel_um: tuple[float, ...], settings: Settings,
+                 sigma, step: int, ellipsoid: bytes = b"") -> tuple[str, bytes]:
+    """One instance's (or one mask's) surface as (kind, payload). An ellipsoid that is given is kept if it covers the
+    instance's voxels well enough, and otherwise the instance is meshed; one too small to mesh keeps the ellipsoid."""
+    if ellipsoid:
+        fit = ellipsoid_fit(window == label, origin / step, tuple(v * step for v in voxel_um), ellipsoid)
+        if fit >= ELLIPSOID_MIN_FIT:
+            return "ellipsoid", ellipsoid
+    mesh = _mesh_job(window, label, origin, voxel_um, settings, sigma, step)
+    return ("ellipsoid", ellipsoid) if ellipsoid and not mesh else ("mesh", mesh)
 
 
 def _mesh_job(window: np.ndarray, label: int | None, origin: np.ndarray, voxel_um: tuple[float, ...], settings: Settings,
@@ -85,17 +98,20 @@ def instance_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, rep
             surface = tube_payload(skeleton.vertices, skeleton.edges, skeleton.radii)
         if kind != "mesh" and not surface:
             kind = "mesh"   # a primitive needs finite moments or a centre line; an instance with neither is still a shape
+        # An ellipsoid the measurements chose is checked against the voxels when its box is read; one asked for by name is not.
+        checked = kind == "ellipsoid" and forced is None
         row = {**{k: v for k, v in found.items() if k in CARRIED or k in SHAPE[ndim]},
                "entity_name": structure.name, "entity_kind": "label", "row_type": "instance", "label_id": label,
-               "spatial_dims": ndim, "surface_kind": kind, "surface": surface, "outline": b"",
+               "spatial_dims": ndim, "surface_kind": kind, "surface": b"" if checked else surface, "outline": b"",
                "skeleton": skeleton_payload(skeleton.vertices, skeleton.edges) if has_skeleton else b""}
         rows.append(row)
-        if kind == "mesh":
+        if kind == "mesh" or checked:
             voxels = float(np.prod(high - low + 1))
             fill = float(stats["count"][r]) / voxels
             sigma = instance_sigma(settings.mesh_smooth_sigma, roundness, fill)
             step = _step_for(voxels, settings, ndim)
-            jobs.append((row, dask.delayed(_mesh_job)(box(structure.data, low, high, step=step), label, low, tuple(voxel), settings, sigma, step)))
+            jobs.append((row, dask.delayed(_surface_job)(box(structure.data, low, high, step=step), label, low, tuple(voxel),
+                                                         settings, sigma, step, surface if checked else b"")))
     return rows, jobs
 
 
@@ -111,7 +127,7 @@ def mask_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, entity:
            "entity_name": structure.name, "entity_kind": "mask", "row_type": "file", "label_id": None,
            "spatial_dims": ndim, "surface_kind": "mesh", "surface": b"", "outline": b"", "skeleton": b""}
     step = _step_for(float(np.prod(high - low + 1)), settings, ndim)
-    job = dask.delayed(_mesh_job)(box(structure.foreground, low, high, step=step), None, low, tuple(sample.voxel_size.um),
+    job = dask.delayed(_surface_job)(box(structure.foreground, low, high, step=step), None, low, tuple(sample.voxel_size.um),
                                   settings, instance_sigma(settings.mesh_smooth_sigma, roundness, fill), step)
     return [row], [(row, job)]
 

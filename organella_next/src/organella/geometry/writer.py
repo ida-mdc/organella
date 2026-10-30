@@ -17,6 +17,7 @@ from organella.app.settings import Settings
 from organella.core import Kind, Sample
 from organella.geometry.payloads import payload_counts
 from organella.geometry.rows import CARRIED, contact_rows, instance_rows, mask_rows
+from organella.geometry.surfaces import ELLIPSOID_MIN_FIT
 from organella.measure.windows import compute_in_batches
 
 log = logging.getLogger(__name__)
@@ -86,8 +87,8 @@ class GeometryWriter:
         rows, jobs = self._rows(sample, shared["findings"], settings)
         done = compute_in_batches([job for _, job in jobs], settings.surface_batch)
         field = "outline" if len(sample.voxel_size.um) == 2 else "surface"
-        for (row, _), payload in zip(jobs, done):
-            row[field] = payload
+        for (row, _), (kind, payload) in zip(jobs, done):
+            row[field], row["surface_kind"] = payload, kind
         for row in rows:
             row["object_id"], row["group_id"] = sample.id, sample.group or ""
         path = write_parquet(destination, rows)
@@ -120,7 +121,7 @@ def _fingerprint(sample: Sample, settings: Settings) -> str:
             "skeletons", "max_skeleton_voxels", "skeleton_scale", "skeleton_const_voxels", "skeleton_prune",
             "contacts", "contact_max_um", "clip_to_object_mask", "coarse_voxels")
     plain = {k: (sorted(v) if isinstance(v, frozenset) else v) for k, v in ((k, getattr(settings, k)) for k in keys)}
-    blob = json.dumps({**plain, "voxel": sample.voxel_size.um, "mask": sample.object_mask, "shape": sample.shape},
+    blob = json.dumps({**plain, "ellipsoid_min_fit": ELLIPSOID_MIN_FIT, "voxel": sample.voxel_size.um, "mask": sample.object_mask, "shape": sample.shape},
                       sort_keys=True, default=str).encode()
     return hashlib.sha256(blob).hexdigest()[:16]
 
