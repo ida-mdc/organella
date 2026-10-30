@@ -150,7 +150,7 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   transition: background .2s, border-color .2s; }
 .chart-cell.wide { grid-column: span 2; }
 /* The wedge plots are read for their shape, so they get more room than a distribution panel. */
-#pol-angle-charts { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+#pol-angle-charts, #pol-angle-fold .charts-row { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
 .chart-cell .js-plotly-plot, .chart-cell .plot-container { max-width: 100%; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; font-size: .76rem;
   color: var(--ink-2); margin-bottom: .7rem; }

@@ -9,7 +9,7 @@
  */
 function renderPolarity() {
   var section = document.getElementById('s-polarity');
-  ['pol-angle-charts', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts', 'pol-map-fold']
+  ['pol-angle-charts', 'pol-angle-fold', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts', 'pol-map-fold']
     .forEach(function(id){ document.getElementById(id).innerHTML = ''; });
 
   var references = polarReferences();
@@ -192,11 +192,23 @@ function renderPolarity() {
     + ' (all directions agree). A structure with a single centre per ' + noun() + ' is drawn as one dot.');
   var angleHost = document.getElementById('pol-angle-charts');
   var ANGLE_BINS = POLAR_ANGLE_BINS;
-  // One arrow per object: its average direction, length R, at the angle to the axis. Drawn in the fold under the roses,
-  // since an arrow per object over the wedges of every group is more than a rose can carry.
-  var arrowsOf = function(name) {
+  // The share chance gives each wedge, as a dotted line stepping across the wedge's own width at its height: a wedge and what it is
+  // compared with are the same shape, and the step between two wedges is a radial line.
+  var steppedOutline = function(share, top, colour, hidden) {
+    var ARC = 6, r = [], theta = [], width = 180 / ANGLE_BINS;
+    share.forEach(function(v, b) {
+      for (var k = 0; k <= ARC; k++) { r.push(v / top); theta.push((b + k / ARC) * width); }
+    });
+    return { type: 'scatterpolar', mode: 'lines', showlegend: false, visible: !hidden,
+      r: r, theta: theta, line: { color: colour, width: 1.6, dash: 'dot' },
+      hovertemplate: 'chance: %{customdata:.1f}%<extra></extra>',
+      customdata: share.reduce(function(all, v){ for (var k = 0; k <= ARC; k++) all.push(100 * v); return all; }, []) };
+  };
+  // One arrow per object: its average direction, length R, at the angle to the axis. On the roses of the groups only when
+  // asked for, since an arrow per object over the wedges of every group is more than a rose can carry.
+  var arrowsOf = function(name, onlyId) {
     var isMask = kinds[name] === 'mask', traces = [];
-    mapObjects.forEach(function(id) {
+    mapObjects.filter(function(id){ return onlyId === undefined || String(id) === String(onlyId); }).forEach(function(id) {
       var axis = polarOffset(id, ref);
       var mine = relative[name].filter(function(r){ return r.object_id === id; });
       var units = mine.map(function(r){ return r.unit; });
@@ -205,7 +217,7 @@ function renderPolarity() {
       if (!found || !found.mean) return;
       var at = polarConeDeg(found.mean, axis.unit);
       var group = groupOfObject[String(id)];
-      if (st.polarHidden[String(group)] || st.polarHidden[String(id)]) return;
+      if (onlyId === undefined && (st.polarHidden[String(group)] || st.polarHidden[String(id)])) return;
       var colour = group ? gColor(group) : entColor(name);
       traces.push(isMask
         ? { type: 'scatterpolar', mode: 'markers', name: String(id), r: [1], theta: [at],
@@ -305,18 +317,8 @@ function renderPolarity() {
       var outlines = chance.every(Boolean)
         ? chance.map(function(c, i){ return { share: c, colour: shares[i].facet.color, hidden: !!st.polarHidden[shares[i].facet.name] }; })
         : [{ share: expected, colour: CS.ink3, hidden: false }];
-      // Stepped: across each wedge's own width at the height chance gives it, so a wedge and what it is compared with
-      // are the same shape, and the step between two wedges is a radial line.
-      var ARC = 6;
       outlines.forEach(function(o) {
-        var r = [], theta = [];
-        o.share.forEach(function(v, b) {
-          for (var k = 0; k <= ARC; k++) { r.push(v / top); theta.push((b + k / ARC) * width); }
-        });
-        traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false, visible: !o.hidden,
-          r: r, theta: theta, line: { color: o.colour, width: 1.6, dash: 'dot' },
-          hovertemplate: 'chance: %{customdata:.1f}%<extra></extra>',
-          customdata: o.share.reduce(function(all, v){ for (var k = 0; k <= ARC; k++) all.push(100 * v); return all; }, []) });
+        traces.push(steppedOutline(o.share, top, o.colour, o.hidden));
       });
     }
     // A structure with one centre per object has no wedges, so its readings are all there is to draw; for the others
@@ -330,6 +332,59 @@ function renderPolarity() {
     roseEl.dataset.rose = '1';
     explainButton(el, polaritySpec(name, ref, 'angle'));
   });
+
+  // Each object's own rose, kept out of the way: its wedges, its chance outline and its average vector, with R and V in the title.
+  perObjectFold(document.getElementById('pol-angle-fold'), 'Show each ' + noun() + '\u2019s own rose, with its average vector',
+    function(body) {
+      structures.forEach(function(name) {
+        if (kinds[name] === 'mask') return;
+        var grid = document.createElement('div');
+        grid.className = 'charts-row';
+        var heading = document.createElement('div');
+        heading.className = 'subsection-label mt-2';
+        heading.innerHTML = dataName(name);
+        body.append(heading, grid);
+        mapObjects.forEach(function(id) {
+          var mine = relative[name].filter(function(r){ return String(r.object_id) === String(id); });
+          var axis = polarOffset(id, ref);
+          if (!mine.length || !axis) return;
+          var weights = polarWeights(mine), share = new Array(ANGLE_BINS).fill(0), whole = 0;
+          mine.forEach(function(r, i){ share[polarBinOf(r.angle_deg)] += weights[i]; whole += weights[i]; });
+          share = share.map(function(v){ return v / (whole || 1); });
+          var group = groupOfObject[String(id)], colour = group ? gColor(group) : entColor(name);
+          var chance = polarShapeShare(id, axis.unit);
+          var found = polarityIndices(mine.map(function(r){ return r.unit; }), axis.unit, weights);
+          var chanceShare = chance || share.map(function(_, b) {
+            return PLANAR ? 1 / ANGLE_BINS : (Math.cos(b * Math.PI / ANGLE_BINS) - Math.cos((b + 1) * Math.PI / ANGLE_BINS)) / 2;
+          });
+          var top = Math.max(Math.max.apply(null, share), Math.max.apply(null, chanceShare));
+          var traces = [{ type: 'barpolar', name: String(id), showlegend: false,
+            r: share.map(function(v){ return v / top; }),
+            theta: share.map(function(_, b){ return (b + 0.5) * 180 / ANGLE_BINS; }), width: 180 / ANGLE_BINS,
+            marker: { color: withAlpha(colour, 0.35), line: { color: colour, width: 1 } },
+            hovertemplate: '%{theta:.0f}°: %{customdata:.1f}%<extra></extra>',
+            customdata: share.map(function(v){ return 100 * v; }) },
+            steppedOutline(chanceShare, top, colour, false)];
+          // The arrow is R long, a stub where the directions mostly cancel: a faint ray carries its direction to the rim.
+          if (found && found.mean) {
+            var at = polarConeDeg(found.mean, axis.unit);
+            traces.push({ type: 'scatterpolar', mode: 'lines', r: [0, 1], theta: [at, at], showlegend: false, hoverinfo: 'skip',
+                          line: { color: '#1b222b', width: 1, dash: 'dash' }, opacity: 0.5 });
+          }
+          traces = traces.concat(arrowsOf(name, id));
+          var cell = document.createElement('div');
+          cell.className = 'chart-cell';
+          var plotEl = document.createElement('div');
+          cell.appendChild(plotEl);
+          grid.appendChild(cell);
+          var layout = roseLayout(name);
+          layout.title = { text: escHtml(String(id)) + (found ? '<br><span style="font-size:11px">R ' + found.R.toFixed(2) + ' \u00b7 V '
+            + found.V.toFixed(2) + '</span>' : '') };
+          layout.height = 330; layout.margin.t = 84; layout.title.y = 0.97; layout.title.yanchor = 'top';
+          drawPlot(plotEl, traces, layout, { responsive: true, displayModeBar: false });
+        });
+      });
+    });
 
   // ── the two collective measures, one per object ────────────────────────────
   setHtml('pol-index-label', 'How strongly does each structure lean towards '
