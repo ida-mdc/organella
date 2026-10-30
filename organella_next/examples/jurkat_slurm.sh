@@ -15,6 +15,7 @@
 # ONLY       with STEP=all, comma-separated cells to measure, e.g. jurkat_08; default all 11. All 11 are still cut apart.
 # CHUNK_EDGE sets --chunk-edge: the reach (1 um) must fit in it, which is 73 voxels at s2 and 146 at s1, so s1 needs
 # 192 or more; memory per thread grows with the cube of it, so give THREADS fewer then.
+# REACH_UM   how far distances are exact (default 1, the tool's own). At s0 use 0.5 with CHUNK_EDGE=192: the reach must fit in a chunk.
 # THREADS and CACHE_GB set --threads and --cache-gb. At s3 a cell peaks at about 5 GB; at s1 cell 8 used 58 GB (the
 # others are bigger, and it grows with the voxels); the memory request below is for s3.
 #SBATCH --job-name=jurkat
@@ -31,6 +32,7 @@ scale=${SCALE:-s3}
 threads=${THREADS:-${SLURM_CPUS_PER_TASK:-4}}
 cache_gb=${CACHE_GB:-4}
 chunk_edge=${CHUNK_EDGE:-128}
+reach=${REACH_UM:-1}
 store=s3://janelia-cosem-datasets/jrc_jurkat-1/jrc_jurkat-1.n5
 
 cd "${SLURM_SUBMIT_DIR:-.}"
@@ -50,7 +52,7 @@ cut_cells() {
 # subfolder per cell, so the merged report finds all of it beside it.
 measure() {
     uv run organella process "$1" -o "$2" --object-noun cell --skeletons mito --with-mesh --mesh-dir "$out/jurkat_meshes" \
-        --resume --threads "$threads" --cache-gb "$cache_gb" --chunk-edge "$chunk_edge"
+        --reach-um "$reach" --resume --threads "$threads" --cache-gb "$cache_gb" --chunk-edge "$chunk_edge"
 }
 
 link_cells() {   # folder $1 gets a link to each of the cells named after it
