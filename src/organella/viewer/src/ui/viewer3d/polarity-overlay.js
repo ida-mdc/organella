@@ -77,18 +77,39 @@ function polarityOverlay(THREE, frame, o) {
   var layout = POLAR_LAYOUTS[o.aspect];
   var t = morphing ? o.t : 0;
 
+  // In a plane an angle from the axis is two sectors, one either side of it, and the bins of the
+  // rose cut the whole disc into such pairs: every bin is outlined, the one on show is filled.
+  if (o.aspect === 'angle' && o.planar) {
+    var binRad = Math.PI / POLAR_ANGLE_BINS, side = [-a[1], a[0], 0];
+    var rimAt = function(tt, sign) {
+      var dir = polAdded(polScaled(a, Math.cos(tt)), polScaled(side, sign * Math.sin(tt)));
+      return [c[0] + dir[0] * L, c[1] + dir[1] * L, c[2] + dir[2] * L];
+    };
+    var edges = [];
+    for (var e = 0; e <= POLAR_ANGLE_BINS; e++) {
+      [1, -1].forEach(function(sign){ edges.push([c, rimAt(e * binRad, sign)]); });
+    }
+    segments(edges, BLUE, 0.22);
+    [1, -1].forEach(function(sign) {
+      var arc = [], fan = [], STEPS = 12;
+      for (var n = 0; n <= STEPS; n++) arc.push(rimAt((o.wedge + n / STEPS) * binRad, sign));
+      for (var m = 0; m < STEPS; m++) fan.push(c, arc[m], arc[m + 1]);
+      var sector = new THREE.BufferGeometry();
+      sector.setAttribute('position', new THREE.Float32BufferAttribute([].concat.apply([], fan), 3));
+      group.add(new THREE.Mesh(sector, new THREE.MeshBasicMaterial({
+        color: BLUE, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, depthTest: false })));
+      line([c].concat(arc, [c]), BLUE, 1);
+    });
   // The shell of angles between two cones about the axis: what one wedge of the rose counts.
-  if (o.aspect === 'angle') {
+  } else if (o.aspect === 'angle') {
     var loRad = o.wedge * Math.PI / POLAR_ANGLE_BINS, hiRad = loRad + Math.PI / POLAR_ANGLE_BINS;
-    var across = o.planar ? [[-a[1], a[0], 0]] : acrossAxis(a);
-    var K = o.planar ? 2 : 48, J = 4, wrap = !o.planar, rings = [];
+    var across = acrossAxis(a);
+    var K = 48, J = 4, rings = [];
     for (var j = 0; j <= J; j++) {
       var tt = loRad + (hiRad - loRad) * j / J, ring = [];
       for (var k = 0; k < K; k++) {
-        var phi = o.planar ? (k ? Math.PI : 0) : 2 * Math.PI * k / K;
-        var sideways = o.planar
-          ? polScaled(across[0], Math.cos(phi))
-          : polAdded(polScaled(across[0], Math.cos(phi)), polScaled(across[1], Math.sin(phi)));
+        var phi = 2 * Math.PI * k / K;
+        var sideways = polAdded(polScaled(across[0], Math.cos(phi)), polScaled(across[1], Math.sin(phi)));
         var dir = polAdded(polScaled(a, Math.cos(tt)), polScaled(sideways, Math.sin(tt)));
         ring.push([c[0] + dir[0] * L, c[1] + dir[1] * L, c[2] + dir[2] * L]);
       }
@@ -96,7 +117,7 @@ function polarityOverlay(THREE, frame, o) {
     }
     var tri = [];
     for (var r = 1; r <= J; r++) {
-      for (var q = 0; q < (wrap ? K : K - 1); q++) {
+      for (var q = 0; q < K; q++) {
         var q2 = (q + 1) % K;
         tri.push(rings[r - 1][q], rings[r - 1][q2], rings[r][q]);
         tri.push(rings[r - 1][q2], rings[r][q2], rings[r][q]);
@@ -107,7 +128,7 @@ function polarityOverlay(THREE, frame, o) {
     group.add(new THREE.Mesh(shell, new THREE.MeshBasicMaterial({
       color: BLUE, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })));
     [rings[0], rings[J]].forEach(function(rim) {
-      var loop = new THREE[wrap ? 'LineLoop' : 'Line'](
+      var loop = new THREE.LineLoop(
         new THREE.BufferGeometry().setFromPoints(rim.map(vec)),
         new THREE.LineBasicMaterial({ color: BLUE }));
       group.add(loop);
