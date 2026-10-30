@@ -47,7 +47,7 @@ def process(
     if not frames and not failures:
         failures["input"] = "no samples found"
     if frames:
-        sink.write(pl.concat(frames, how="diagonal_relaxed"), RunInfo(time.time() - started, seconds, failures))
+        sink.write(pl.concat(frames, how="diagonal_relaxed"), RunInfo(time.time() - started, seconds, failures, settings.reach_um))
         if parts and not failures:
             parts.discard()   # the report they were insurance for exists; with a failure they are kept for the next attempt
     return failures

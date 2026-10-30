@@ -69,6 +69,7 @@ async function loadParquetBuffer(buffer, label) {
     COLUMN_HELP = {};
   }
   REPORT_NOUN = footer.organella_object_noun || null;
+  REPORT_REACH_UM = isFinite(parseFloat(footer.organella_reach_um)) ? parseFloat(footer.organella_reach_um) : null;
   REPORT_DESCRIPTION = footer.organella_description || '';
   var rows = await readReportRows(file, label);
   adapt(rows);

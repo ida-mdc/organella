@@ -17,6 +17,7 @@ DESCRIPTIONS_KEY = FOOTER + "column_descriptions"
 DESCRIPTION_KEY = FOOTER + "description"
 NOUN_KEY = FOOTER + "object_noun"
 STATS_KEY = FOOTER + "processing_stats"
+REACH_KEY = FOOTER + "reach_um"
 
 
 def read_report(path: Path) -> tuple[pl.DataFrame, dict[str, str]]:
@@ -74,7 +75,10 @@ def merge_reports(sources: Sequence[Path], output: Path) -> int:
     rows = pl.concat([r for r, _ in parts], how="diagonal_relaxed").sort("object_id", "obs_level", maintain_order=True)
     rows = rows.with_columns(pl.col(c).cast(pl.String) for c, t in rows.schema.items() if t == pl.Null)
     footers = [f for _, f in parts]
+    # Distances are exact only up to the shortest reach any part was measured with.
+    reaches = [float(f[REACH_KEY]) for f in footers if REACH_KEY in f]
     write_report(rows, output, {**footers[0], FOOTER + "project_name": output.stem, STATS_KEY: json.dumps(_combined(footers)),
+                                **({REACH_KEY: repr(min(reaches))} if reaches else {}),
                                 FOOTER + "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     return len(seen)
 

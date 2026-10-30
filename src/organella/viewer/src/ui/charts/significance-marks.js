@@ -2,6 +2,26 @@
 // same comparisons go under the panel as text, which stays readable at any number.
 var MAX_BRACKETS = 6;
 
+/** What the "not tested" note means, for the reasons that are in it. */
+function untestedWhy(comparisons) {
+  var reasons = [];
+  comparisons.forEach(function(c) {
+    if (c.test) return;
+    var text;
+    if (c.lone) {
+      text = 'A test needs at least two ' + noun(true) + ' on each side.';
+    } else {
+      text = 'Every value compared is ' + (c.same === null ? 'the same' : fmtValue(c.same))
+        + (c.perObject ? ' (each ' + noun() + ' is one median)' : '') + ', so a rank test has nothing to order.';
+      if (REPORT_REACH_UM !== null && c.same !== null && Math.abs(c.same - REPORT_REACH_UM) < 1e-9) {
+        text += ' That is the distance cap: most instances are further from the structure than it measures, so they read as the cap.';
+      }
+    }
+    if (reasons.indexOf(text) < 0) reasons.push(text);
+  });
+  return reasons.join(' ');
+}
+
 /** How many rows of annotation a panel needs above its data: a bracket each, and room for the untested lines. */
 function bracketRungs(comparisons) {
   var tested = comparisons.filter(function(c){ return c.test; }).length;
@@ -54,7 +74,7 @@ function bracketLayout(layout, comparisons, span) {
     layout.annotations.push({
       xref: 'x', yref: 'y', x: topX / 2, y: base + step * tested.length, yanchor: 'bottom',
       showarrow: false, text: rest.join('<br>'),
-      hovertext: 'A test needs at least two ' + noun(true) + ' on each side.',
+      hovertext: untestedWhy(comparisons),
       font: { family: CS.sans, size: 8.5, color: CS.ink3 }
     });
   }

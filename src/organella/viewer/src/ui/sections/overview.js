@@ -244,6 +244,8 @@ function renderOverview() {
   renderGlance();
   setText('fact-cells-label', Noun(summary.objects !== 1));
   setText('fact-cells', String(summary.objects || 1));
+  document.getElementById('fact-reach-row').style.display = REPORT_REACH_UM === null ? 'none' : '';
+  setText('fact-reach', REPORT_REACH_UM === null ? '' : fmtValue(REPORT_REACH_UM) + ' \u00b5m: a distance further than this reads as the cap');
   setText('fact-structures-label', 'Structure' + (cols.length === 1 ? '' : 's'));
   setHtml('fact-structures', cols.map(function(c) {
     return '<span class="item"><i style="background:' + entColor(c.name) + '"></i>' + escHtml(c.name) + '</span>';

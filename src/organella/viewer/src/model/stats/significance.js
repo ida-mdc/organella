@@ -258,8 +258,14 @@ function pairwiseSignificance(series) {
         loneName = lone.label || lone.name;
       }
       var test = why ? null : mannWhitney(known ? a.units : a.values, known ? b.units : b.values);
-      if (!why && !test) why = 'nothing to rank';
-      out.push({ a: i, b: j, test: test, why: why, lone: loneName, perObject: known,
+      // Every value the same on both sides: the one value, so the chart can say what it is.
+      var same = null;
+      if (!why && !test) {
+        why = 'every value is the same';
+        var mine = (known ? a.units : a.values).concat(known ? b.units : b.values);
+        same = mine.length ? mine[0] : null;
+      }
+      out.push({ a: i, b: j, test: test, why: why, same: same, lone: loneName, perObject: known,
                  aName: a.name, bName: b.name, aLabel: a.label, bLabel: b.label });
     }
   }
@@ -268,7 +274,7 @@ function pairwiseSignificance(series) {
 
 /**
  * Why the pairs that were not tested were not, in lines: "macrophage (1 cell)" where one group
- * is too small, "a vs b (nothing to rank)" where the values were all the same. One annotation
+ * is too small, "a vs b (every value is the same)" where the values were all the same. One annotation
  * and not a bracket each, because three groups with a single cell among them would otherwise
  * stack two rungs of "not tested" on a thumbnail that has room for one. Broken after the colon
  * once it is longer than a thumbnail is wide.

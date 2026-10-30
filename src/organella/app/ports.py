@@ -54,6 +54,7 @@ class RunInfo:
     seconds: float
     per_object_seconds: dict[str, float]
     failures: dict[str, str]
+    reach_um: float | None = None   # how far a distance to another structure is exact; past it, it reads as this
 
     @property
     def n_objects(self) -> int:

@@ -166,6 +166,16 @@ function coverageNote(label) {
     + ', so this section is about those that do, not the whole batch.</p>';
 }
 
+/**
+ * What the run's distance cap means for every distance in the report, or '' for a report that does not say.
+ * A structure further away than the cap is not measured: its distance reads as the cap itself.
+ */
+function reachSentence() {
+  if (REPORT_REACH_UM === null) return '';
+  return 'Distances are measured exactly up to ' + fmtValue(REPORT_REACH_UM) + ' \u00b5m; anything further away reads as '
+    + fmtValue(REPORT_REACH_UM) + ' \u00b5m.';
+}
+
 /** A number for a readout: three figures, never an exponent for the sizes this page sees. */
 function fmtValue(v) {
   if (v === null || v === undefined || !isFinite(v)) return '–';
@@ -204,6 +214,14 @@ function renderDescription(into, description) {
   }
 }
 
+/** "2D" for a report of planes, "3D" otherwise. */
+function dimsWord() { return PLANAR ? '2D' : '3D'; }
+
+/** How to move the viewer: a plane can only be panned and zoomed. */
+function viewerHowTo() {
+  return PLANAR ? 'Drag to pan, scroll to zoom, double-click to fit.' : 'Drag to orbit, scroll to zoom, shift-drag to pan.';
+}
+
 /** Put the settled noun into the markup that was written before it was known. */
 function fillNouns() {
   document.querySelectorAll('[data-noun]').forEach(function(el) {
@@ -214,16 +232,8 @@ function fillNouns() {
   });
   document.querySelectorAll('[data-noun-label]').forEach(function(el) {
     el.textContent = Noun();
-/** "2D" for a report of planes, "3D" otherwise. */
-function dimsWord() { return PLANAR ? '2D' : '3D'; }
-
-/** How to move the viewer: a plane can only be panned and zoomed. */
-function viewerHowTo() {
-  return PLANAR ? 'Drag to pan, scroll to zoom, double-click to fit.' : 'Drag to orbit, scroll to zoom, shift-drag to pan.';
-}
-
   });
-}
   document.querySelectorAll('[data-howto]').forEach(function(el) {
     el.textContent = viewerHowTo();
   });
+}

@@ -107,6 +107,7 @@ def test_reports_of_separate_runs_merge_into_the_report_one_run_over_all_of_them
     assert merge_reports(parts, merged_path) == 2
     merged, footer = read_report(merged_path)
     assert merged.equals(whole)
+    assert float(footer["organella_reach_um"]) == 0.4          # the cap every distance in it was measured with
     stats = json.loads(footer["organella_processing_stats"])
     assert footer["organella_project_name"] == "merged" and stats["n_objects"] == 2 and set(stats["seconds_per_object"]) == {"cell_a", "cell_b"}
     assert json.loads(footer["organella_column_descriptions"])["object_volume_um3"]

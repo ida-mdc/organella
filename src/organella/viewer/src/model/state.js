@@ -30,6 +30,7 @@ var COLUMN_HELP = {};
 
 // What the run called it, if it said. Applied once the rows say whether anything bounds it.
 var REPORT_NOUN = null;
+var REPORT_REACH_UM = null;   // how far a distance is exact, from the footer; null for a report that does not say
 
 // Rows the report held that name no structure, and so could not be placed. Reported,
 // never quietly dropped: a report that loses rows should say so on its own face.

@@ -100,9 +100,9 @@ function distanceSpec(entity, col) {
       + (tip ? 'its nearest end' : 'it') + ' is from the nearest ' + dataName(target)
       + ': magenta is near, cyan is far. '
       + dataName(target) + ' is drawn see-through in amber. Slide the distance to keep only'
-      + ' the instances within it.'
+      + ' the instances within it. ' + reachSentence()
     : 'Every ' + named + ' instance is shaded by how far it is from the nearest other '
-      + named + ': magenta is near, cyan is far. Slide the distance to keep only the instances within it.';
+      + named + ': magenta is near, cyan is far. Slide the distance to keep only the instances within it. ' + reachSentence();
   return spec;
 }
 

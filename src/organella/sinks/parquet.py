@@ -10,7 +10,7 @@ import polars as pl
 
 import organella
 from organella.app.ports import RunInfo
-from organella.report.file import DESCRIPTION_KEY, FOOTER, NOUN_KEY, write_report
+from organella.report.file import DESCRIPTION_KEY, FOOTER, NOUN_KEY, REACH_KEY, write_report
 
 PRIVACY_SUMMARY = [
     "- object folder paths and the names of the volumes read",
@@ -56,6 +56,8 @@ class ParquetSink:
         }
         if self.root is not None:
             footer[FOOTER + "base_dir"] = str(self.root.resolve())
+        if run is not None and run.reach_um is not None:
+            footer[REACH_KEY] = repr(float(run.reach_um))
         if self.noun:
             footer[NOUN_KEY] = self.noun
         return footer
