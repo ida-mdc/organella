@@ -85,7 +85,8 @@ function settleNoun(given, bounded) {
 
 // `only` is one facet value to narrow to, read against whatever plotGroupBy is: a group
 // when grouping by group, an object when grouping by object. Empty means all of them.
-var st = { only: '', statsEntity: null, polarRef: null, polarRadius: 'centre' };
+var st = { only: '', statsEntity: null, polarRef: null, polarRadius: 'centre',
+           polarHidden: {}, polarArrows: false };   // groups the roses' legend has switched off; whether each object's arrow is drawn
 
 // Settled against the batch in initFilters, not fixed here: by group wherever there is
 // more than one, by object where there is not.

@@ -149,9 +149,15 @@ h1 .data-name, .section-title .data-name, .subsection-label .data-name,
   border: 1px solid var(--rule); border-radius: 8px; padding: .7rem .8rem .65rem;
   transition: background .2s, border-color .2s; }
 .chart-cell.wide { grid-column: span 2; }
+/* The wedge plots are read for their shape, so they get more room than a distribution panel. */
+#pol-angle-charts { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
 .chart-cell .js-plotly-plot, .chart-cell .plot-container { max-width: 100%; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; font-size: .76rem;
   color: var(--ink-2); margin-bottom: .7rem; }
+.legend-toggle { display: inline-flex; align-items: center; gap: .25rem; border: 0; background: none; padding: 0;
+  font: inherit; color: inherit; cursor: pointer; }
+.legend-toggle.off { opacity: .4; text-decoration: line-through; }
+.legend-switch { display: inline-flex; align-items: center; gap: .3rem; margin-left: auto; cursor: pointer; }
 .chart-note { font-size: .76rem; color: var(--ink-3); line-height: 1.5;
   max-width: 70ch; margin-top: .5rem; }
 /* What colour is which value, wherever a metric decides a colour. */

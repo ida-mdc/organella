@@ -141,8 +141,32 @@ function renderPolarity() {
 
   var facetsFor = function(name){ return facetsOf(relative[name]); };
   var legend = facetLegendHtml(facetsFor(structures[0]));
-  ['pol-legend', 'pol-index-legend', 'pol-where-legend']
+  ['pol-index-legend', 'pol-where-legend']
     .forEach(function(id){ setHtml(id, legend); });
+
+  // The legend of the roses is the page's own, made clickable: a group pressed here is left out of every rose below, and
+  // the arrows (one per object, its average direction) are switched on beside it.
+  var roseFacets = facetsFor(structures[0]);
+  var legendEl = document.getElementById('pol-legend');
+  legendEl.innerHTML = (roseFacets.many ? roseFacets.values.map(function(v) {
+      var off = !!st.polarHidden[String(v)];
+      return '<button type="button" class="legend-toggle' + (off ? ' off' : '') + '" data-group="' + escHtml(String(v))
+        + '" aria-pressed="' + !off + '" title="' + (off ? 'Show ' : 'Hide ') + escHtml(String(v)) + ' in these plots">'
+        + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + gColor(v) + '"></span>'
+        + escHtml(String(v)) + '</button>';
+    }).join('') : '')
+    + '<label class="legend-switch"><input type="checkbox" id="pol-arrows"' + (st.polarArrows ? ' checked' : '')
+    + '> Show each ' + noun() + '\u2019s average direction</label>';
+  legendEl.onclick = function(event) {
+    var chip = event.target.closest && event.target.closest('.legend-toggle');
+    if (!chip) return;
+    st.polarHidden[chip.dataset.group] = !st.polarHidden[chip.dataset.group];
+    renderPolarity();
+  };
+  document.getElementById('pol-arrows').onchange = function() {
+    st.polarArrows = this.checked;
+    renderPolarity();
+  };
 
   // ── which way it points: the spread and the average in one picture ────────
   //
@@ -158,16 +182,59 @@ function renderPolarity() {
   setHtml('pol-angle-label', 'Which way does each structure point, relative to '
     + dataName(ref) + '?');
   setHtml('pol-angle-desc', 'Each <b>wedge</b> shows how much of the structure lies at that angle to the axis,'
-    + ' with instances weighted by size. The <b>dotted outline</b> is the distribution expected if the'
+    + ' with instances weighted by size. The <b>dotted outline</b>, one step across each wedge, is the share expected if the'
     + ' structure ignored the axis and lay anywhere in the ' + noun() + ': the directions of the ' + noun() + '’s own '
     + (PLANAR ? 'area' : 'volume') + ' seen from its centre, so the shape of the ' + noun() + ' is in it, one outline per group.'
     + ' Where a report did not measure that shape, it is the outline for ' + (PLANAR ? 'a circle' : 'a sphere') + ' instead.'
     + ' Wedge heights are relative: the tallest reaches the rim.'
-    + ' Each <b>line with a dot at its end</b> is one ' + noun() + '. It runs from the centre in the average direction of the structure in that '
+    + ' With <b>Show each ' + noun() + '’s average direction</b> on, each <b>line with a dot at its end</b> is one ' + noun() + '. It runs from the centre in the average direction of the structure in that '
     + noun() + ', and its length is <b>R</b> measured against the rim as 1, from 0 (the directions cancel) to 1'
     + ' (all directions agree). A structure with a single centre per ' + noun() + ' is drawn as one dot.');
   var angleHost = document.getElementById('pol-angle-charts');
   var ANGLE_BINS = POLAR_ANGLE_BINS;
+  // One arrow per object: its average direction, length R, at the angle to the axis. Drawn in the fold under the roses,
+  // since an arrow per object over the wedges of every group is more than a rose can carry.
+  var arrowsOf = function(name) {
+    var isMask = kinds[name] === 'mask', traces = [];
+    mapObjects.forEach(function(id) {
+      var axis = polarOffset(id, ref);
+      var mine = relative[name].filter(function(r){ return r.object_id === id; });
+      var units = mine.map(function(r){ return r.unit; });
+      if (!axis || !units.length) return;
+      var found = polarityIndices(units, axis.unit, polarWeights(mine));
+      if (!found || !found.mean) return;
+      var at = polarConeDeg(found.mean, axis.unit);
+      var group = groupOfObject[String(id)];
+      if (st.polarHidden[String(group)] || st.polarHidden[String(id)]) return;
+      var colour = group ? gColor(group) : entColor(name);
+      traces.push(isMask
+        ? { type: 'scatterpolar', mode: 'markers', name: String(id), r: [1], theta: [at],
+            marker: { size: 9, color: colour, line: { color: '#fff', width: 1 } },
+            showlegend: false,
+            hovertemplate: String(id) + ': ' + escName(name) + ' at %{theta:.0f}°'
+              + '<extra></extra>' }
+        : { type: 'scatterpolar', mode: 'lines+markers', name: String(id),
+            r: [0, found.R], theta: [at, at],
+            line: { color: colour, width: 2 },
+            marker: { size: [0, 8], color: colour }, showlegend: false,
+            hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
+              + found.V.toFixed(2) + '<extra></extra>' });
+    });
+    return traces;
+  };
+  var roseLayout = function(name) {
+    return {
+      margin: { l: 44, r: 44, t: 40, b: 12 }, height: 340,
+      title: { text: panelTitle(name, 'towards ' + ref) }, showlegend: false,
+      polar: {
+        sector: [0, 180], barmode: 'overlay',
+        radialaxis: { range: [0, 1.02], angle: 90, nticks: 3, showticklabels: false },
+        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
+                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
+                       tickfont: { size: 9 } }
+      }
+    };
+  };
   structures.forEach(function(name) {
     var facets = facetsFor(name);
     var fallback = { name: name, color: entColor(name) };
@@ -226,60 +293,37 @@ function renderPolarity() {
           r: x.share.map(function(v){ return v / top; }), theta: centres, width: width,
           marker: { color: withAlpha(x.facet.color, 0.35),
                     line: { color: x.facet.color, width: 1 } },
-          showlegend: false,
+          // A group the legend above has switched off is left out, its outline with it.
+          showlegend: false, visible: !st.polarHidden[x.facet.name],
           hovertemplate: '%{theta:.0f}°: %{customdata:.1f}% of ' + x.facet.name
             + '<extra></extra>',
           customdata: x.share.map(function(v){ return 100 * v; }) });
       });
       // One outline per facet where the shape of its objects is known; one for a uniform population where it is not.
       var outlines = chance.every(Boolean)
-        ? chance.map(function(c, i){ return { share: c, colour: shares[i].facet.color }; })
-        : [{ share: expected, colour: CS.ink3 }];
+        ? chance.map(function(c, i){ return { share: c, colour: shares[i].facet.color, hidden: !!st.polarHidden[shares[i].facet.name] }; })
+        : [{ share: expected, colour: CS.ink3, hidden: false }];
+      // Stepped: across each wedge's own width at the height chance gives it, so a wedge and what it is compared with
+      // are the same shape, and the step between two wedges is a radial line.
+      var ARC = 6;
       outlines.forEach(function(o) {
-        traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false,
-          r: o.share.map(function(v){ return v / top; }).concat([o.share[0] / top]),
-          theta: centres.concat([centres[0]]),
-          line: { color: o.colour, width: 1.2, dash: 'dot', shape: 'spline' },
-          hoverinfo: 'skip' });
+        var r = [], theta = [];
+        o.share.forEach(function(v, b) {
+          for (var k = 0; k <= ARC; k++) { r.push(v / top); theta.push((b + k / ARC) * width); }
+        });
+        traces.push({ type: 'scatterpolar', mode: 'lines', showlegend: false, visible: !o.hidden,
+          r: r, theta: theta, line: { color: o.colour, width: 1.6, dash: 'dot' },
+          hovertemplate: 'chance: %{customdata:.1f}%<extra></extra>',
+          customdata: o.share.reduce(function(all, v){ for (var k = 0; k <= ARC; k++) all.push(100 * v); return all; }, []) });
       });
     }
-    // The average, one per object: length R, angle to the axis.
-    mapObjects.forEach(function(id) {
-      var axis = polarOffset(id, ref);
-      var mine = relative[name].filter(function(r){ return r.object_id === id; });
-      var units = mine.map(function(r){ return r.unit; });
-      if (!axis || !units.length) return;
-      var found = polarityIndices(units, axis.unit, polarWeights(mine));
-      if (!found || !found.mean) return;
-      var at = polarConeDeg(found.mean, axis.unit);
-      var group = groupOfObject[String(id)];
-      var colour = group ? gColor(group) : entColor(name);
-      traces.push(isMask
-        ? { type: 'scatterpolar', mode: 'markers', name: String(id), r: [1], theta: [at],
-            marker: { size: 9, color: colour, line: { color: '#fff', width: 1 } },
-            showlegend: false,
-            hovertemplate: String(id) + ': ' + escName(name) + ' at %{theta:.0f}°'
-              + '<extra></extra>' }
-        : { type: 'scatterpolar', mode: 'lines+markers', name: String(id),
-            r: [0, found.R], theta: [at, at],
-            line: { color: colour, width: 2 },
-            marker: { size: [0, 8], color: colour }, showlegend: false,
-            hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
-              + found.V.toFixed(2) + '<extra></extra>' });
-    });
+    // A structure with one centre per object has no wedges, so its readings are all there is to draw; for the others
+    // the arrows are the reader's to switch on.
+    if (isMask || st.polarArrows) traces = traces.concat(arrowsOf(name));
     if (!traces.length) return;
     angleHost.appendChild(el);
-    drawPlot(roseEl, traces, {
-      margin: { l: 44, r: 44, t: 36, b: 10 }, height: 230,
-      title: { text: panelTitle(name, 'towards ' + ref) }, showlegend: false,
-      polar: {
-        sector: [0, 180], barmode: 'overlay',
-        radialaxis: { range: [0, 1.02], angle: 90, nticks: 3, showticklabels: false },
-        angularaxis: { direction: 'counterclockwise', rotation: 0, tickmode: 'array',
-                       tickvals: [0, 90, 180], ticktext: [ref, '90°', 'away'],
-                       tickfont: { size: 9 } }
-      }
-    }, { responsive: true, displayModeBar: false });
+    drawPlot(roseEl, traces, roseLayout(name),
+             { responsive: true, displayModeBar: false });
     // The cone marker of the viewer is drawn on this plot, so it has to be findable.
     roseEl.dataset.rose = '1';
     explainButton(el, polaritySpec(name, ref, 'angle'));
@@ -325,33 +369,26 @@ function renderPolarity() {
       });
       return;
     }
-    // V and R are the two halves of one arrow, so they share a plot: one point per object,
-    // V along x and R up y.
-    var cell = document.createElement('div');
-    cell.className = 'chart-cell';
-    indexHost.appendChild(cell);
-    explainButton(cell, polaritySpec(name, ref, 'index'));
-    var plotEl = document.createElement('div');
-    cell.appendChild(plotEl);
-    var groupsOf = facets.many ? facets.values : [null];
-    var traces = groupsOf.map(function(v) {
-      var mine = rows.filter(function(r){ return v === null || r[facets.key] === v; })
-        .filter(function(r){ return isFinite(r.V) && isFinite(r.R); });
-      var colour = v === null ? entColor(name) : gColor(v);
-      return { type: 'scatter', mode: 'markers', x: mine.map(function(r){ return r.V; }),
-        y: mine.map(function(r){ return r.R; }),
-        name: v === null ? name : facets.labelOf(v), showlegend: false,
-        text: mine.map(function(r){ return r.object_id; }),
-        marker: { color: colour, size: 9, line: { color: '#fff', width: 1 } },
-        hovertemplate: '%{text}<br>V %{x:.2f}, R %{y:.2f}<extra></extra>' };
+    // V and R each get a distribution plot of their own, as every other measurement does: one value per object.
+    distributionPanel(indexHost, {
+      series: facets.valuesOf(rows, 'V', fallback),
+      title: panelTitle(name, 'V towards ' + ref), unit: 'V',
+      noun: noun(), showFacetTicks: !facets.many,
+      explain: polaritySpec(name, ref, 'index'),
+      range: [-1, 1],
+      help: '<b>V</b>, the signed polarity index: <b>+1</b> every ' + dataName(name)
+        + ' towards ' + dataName(ref) + ', <b>0</b> spread evenly about the axis, <b>\u22121</b>'
+        + ' every one away.'
     });
-    drawPlot(plotEl, traces, {
-      margin: { l: 56, r: 12, t: 34, b: 50 }, height: 300,
-      title: { text: panelTitle(name, 'V and R') },
-      xaxis: { title: 'V, towards ' + ref + ' (+1) or away (\u22121)', range: [-1.1, 1.1], zeroline: true },
-      yaxis: { title: 'R, agreement', range: [-0.03, 1.08] },
-      showlegend: false
-    }, { responsive: true, displayModeBar: false });
+    distributionPanel(indexHost, {
+      series: facets.valuesOf(rows, 'R', fallback),
+      title: panelTitle(name, 'R towards ' + ref), unit: 'R',
+      noun: noun(), showFacetTicks: !facets.many,
+      explain: polaritySpec(name, ref, 'index'),
+      range: [0, 1],
+      help: '<b>R</b>, how much the directions agree: <b>1</b> every ' + dataName(name) + ' points the same way,'
+        + ' <b>0</b> they cancel out.'
+    });
   });
 
   // ── angle against distance ─────────────────────────────────────────────────
