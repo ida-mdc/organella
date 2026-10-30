@@ -297,9 +297,12 @@ function polarityOverlay(THREE, frame, o) {
            [c[0] + a[0] * L * 0.78, c[1] + a[1] * L * 0.78 + L * 0.09, c[2] + a[2] * L * 0.78], '#2b3644', L * 0.62);
   }
   if ((o.aspect === 'angle' || o.aspect === 'index') && frame.mean && frame.R > 0.01) {
+    // The arrow is R long, which is short when the directions mostly cancel, so a thin ray carries its direction to the rim
+    // and the label stands there, where the centre's dot does not cover it.
+    line([c, [c[0] + frame.mean[0] * L, c[1] + frame.mean[1] * L, c[2] + frame.mean[2] * L]], 0x1b222b, 0.8);
     group.add(arrow(frame.mean, frame.R * L, 0x1b222b, 7, 0.26));
-    textAt('average  R ' + frame.R.toFixed(2), [c[0] + frame.mean[0] * frame.R * L * 1.05, c[1] + frame.mean[1] * frame.R * L * 1.05 - L * 0.1,
-           c[2] + frame.mean[2] * frame.R * L * 1.05], '#1b222b', L * 0.5);
+    textAt('average  R ' + frame.R.toFixed(2), [c[0] + frame.mean[0] * L * 1.04, c[1] + frame.mean[1] * L * 1.04 - L * 0.08,
+           c[2] + frame.mean[2] * L * 1.04], '#1b222b', L * 0.5);
   }
   // V: how far that average reaches along the axis. Dropped to it from the arrow's tip.
   if (o.aspect === 'index' && frame.mean && frame.R > 0.01) {

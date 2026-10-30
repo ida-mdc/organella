@@ -217,7 +217,9 @@ function renderPolarity() {
             r: [0, found.R], theta: [at, at],
             line: { color: colour, width: 2 },
             marker: { size: [0, 8], color: colour }, showlegend: false,
-            hovertemplate: String(id) + ': R %{r:.2f} at %{theta:.0f}°<br>V '
+            // The tip's R, whichever end of the arrow is hovered: its start has r = 0.
+            customdata: [found.R, found.R],
+            hovertemplate: String(id) + ': R %{customdata:.2f} at %{theta:.0f}°<br>V '
               + found.V.toFixed(2) + '<extra></extra>' });
     });
     return traces;
