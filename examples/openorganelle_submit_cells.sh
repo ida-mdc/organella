@@ -13,6 +13,9 @@
 # CUT_MEM, CUT_TIME   what the cutting job asks for (default 64G and 12:00:00)
 # MAX_CELLS   how many array tasks to submit (default 64); a task past the last cell ends at once
 # AT_ONCE     the most cell jobs running at once (default: no limit)
+# NODES       with CELLS naming ONE cell: run that cell on this many nodes at once (a dask cluster inside one allocation, for a cell
+#             too big for one node) instead of as one array task; MEM and CPUS are per node. WORKERS_PER_NODE and MESH_WORKERS
+#             are those of openorganelle_cells_slurm.sh.
 # CELLS       run only these cells ("hela-2_01"); the volume must already have been cut, so use DATASETS with one volume,
 #             and this submits the cell jobs and the merge, not the cutting
 set -eu
@@ -31,8 +34,15 @@ for dataset in ${DATASETS:-jrc_hela-2 jrc_hela-3 jrc_mus-liver-6 jrc_mus-liver-7
     fi
     if [ -n "${CELLS:-}" ]; then tasks=1-$(echo $CELLS | wc -w); else tasks=1-${MAX_CELLS:-64}; fi
     [ -n "${AT_ONCE:-}" ] && tasks="$tasks%$AT_ONCE"
-    array=$(sbatch --parsable $after --job-name="cell-$short" --array="$tasks" --cpus-per-task="${CPUS:-16}" --mem="${MEM:-160G}" \
-        --time="${TIME:-2-00:00:00}" --output="cell-$short-%A_%a.log" --export=ALL "$script" cell "$dataset" "$out")
+    if [ -n "${NODES:-}" ]; then
+        [ "$(echo $CELLS | wc -w)" = 1 ] || { echo "NODES needs CELLS to name exactly one cell" >&2; exit 2; }
+        array=$(sbatch --parsable --job-name="cell-$short" --nodes="$NODES" --ntasks-per-node=1 --cpus-per-task="${CPUS:-16}" \
+            --mem="${MEM:-160G}" --time="${TIME:-2-00:00:00}" --output="cell-$short-%j.log" --export=ALL "$script" cell-multinode "$dataset" "$out")
+        tasks="$NODES nodes"
+    else
+        array=$(sbatch --parsable $after --job-name="cell-$short" --array="$tasks" --cpus-per-task="${CPUS:-16}" --mem="${MEM:-160G}" \
+            --time="${TIME:-2-00:00:00}" --output="cell-$short-%A_%a.log" --export=ALL "$script" cell "$dataset" "$out")
+    fi
     # afterany: the report is joined from the cells that finished even if one did not, and the log says which are missing
     merge=$(sbatch --parsable --dependency="afterany:$array" --job-name="merge-$short" --cpus-per-task=2 --mem=16G --time=01:00:00 \
         --output="merge-$short-%j.log" --export=ALL "$script" merge "$dataset" "$out")

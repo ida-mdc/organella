@@ -29,6 +29,26 @@ mesh_workers_option = click.option("--mesh-workers", type=click.IntRange(min=0),
                                    "cannot do in parallel. Default: one per thread; 0 does it all in this process.")
 
 
+scheduler_option = click.option("--scheduler", metavar="ADDRESS", help="Run the work on a dask.distributed cluster whose scheduler is at "
+                                "ADDRESS (tcp://host:8786) instead of on this machine's threads. Needs the 'distributed' extra: "
+                                "uv sync --extra distributed.")
+
+
+@contextmanager
+def _scheduler(address: str | None):
+    """The run's dask work goes to the scheduler at ``address``, if there is one, and the connection is closed after."""
+    if not address:
+        yield
+        return
+    try:
+        from distributed import Client
+    except ImportError:
+        raise click.UsageError("--scheduler needs the distributed package: uv sync --extra distributed") from None
+    with Client(address) as client:
+        click.echo(f"running on {len(client.scheduler_info()['workers'])} worker(s) of {address}")
+        yield
+
+
 @contextmanager
 def _mesh_workers(count: int | None, threads: int | None):
     """Surfaces are simplified in ``count`` worker processes (by default as many as there are threads) for the run."""
@@ -53,17 +73,19 @@ def _finish(failures: dict[str, str]) -> None:
 @click.option("--resume", is_flag=True, help="Skip objects an interrupted run already measured under the same settings; each object's rows are kept in <output>_parts/ as it finishes.")
 @threads_option
 @mesh_workers_option
+@scheduler_option
 @source_options
 @distance_options
 @measure_options
 @statistics_options
 @geometry_options
 @report_options
-def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path | None, resume: bool, threads: int | None, mesh_workers: int | None, **options) -> None:
+def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path | None, resume: bool, threads: int | None, mesh_workers: int | None, scheduler: str | None,
+                    **options) -> None:
     """Measure a folder of objects, or a Zarr or N5 store described by a manifest, and write one report."""
     geometry = geometry_into(mesh_dir or output.with_name(output.stem + "_meshes"), options) if with_mesh else None
     measurements = (Statistics(),) if options["no_instances"] else DEFAULT
-    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads):
+    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads), _scheduler(scheduler):
         failures = process(source_from(input, options), measurements, sink_to(output, input, options),
                            settings_from(options, geometry=with_mesh), geometry, parts_for(output, resume))
     _finish(failures)
@@ -99,12 +121,13 @@ def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_
 @click.option("-o", "--out-dir", required=True, type=click.Path(path_type=Path), help="Where <object>/geometry.parquet goes.")
 @threads_option
 @mesh_workers_option
+@scheduler_option
 @source_options
 @measure_options
 @geometry_options
-def mesh_command(input: Path, out_dir: Path, threads: int | None, mesh_workers: int | None, **options) -> None:
+def mesh_command(input: Path, out_dir: Path, threads: int | None, mesh_workers: int | None, scheduler: str | None, **options) -> None:
     """Write the 3D geometry alone, for a report you already have: it measures only what the geometry carries."""
-    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads):
+    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads), _scheduler(scheduler):
         failures = process(source_from(input, options), (Statistics(),), NullSink(), settings_from(options, geometry=True),
                            geometry_into(out_dir, options))
     _finish(failures)

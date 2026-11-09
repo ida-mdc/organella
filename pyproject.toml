@@ -51,6 +51,8 @@ Issues = "https://github.com/ida-mdc/organella/issues"
 [project.optional-dependencies]
 # Reading S3 stores is part of the install now; the extra stays so `pip install "organella[remote]"` still works.
 remote = []
+# Running a measurement on a dask.distributed cluster (organella process --scheduler), for a cell too big for one node.
+distributed = ["distributed>=2025.1"]
 test = [
     "pytest>=8.3.5",
 ]
