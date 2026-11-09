@@ -134,3 +134,29 @@ def test_the_cache_size_reaches_the_store_source(tmp_path):
     manifest.write_text("{}")
     assert open_source(manifest, cache_bytes=123).cache_bytes == 123
     assert isinstance(open_source(manifest), StoreSource)
+
+
+def test_a_read_the_network_drops_is_asked_for_again_and_a_dead_store_still_fails():
+    import numpy as np
+    from obstore.exceptions import GenericError
+
+    from organella.sources.arrays import _Retried
+
+    class Flaky:
+        shape, ndim, dtype, chunks = (4, 4), 2, np.dtype("uint8"), (2, 2)
+
+        def __init__(self, failures):
+            self.failures, self.calls = failures, 0
+
+        def __getitem__(self, index):
+            self.calls += 1
+            if self.calls <= self.failures:
+                raise GenericError("request or response body error")
+            return np.ones((2, 2), "uint8")
+
+    recovering = Flaky(2)
+    assert _Retried(recovering, attempts=4, pause=0)[0:2, 0:2].sum() == 4 and recovering.calls == 3
+    dead = Flaky(99)
+    with pytest.raises(GenericError):
+        _Retried(dead, attempts=3, pause=0)[0:2, 0:2]
+    assert dead.calls == 3

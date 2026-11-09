@@ -1,6 +1,8 @@
 """Open an image file or a chunked store as a lazy dask array."""
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -8,6 +10,8 @@ import dask.array as da
 import SimpleITK as sitk
 import tensorstore as ts
 import tifffile
+
+log = logging.getLogger(__name__)
 
 TIFF_SUFFIXES = (".tif", ".tiff")
 # Longest first, so ``.nii.gz`` is recognised before ``.gz`` could be.
@@ -122,14 +126,39 @@ def _open_with_zarr(url: str, array_path: str) -> da.Array:
     where = kvstore_spec(url)
     if where["driver"] == "http":
         from obstore.store import HTTPStore
-        store = zarr.storage.ObjectStore(HTTPStore.from_url(where["base_url"].rstrip("/")), read_only=True)
+        # A body that breaks halfway is not retried by the HTTP client, so reads are retried below; a slow chunk gets time.
+        store = zarr.storage.ObjectStore(HTTPStore.from_url(where["base_url"].rstrip("/"), client_options={"timeout": "120s"}), read_only=True)
     else:
         store = zarr.storage.LocalStore(where["path"], read_only=True)
     try:
         array = zarr.open_array(store, path=array_path, mode="r")
     except (FileNotFoundError, GroupNotFoundError, KeyError) as error:
         raise FileNotFoundError(f"no zarr array '{array_path}' in {url}") from error
-    return da.from_array(array, chunks=array.chunks)
+    return da.from_array(_Retried(array) if where["driver"] == "http" else array, chunks=array.chunks)
+
+
+class _Retried:
+    """An array whose reads are tried again, with growing pauses, when the network drops them.
+
+    A long run reads thousands of chunks from a public bucket, and one that times out halfway through its body ends the
+    whole run unless it is asked for again.
+    """
+
+    def __init__(self, array, attempts: int = 6, pause: float = 1.0) -> None:
+        self._array, self._attempts, self._pause = array, attempts, pause
+        self.shape, self.ndim, self.dtype, self.chunks = array.shape, array.ndim, array.dtype, array.chunks
+
+    def __getitem__(self, index):
+        from obstore.exceptions import GenericError
+
+        for attempt in range(self._attempts):
+            try:
+                return self._array[index]
+            except (GenericError, OSError, TimeoutError) as error:
+                if attempt == self._attempts - 1:
+                    raise
+                log.warning("a read from the store failed (%s); trying again in %.0f s", str(error)[:120], self._pause * 2 ** attempt)
+                time.sleep(self._pause * 2 ** attempt)
 
 
 class _Readable:
