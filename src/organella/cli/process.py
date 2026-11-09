@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import click
@@ -8,6 +8,7 @@ import dask
 
 from organella.app.process import process
 from organella.cli import main
+from organella.geometry import workers
 from organella.cli.options import (
     distance_options, geometry_into, geometry_options, measure_options, report_options, settings_from, sink_to, source_from,
     source_options, statistics_options,
@@ -24,6 +25,18 @@ def parts_for(output: Path, resume: bool) -> ParquetParts:
 
 
 threads_option = click.option("--threads", type=click.IntRange(min=1), help="Most threads the run uses. Default: one per core.")
+mesh_workers_option = click.option("--mesh-workers", type=click.IntRange(min=0), help="Worker processes that mesh and simplify surfaces, which threads "
+                                   "cannot do in parallel. Default: one per thread; 0 does it all in this process.")
+
+
+@contextmanager
+def _mesh_workers(count: int | None, threads: int | None):
+    """Surfaces are simplified in ``count`` worker processes (by default as many as there are threads) for the run."""
+    workers.configure(count if count is not None else (threads or workers.available_cores()))
+    try:
+        yield
+    finally:
+        workers.shutdown()
 
 
 def _finish(failures: dict[str, str]) -> None:
@@ -39,17 +52,18 @@ def _finish(failures: dict[str, str]) -> None:
 @click.option("--mesh-dir", type=click.Path(path_type=Path), help="Where the geometry goes. Default: <output>_meshes.")
 @click.option("--resume", is_flag=True, help="Skip objects an interrupted run already measured under the same settings; each object's rows are kept in <output>_parts/ as it finishes.")
 @threads_option
+@mesh_workers_option
 @source_options
 @distance_options
 @measure_options
 @statistics_options
 @geometry_options
 @report_options
-def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path | None, resume: bool, threads: int | None, **options) -> None:
+def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path | None, resume: bool, threads: int | None, mesh_workers: int | None, **options) -> None:
     """Measure a folder of objects, or a Zarr or N5 store described by a manifest, and write one report."""
     geometry = geometry_into(mesh_dir or output.with_name(output.stem + "_meshes"), options) if with_mesh else None
     measurements = (Statistics(),) if options["no_instances"] else DEFAULT
-    with dask.config.set(num_workers=threads) if threads else nullcontext():
+    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads):
         failures = process(source_from(input, options), measurements, sink_to(output, input, options),
                            settings_from(options, geometry=with_mesh), geometry, parts_for(output, resume))
     _finish(failures)
@@ -61,7 +75,10 @@ def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path |
 @click.option("--min-vertices", type=click.IntRange(min=1000), default=6_000, show_default=True, help="Meshes with fewer vertices keep their single payload.")
 @click.option("--fragment-vertices", type=click.IntRange(min=500), default=12_000, show_default=True, help="Vertices a fragment aims at.")
 @click.option("--coarsest-vertices", type=click.IntRange(min=100), default=2_000, show_default=True, help="Where the levels stop.")
-def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_vertices: int, coarsest_vertices: int) -> None:
+@threads_option
+@mesh_workers_option
+def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_vertices: int, coarsest_vertices: int,
+                     threads: int | None, mesh_workers: int | None) -> None:
     """Give the big meshes of existing geometry levels of detail the viewer loads by range, without meshing again.
 
     GEOMETRY is a <report>_meshes folder. Its geometry is left as it is; the converted copy is smaller to open and
@@ -69,8 +86,9 @@ def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_
     """
     from organella.geometry.convert import convert_folder
 
-    made = convert_folder(geometry, out_dir, min_vertices=min_vertices, fragment_vertices=fragment_vertices,
-                          coarsest_vertices=coarsest_vertices)
+    with _mesh_workers(mesh_workers, threads):
+        made = convert_folder(geometry, out_dir, min_vertices=min_vertices, fragment_vertices=fragment_vertices,
+                              coarsest_vertices=coarsest_vertices)
     for name, count in made.items():
         click.echo(f"{name}: {count} mesh(es) given levels of detail")
     click.echo(f"written to {out_dir}")
@@ -80,12 +98,13 @@ def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_
 @click.argument("input", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--out-dir", required=True, type=click.Path(path_type=Path), help="Where <object>/geometry.parquet goes.")
 @threads_option
+@mesh_workers_option
 @source_options
 @measure_options
 @geometry_options
-def mesh_command(input: Path, out_dir: Path, threads: int | None, **options) -> None:
+def mesh_command(input: Path, out_dir: Path, threads: int | None, mesh_workers: int | None, **options) -> None:
     """Write the 3D geometry alone, for a report you already have: it measures only what the geometry carries."""
-    with dask.config.set(num_workers=threads) if threads else nullcontext():
+    with dask.config.set(num_workers=threads) if threads else nullcontext(), _mesh_workers(mesh_workers, threads):
         failures = process(source_from(input, options), (Statistics(),), NullSink(), settings_from(options, geometry=True),
                            geometry_into(out_dir, options))
     _finish(failures)

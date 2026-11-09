@@ -21,6 +21,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from skimage.measure import find_contours, marching_cubes
 
+from organella.geometry import workers
 from organella.geometry.payloads import quantised_payload
 
 log = logging.getLogger(__name__)
@@ -107,6 +108,11 @@ def _distance_to_background(mask: np.ndarray, spacing: Sequence[float]) -> np.nd
 
 
 def _decimated(xyz: np.ndarray, faces: np.ndarray, reduction: float, **options) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh with ``reduction`` of its faces removed, in a worker process when the run has them."""
+    return workers.run(_decimated_here, xyz, faces, reduction, **options)
+
+
+def _decimated_here(xyz: np.ndarray, faces: np.ndarray, reduction: float, **options) -> tuple[np.ndarray, np.ndarray]:
     with _DECIMATION_LOCK:
         xyz, faces = fast_simplification.simplify(xyz, faces.astype(int), target_reduction=reduction, verbose=False, **options)
     return xyz.astype(np.float32), faces

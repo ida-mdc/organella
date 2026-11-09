@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import json
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
+from organella.geometry import workers
 from organella.geometry.payloads import decode_quantised, payload_counts, quantised_payload
 from organella.geometry.surfaces import DECIMATION_AGGRESSION, _decimated
 
@@ -180,6 +182,14 @@ def read_fragment(path: Path, entry: dict) -> tuple[np.ndarray, np.ndarray]:
     return decode_quantised(raw)
 
 
+def _is_big(row: dict, min_vertices: int) -> bool:
+    payload = row.get("surface")
+    if row.get("surface_kind") != "mesh" or not payload:
+        return False
+    vertices, _ = payload_counts(payload)
+    return vertices is not None and vertices >= min_vertices
+
+
 def give_levels(rows: list[dict], folder: Path, min_vertices: int = MIN_VERTICES, fragment_vertices: int = FRAGMENT_VERTICES,
                 coarsest_vertices: int = COARSEST_VERTICES) -> int:
     """Gives every big mesh row levels of detail: its fragments go to ``folder/meshes.bin``, its manifest to ``multires`` and
@@ -190,20 +200,21 @@ def give_levels(rows: list[dict], folder: Path, min_vertices: int = MIN_VERTICES
     target, done = folder / FILENAME, 0
     if min_vertices > 0:
         with MeshFile(target) as meshes:
-            for row in rows:
-                payload = row.get("surface")
-                if row.get("surface_kind") != "mesh" or not payload:
-                    continue
-                vertices, _ = payload_counts(payload)
-                if vertices is None or vertices < min_vertices:
-                    continue
-                xyz, faces = decode_quantised(payload)
-                levels, (coarse_xyz, coarse_faces) = build_levels(xyz, faces, fragment_vertices, coarsest_vertices)
-                if len(levels) < 2:    # decimation gave nothing coarser: there is nothing to choose between
-                    continue
-                row["multires"] = meshes.add(levels)
-                row["surface"] = coarsest_payload(coarse_xyz, coarse_faces)
-                done += 1
+            wanted = [row for row in rows if _is_big(row, min_vertices)]
+            # Several meshes at a time: each one's decimation runs in a worker process, so the threads only wait on them.
+            # A window of them, not all, so decoded meshes are not all alive together.
+            width = max(1, workers.pool_size())
+            with ThreadPoolExecutor(width) as threads:
+                for start in range(0, len(wanted), 2 * width):
+                    window = wanted[start:start + 2 * width]
+                    built = threads.map(lambda row: build_levels(*decode_quantised(row["surface"]), fragment_vertices, coarsest_vertices),
+                                        window)
+                    for row, (levels, (coarse_xyz, coarse_faces)) in zip(window, built):    # in row order, so offsets are stable
+                        if len(levels) < 2:    # decimation gave nothing coarser: there is nothing to choose between
+                            continue
+                        row["multires"] = meshes.add(levels)
+                        row["surface"] = coarsest_payload(coarse_xyz, coarse_faces)
+                        done += 1
     if not done:
         target.unlink(missing_ok=True)
     return done
