@@ -302,19 +302,13 @@ function renderGroupBaseline(scope, entity, thr, named) {
   var fallback = { name: entity + ' groups', color: entColor(entity) };
 
   setHtml('ct-baseline-label',
-    'Is a ' + named + ' group closer than its size alone would make it?');
+    'Are groups of ' + named + ' entities forming bridges to other structures?');
   setHtml('ct-baseline-desc',
-    'The distances above are confounded by construction: <b>a group of ten reaches closer to'
-    + ' anything than a group of two</b>, whatever either is made of, because the closest of'
-    + ' ten draws is closer than the closest of two. So each group is scored against the'
-    + ' groups of <b>its own size</b> that the same ' + named + ' instances in the same '
-    + noun()
-    + ' could have formed - the share of them it beats by reaching closer. <b>50%</b> is what'
-    + ' chance gives at any size, at the dotted line; above it the group reaches closer than'
-    + ' its size explains, below it further. Exact over the ' + noun() + '\u2019s own'
-    + ' distances, with'
-    + ' ties split evenly. The median distance behind each box is under it, because a score'
-    + ' does not say how close "closer" is.');
+    'Naturally, a group of multiple entities reaches closer to'
+    + ' anything than individual entities, simply because of its increased size. In order to account for this,'
+    + ' each group is scored against a random group of its own size</b> and entity type. The dotted line represents'
+    + ' the average distance of a random grouping of this entity in any size, above it the group reaches closer than'
+    + ' its size explains, below it further.');
 
   orderDistDims(targets).forEach(function(col) {
     var series = facets.valuesOf(built.rows, col, fallback);
