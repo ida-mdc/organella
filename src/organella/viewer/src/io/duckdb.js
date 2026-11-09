@@ -13,6 +13,9 @@ function getDuckDB() {
       var worker = await duckdb.createWorker(bundle.mainWorker);
       var db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+      // Without these DuckDB-wasm 1.32 GETs a whole file over HTTP, however much of it a query needs. With them it probes the
+      // host with `HEAD` + `Range: bytes=0-` (206 means ranges work) and reads by range, falling back to the whole file.
+      await db.open({ filesystem: { reliableHeadRequests: true, allowFullHTTPReads: true, forceFullHTTPReads: false } });
       return db;
     })();
   }
