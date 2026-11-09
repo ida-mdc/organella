@@ -166,3 +166,37 @@ def test_a_mesh_the_simplifier_cannot_reduce_still_gets_coarser_levels(monkeypat
     counts = [sum(f.vertices for f in level.fragments) for level in levels]
     assert len(levels) >= 3 and counts == sorted(counts, reverse=True) and len(coarse_xyz) < len(xyz) / 4
     assert coarse_faces.max() < len(coarse_xyz)
+
+
+def sheet_mesh():
+    """A wavy sheet two voxels thick with holes in it, like ER: closed, but its two sides are a voxel or two apart."""
+    from scipy import ndimage
+    grid = np.mgrid[0:100, 0:100, 0:36].astype(np.float32)
+    middle = 16 + 6 * np.sin(grid[0] / 7) * np.cos(grid[1] / 9)
+    holes = ndimage.gaussian_filter(np.random.default_rng(2).normal(size=(100, 100, 36)).astype(np.float32), 4) > -0.012
+    band = (np.abs(grid[2] - middle) < 1.4) & holes
+    vertices, faces, _, _ = marching_cubes(ndimage.gaussian_filter(band.astype(np.float32), 0.7), level=0.5)
+    return (vertices * 0.02).astype(np.float32), faces.astype(np.int64)
+
+
+def surface_area(xyz, faces):
+    corners = xyz[faces]
+    return 0.5 * np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1).sum()
+
+
+def pieces(xyz, faces):
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    n = len(xyz)
+    graph = coo_matrix((np.ones(len(faces) * 3), (np.r_[faces[:, 0], faces[:, 1], faces[:, 2]], np.r_[faces[:, 1], faces[:, 2], faces[:, 0]])), shape=(n, n))
+    labels = connected_components(graph, directed=False)[1]
+    return len(np.unique(labels[np.unique(faces)]))
+
+
+def test_no_level_of_a_thin_sheet_surface_is_a_wreck_of_the_one_before_it():
+    xyz, faces = sheet_mesh()
+    assert len(xyz) > 20_000
+    levels, (coarse_xyz, coarse_faces) = multires.build_levels(xyz, faces, fragment_vertices=1500, coarsest_vertices=300)
+    assert len(levels) >= 2                                              # it still gets coarser, where it can
+    assert surface_area(coarse_xyz, coarse_faces) > 0.7 * surface_area(xyz, faces)   # a sheet merged with its other side loses its area
+    assert pieces(coarse_xyz, coarse_faces) <= 1.1 * pieces(xyz, faces) + 5          # and a level never has more pieces than the finest

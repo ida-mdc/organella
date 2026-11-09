@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
 from organella.geometry import workers
 from organella.geometry.payloads import decode_quantised, payload_counts, quantised_payload
@@ -38,6 +40,10 @@ MAX_LEVELS = 8
 # How much of the way to the next level's edge length counts as "the error" of a level: the 95th percentile of its edge
 # lengths, because a few long slivers say nothing about how coarse the surface looks.
 ERROR_PERCENTILE = 95
+# A level is kept only if it still looks like the one before it: it keeps this share of its surface area, and it is not in
+# more pieces. Simplifying a thin double-sided sheet (an ER network) past the point where its two sides meet loses both.
+MIN_AREA_KEPT = 0.85
+MAX_PIECES_GROWTH = 1.1
 
 
 @dataclass
@@ -60,6 +66,29 @@ def _edge_error(xyz: np.ndarray, faces: np.ndarray) -> float:
     corners = xyz[faces]
     edges = np.concatenate([np.linalg.norm(corners[:, a] - corners[:, b], axis=1) for a, b in ((0, 1), (1, 2), (2, 0))])
     return float(np.percentile(edges, ERROR_PERCENTILE)) if len(edges) else 0.0
+
+
+def _area(xyz: np.ndarray, faces: np.ndarray) -> float:
+    corners = xyz[faces].astype(np.float64)
+    return float(0.5 * np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1).sum())
+
+
+def _pieces(xyz: np.ndarray, faces: np.ndarray) -> int:
+    """How many separate connected surfaces the triangles make up."""
+    n = len(xyz)
+    graph = coo_matrix((np.ones(len(faces) * 3), (np.r_[faces[:, 0], faces[:, 1], faces[:, 2]], np.r_[faces[:, 1], faces[:, 2], faces[:, 0]])),
+                       shape=(n, n))
+    labels = connected_components(graph, directed=False)[1]
+    return int(np.unique(labels[np.unique(faces)]).size)
+
+
+def _still_the_same_surface(xyz: np.ndarray, faces: np.ndarray, smaller_xyz: np.ndarray, smaller_faces: np.ndarray) -> bool:
+    """Whether the coarser mesh keeps the surface: most of its area, and no more pieces than before."""
+    if len(smaller_faces) == 0:
+        return False
+    if _area(smaller_xyz, smaller_faces) < MIN_AREA_KEPT * _area(xyz, faces):
+        return False
+    return _pieces(smaller_xyz, smaller_faces) <= MAX_PIECES_GROWTH * _pieces(xyz, faces) + 5
 
 
 def _deflate(raw: bytes) -> bytes:
@@ -108,12 +137,13 @@ def build_levels(xyz: np.ndarray, faces: np.ndarray, fragment_vertices: int = FR
     levels = [_fragments(xyz, faces, origin, side)]
     while len(xyz) > coarsest_vertices and len(levels) < MAX_LEVELS and len(faces) > 100:
         smaller_xyz, smaller_faces = _decimated(xyz, faces, 1.0 - LEVEL_KEEP, agg=DECIMATION_AGGRESSION)
-        if len(smaller_xyz) >= len(xyz) * 0.9 or len(smaller_faces) == 0:
+        if len(smaller_xyz) >= len(xyz) * 0.9 or not _still_the_same_surface(xyz, faces, smaller_xyz, smaller_faces):
             # Collapsing edges stalls on a surface of many thin or non-manifold pieces (an ER network): merging the vertices
-            # that share a grid cell always gets smaller, if blockier.
+            # that share a grid cell always gets smaller, but on a thin sheet it merges the two sides and wrecks it, so it
+            # is tried only where the surface survives it.
             smaller_xyz, smaller_faces = _clustered(xyz, faces, int(len(xyz) * LEVEL_KEEP))
-        if len(smaller_xyz) >= len(xyz) * 0.9 or len(smaller_faces) == 0:   # it stopped giving: nothing coarser to offer
-            break
+        if len(smaller_xyz) >= len(xyz) * 0.9 or not _still_the_same_surface(xyz, faces, smaller_xyz, smaller_faces):
+            break      # nothing coarser keeps the surface: this is the coarsest level it can have
         xyz, faces = smaller_xyz, smaller_faces.astype(np.int64)
         levels.append(_fragments(xyz, faces, origin, side * 2 ** len(levels)))
     return levels, (xyz, faces)
