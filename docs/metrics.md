@@ -91,6 +91,7 @@ Generated from `src/organella/report/column_descriptions.py`; the report page sh
 | `polar_ny` | Y component of the unit vector from the object centre to this structure's centroid. |
 | `polar_nz` | Z component of the unit vector from the object centre to this structure's centroid. |
 | `polar_shape_counts` | How many of the object's own voxels (pixels in a plane) lie in each direction from its centre, on a grid of equal shares of all directions: 360 angles for a plane, 32 z bins by 32 azimuths for a volume. What a structure scattered anywhere in the object would be spread over, so the polarity charts' chance outline follows the object's shape. |
+| `polar_shape_reach` | How far out the object's own voxels reach in each direction from its centre, in µm, on the same grid as polar_shape_counts (0 where a direction holds no voxel): the object's outline, which the polarity charts draw. |
 | `row_type` | What this row is: 'object' (obs_level 0), 'entity' (obs_level 1, one per structure), or one of 'instance', 'distance' and 'contact' below them. |
 | `size_bytes` | Size on disk of everything read for this object, in bytes. |
 | `spatial_dims` | 3 for a volume, 2 for a plane. Which size and shape metrics the object's rows carry follows from it. |

@@ -315,6 +315,10 @@ COLUMNS: dict[str, str] = {
         "scattered anywhere in the object would be spread over, so the polarity charts' chance outline follows the "
         "object's shape."
     ),
+    'polar_shape_reach': (
+        "How far out the object's own voxels reach in each direction from its centre, in µm, on the same grid as "
+        "polar_shape_counts (0 where a direction holds no voxel): the object's outline, which the polarity charts draw."
+    ),
     'row_type': (
         "What this row is: 'object' (obs_level 0), 'entity' (obs_level 1, one per structure), or one of 'instance', "
         "'distance' and 'contact' below them."

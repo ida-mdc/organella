@@ -132,7 +132,8 @@ def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl
     if centre is not None:
         row.update({f"object_center_{a}_um": float(c) for a, c in zip(axes, centre)})
     if directions is not None:
-        row["polar_shape_counts"] = json.dumps(directions.tolist())
+        row["polar_shape_counts"] = json.dumps(directions[0].astype(int).tolist())
+        row["polar_shape_reach"] = json.dumps(np.round(directions[1], 3).tolist())
     if contacts is not None:
         row["contact_count"] = contacts.height
     return row

@@ -20,31 +20,51 @@ PLANE_BINS = 360
 VOLUME_BINS = 32
 
 
+def _direction_bins(units: np.ndarray, ndim: int) -> tuple[np.ndarray, tuple[int, ...]]:
+    """The flat bin of each unit vector on the equal-share grid, and the grid's shape."""
+    if ndim == 2:
+        angle = np.arctan2(units[:, 0], units[:, 1])
+        return np.clip(((angle + np.pi) / (2 * np.pi) * PLANE_BINS).astype(int), 0, PLANE_BINS - 1), (PLANE_BINS,)
+    z = np.clip(((units[:, 0] + 1) / 2 * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
+    azimuth = np.clip(((np.arctan2(units[:, 1], units[:, 2]) + np.pi) / (2 * np.pi) * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
+    return z * VOLUME_BINS + azimuth, (VOLUME_BINS, VOLUME_BINS)
+
+
 def direction_counts(offsets_um: np.ndarray) -> np.ndarray:
     """How many of the offsets ``(n, ndim)`` point into each bin of an equal-share grid of directions: ``(360,)`` for a
     plane, ``(32, 32)`` (z, azimuth) for a volume. An offset of 0 has no direction and is not counted."""
     dist = np.linalg.norm(offsets_um, axis=1)
-    units = offsets_um[dist > 0] / dist[dist > 0, None]
-    if offsets_um.shape[1] == 2:
-        angle = np.arctan2(units[:, 0], units[:, 1])
-        bins = np.clip(((angle + np.pi) / (2 * np.pi) * PLANE_BINS).astype(int), 0, PLANE_BINS - 1)
-        return np.bincount(bins, minlength=PLANE_BINS)
-    z = np.clip(((units[:, 0] + 1) / 2 * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
-    azimuth = np.clip(((np.arctan2(units[:, 1], units[:, 2]) + np.pi) / (2 * np.pi) * VOLUME_BINS).astype(int), 0, VOLUME_BINS - 1)
-    return np.bincount(z * VOLUME_BINS + azimuth, minlength=VOLUME_BINS ** 2).reshape(VOLUME_BINS, VOLUME_BINS)
+    bins, shape = _direction_bins(offsets_um[dist > 0] / dist[dist > 0, None], offsets_um.shape[1])
+    return np.bincount(bins, minlength=int(np.prod(shape))).reshape(shape)
+
+
+def direction_reach(offsets_um: np.ndarray) -> np.ndarray:
+    """The furthest offset in µm in each bin of the same grid as `direction_counts`, 0 where a bin has none: the outline of
+    whatever the offsets are of, seen from the centre."""
+    dist = np.linalg.norm(offsets_um, axis=1)
+    bins, shape = _direction_bins(offsets_um[dist > 0] / dist[dist > 0, None], offsets_um.shape[1])
+    reach = np.zeros(int(np.prod(shape)))
+    np.maximum.at(reach, bins, dist[dist > 0])
+    return reach.reshape(shape)
 
 
 def _block_directions(block: np.ndarray, origin: np.ndarray, voxel_um: np.ndarray, centre_um: np.ndarray) -> np.ndarray:
-    return direction_counts((np.argwhere(block) + origin) * voxel_um - centre_um)
+    offsets = (np.argwhere(block) + origin) * voxel_um - centre_um
+    return np.stack([direction_counts(offsets), direction_reach(offsets)])
+
+
+def _merged_directions(parts: list[np.ndarray]) -> np.ndarray:
+    return np.stack([sum(p[0] for p in parts), np.maximum.reduce([p[1] for p in parts])])
 
 
 def direction_profile(region: da.Array, voxel_um: np.ndarray, centre_um: np.ndarray) -> Delayed:
-    """Which directions the object's own voxels lie in as seen from its centre: what a structure scattered anywhere in the
-    object would be spread over, so an elongated object has more of it along its long axis than across."""
+    """Which directions the object's own voxels lie in as seen from its centre, and how far out they reach in each: what a
+    structure scattered anywhere in the object would be spread over, so an elongated object has more of it along its long axis
+    than across. Stacked: the counts, then the reach in µm."""
     starts = [np.concatenate([[0], np.cumsum(c)[:-1]]) for c in region.chunks]
     parts = [dask.delayed(_block_directions)(block, np.array([starts[axis][i] for axis, i in enumerate(index)]), voxel_um, centre_um)
              for index, block in np.ndenumerate(region.to_delayed())]
-    return dask.delayed(sum)(parts)
+    return dask.delayed(_merged_directions)(parts)
 
 
 def polarity(offsets_um: np.ndarray) -> dict[str, np.ndarray]:

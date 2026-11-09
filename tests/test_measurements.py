@@ -257,6 +257,10 @@ def test_the_object_row_says_which_directions_its_voxels_lie_in_from_its_centre(
     assert along_x > counts.sum() / 2                                            # most of a long box lies along its length
     plane = direction_counts(np.array([[0.0, 1.0], [0.0, -1.0], [1.0, 0.0], [0.0, 0.0]]))
     assert plane.shape == (360,) and plane.sum() == 3
+    from organella.measure.polarity import direction_reach
+    reach = np.array(json.loads(measure_all(sample, Settings(contacts=False)).filter(pl.col("row_type") == "object")["polar_shape_reach"][0]))
+    assert reach.shape == (32, 32) and np.isclose(reach.max(), np.sqrt(30 ** 2 + 4 ** 2 + 4 ** 2), atol=1.0)   # the corner of the long box
+    assert np.allclose(direction_reach(np.array([[0.0, 3.0], [0.0, 1.0], [-2.0, 0.0]])).max(), 3.0)
 
 
 def test_without_instances_only_the_per_structure_rows_remain_and_contacts_stay_their_own_switch():
