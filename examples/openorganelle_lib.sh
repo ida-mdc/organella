@@ -42,7 +42,7 @@ openorganelle_cut() {   # DATASET OUT: <OUT>/<dataset>/cells, a manifest and a s
         # The volume ships a segmentation of its cells, so they are cut from that, not derived. Its structure arrays are
         # binary, so liver_cells.py declares every structure a mask.
         uv run python examples/liver_cells.py "$dataset" "$out/$dataset/cells" \
-            --scale "$scale" --mask-scale "$mask_scale" --min-um3 "${MIN_UM3:-300}"
+            --scale "$scale" --mask-scale "$mask_scale" --min-um3 "${MIN_UM3:-100}"
         ;;
     esac
 }

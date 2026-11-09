@@ -56,7 +56,7 @@ def main() -> None:
     ap.add_argument("out", type=Path)
     ap.add_argument("--scale", default="s3")
     ap.add_argument("--mask-scale", default="s4")
-    ap.add_argument("--min-um3", type=float, default=300.0)
+    ap.add_argument("--min-um3", type=float, default=100.0)
     ap.add_argument("--entities", default="mito,er,ld,nuc_mem,er-sheets,er-tubules")
     args = ap.parse_args()
 

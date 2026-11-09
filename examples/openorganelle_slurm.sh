@@ -13,7 +13,7 @@
 # SCALE       the scale every cell is measured at (default s2 for all four: HeLa 16 nm laterally and 21 nm in z, liver
 #             32 nm). The papers measured at 4 and 8 nm (s0 and s1); a finer one takes more of everything, see below.
 # MASK_SCALE  a coarser scale the cells are cut apart at, read whole (default s3 for HeLa, s4 for liver).
-# MIN_UM3     liver only: cells smaller than this are the slivers of cells the volume cuts off (default 300).
+# MIN_UM3     liver only: cells smaller than this are the slivers of cells the volume cuts off (default 100).
 # REACH_UM    how far distances are exact (default 1). The reach must fit in CHUNK_EDGE voxels: 1 um is 63 voxels at HeLa
 #             s2 and 31 at liver s2; at HeLa s1 it is 125 and needs CHUNK_EDGE=192, and at s0 use REACH_UM=0.5.
 # THREADS, CACHE_GB, CHUNK_EDGE   --threads, --cache-gb and --chunk-edge (defaults 16, 4 and 128).
