@@ -94,6 +94,10 @@ geometry_options = _group(
     click.option("--mesh-target-reduction", default=Settings.mesh_target_reduction, show_default=True, help="Fraction of faces removed by decimation."),
     click.option("--mesh-level", type=float, help="Iso-surface level on the signed distance field (default 0)."),
     click.option("--mesh-max-vertices", default=Settings.mesh_max_vertices, show_default=True, help="Most vertices per surface; 0 is no cap."),
+    click.option("--multires-min-vertices", default=Settings.multires_min_vertices, show_default=True,
+                 help="Meshes with this many vertices or more are also written as levels of detail the viewer loads by range; 0 writes none."),
+    click.option("--multires-fragment-vertices", default=Settings.multires_fragment_vertices, show_default=True,
+                 help="Vertices a fragment of those levels aims at."),
     click.option("--reuse-geometry", is_flag=True, help="Keep a geometry file an earlier run wrote under the same settings."),
 )
 

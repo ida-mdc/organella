@@ -16,6 +16,7 @@ import polars as pl
 from organella.app.settings import Settings
 from organella.app.shared import Findings, Shared
 from organella.core import Kind, Sample
+from organella.geometry import multires
 from organella.geometry.payloads import payload_counts
 from organella.geometry.rows import CARRIED, contact_rows, instance_rows, mask_rows
 from organella.geometry.surfaces import ELLIPSOID_MIN_FIT
@@ -32,12 +33,12 @@ COLUMNS = [
     "volume_um3", "surface_area_um2", "sphericity", "area_um2", "perimeter_um", "circularity", *CARRIED,
     "entity_a", "label_a", "entity_b", "label_b", "gap_um", "surface_kind",
     "surface_vertices", "surface_elements", "skeleton_vertices", "skeleton_edges", "outline_vertices", "outline_edges",
-    "surface", "skeleton", "outline",
+    "surface", "skeleton", "outline", "multires",
 ]
 _TEXT = {"object_id", "group_id", "entity_name", "entity_kind", "row_type", "entity_a", "entity_b", "surface_kind"}
 _INTS = {"label_id", "label_a", "label_b", "spatial_dims", "surface_vertices", "surface_elements", "skeleton_vertices",
          "skeleton_edges", "outline_vertices", "outline_edges"}
-_BLOBS = {"surface", "skeleton", "outline"}
+_BLOBS = {"surface", "skeleton", "outline", "multires"}
 
 
 def _counts(row: dict, field: str, kind_aware: bool = False) -> tuple[int | None, int | None]:
@@ -92,10 +93,13 @@ class GeometryWriter:
             row[field], row["surface_kind"] = payload, kind
         for row in rows:
             row["object_id"], row["group_id"] = sample.id, sample.group or ""
+        leveled = multires.give_levels(rows, destination.parent, settings.multires_min_vertices, settings.multires_fragment_vertices) \
+            if field == "surface" else 0
         path = write_parquet(destination, rows)
         (path.parent / SETTINGS_FILENAME).write_text(json.dumps({"fingerprint": fingerprint}, indent=2) + "\n")
         drawn = sum(1 for r in rows if r.get(field))
-        log.info("%s: %d/%d rows drawable -> %s (%.1f MB)", sample.id, drawn, len(rows), path, path.stat().st_size / 1024 ** 2)
+        log.info("%s: %d/%d rows drawable, %d with levels of detail -> %s (%.1f MB)", sample.id, drawn, len(rows), leveled, path,
+                 path.stat().st_size / 1024 ** 2)
         return path.resolve()
 
     @staticmethod
@@ -121,6 +125,9 @@ def _fingerprint(sample: Sample, settings: Settings) -> str:
     keys = ("mesh_smooth_sigma", "mesh_step_size", "mesh_target_reduction", "mesh_level", "mesh_max_vertices", "geometry_as",
             "skeletons", "max_skeleton_voxels", "skeleton_scale", "skeleton_const_voxels", "skeleton_prune",
             "contacts", "contact_max_um", "clip_to_object_mask", "coarse_voxels")
+    # The levels of detail count only once changed from the defaults, so geometry written before they existed stays usable.
+    levels = ("multires_min_vertices", "multires_fragment_vertices")
+    keys += tuple(k for k in levels if getattr(settings, k) != getattr(type(settings), k))
     plain = {k: (sorted(v) if isinstance(v, frozenset) else v) for k, v in ((k, getattr(settings, k)) for k in keys)}
     blob = json.dumps({**plain, "ellipsoid_min_fit": ELLIPSOID_MIN_FIT, "voxel": sample.voxel_size.um, "mask": sample.object_mask, "shape": sample.shape},
                       sort_keys=True, default=str).encode()

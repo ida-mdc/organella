@@ -55,6 +55,27 @@ def process_command(input: Path, output: Path, with_mesh: bool, mesh_dir: Path |
     _finish(failures)
 
 
+@main.command("multires")
+@click.argument("geometry", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--out-dir", required=True, type=click.Path(path_type=Path), help="Where the converted <object>/ folders go. Not the folder they are made from.")
+@click.option("--min-vertices", type=click.IntRange(min=1000), default=6_000, show_default=True, help="Meshes with fewer vertices keep their single payload.")
+@click.option("--fragment-vertices", type=click.IntRange(min=500), default=12_000, show_default=True, help="Vertices a fragment aims at.")
+@click.option("--coarsest-vertices", type=click.IntRange(min=100), default=2_000, show_default=True, help="Where the levels stop.")
+def multires_command(geometry: Path, out_dir: Path, min_vertices: int, fragment_vertices: int, coarsest_vertices: int) -> None:
+    """Give the big meshes of existing geometry levels of detail the viewer loads by range, without meshing again.
+
+    GEOMETRY is a <report>_meshes folder. Its geometry is left as it is; the converted copy is smaller to open and
+    holds the levels in meshes.bin beside each geometry.parquet.
+    """
+    from organella.geometry.convert import convert_folder
+
+    made = convert_folder(geometry, out_dir, min_vertices=min_vertices, fragment_vertices=fragment_vertices,
+                          coarsest_vertices=coarsest_vertices)
+    for name, count in made.items():
+        click.echo(f"{name}: {count} mesh(es) given levels of detail")
+    click.echo(f"written to {out_dir}")
+
+
 @main.command("mesh")
 @click.argument("input", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--out-dir", required=True, type=click.Path(path_type=Path), help="Where <object>/geometry.parquet goes.")

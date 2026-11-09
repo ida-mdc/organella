@@ -62,6 +62,8 @@ class Settings:
     mesh_target_reduction: float = 0.8
     mesh_level: float | None = None
     mesh_max_vertices: int = 0  # 0 is no cap
+    multires_min_vertices: int = 6_000  # meshes this big are also written as levels of detail; 0 writes none
+    multires_fragment_vertices: int = 12_000  # what a fragment of a level aims at
 
     # Clipping, binning, and how the data is read and held (the chunk edge and batch sizes change no measured value).
     clip_to_object_mask: bool = True

@@ -43,6 +43,19 @@ def quantised_payload(vertices_xyz: np.ndarray, indices: np.ndarray) -> bytes:
     return header.tobytes() + box.tobytes() + quantised.tobytes() + narrowed.tobytes()
 
 
+def decode_quantised(payload: bytes, per_element: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """The vertices (µm, x, y, z, float32) and elements (rows of ``per_element`` indices: 3 for a surface, 2 for lines)
+    of a ``quantised_payload``, to within one quantisation step. The header counts elements, not indices."""
+    n_vertices, n_elements = (int(v) for v in np.frombuffer(payload, dtype=np.uint32, count=2))
+    box = np.frombuffer(payload, dtype=np.float32, count=6, offset=8)
+    start = 32
+    quantised = np.frombuffer(payload, dtype=np.uint16, count=n_vertices * 3, offset=start).reshape(-1, 3)
+    start += n_vertices * 6
+    indices = np.frombuffer(payload, dtype=index_dtype(n_vertices), count=n_elements * per_element, offset=start)
+    return (box[:3] + quantised.astype(np.float32) / 65535.0 * box[3:],
+            indices.astype(np.uint32).reshape(-1, per_element))
+
+
 def payload_counts(payload: bytes) -> tuple[int | None, int | None]:
     """Vertex and index counts from a payload header, without decoding the arrays."""
     if len(payload) < 8:
