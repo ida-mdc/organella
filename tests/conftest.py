@@ -72,3 +72,19 @@ def synthetic_reports(tmp_path_factory) -> dict[str, Path]:
                                            "--object-mask", "pm", "--object-noun", "cell", "--skeletons", "mito", "--with-mesh"])
         assert result.exit_code == 0, result.output
     return reports
+
+
+@pytest.fixture(scope="session")
+def multires_report(synthetic_reports, tmp_path_factory) -> Path:
+    """The 3D synthetic report with its geometry converted so that its mid-sized meshes have levels of detail."""
+    import shutil
+
+    from organella.geometry.convert import convert_folder
+
+    source = synthetic_reports["3d"]
+    folder = tmp_path_factory.mktemp("multires3d")
+    shutil.copy(source, folder / source.name)
+    made = convert_folder(source.parent / f"{source.stem}_meshes", folder / f"{source.stem}_meshes",
+                          min_vertices=50, fragment_vertices=20, coarsest_vertices=12)
+    assert sum(made.values()) > 0
+    return folder / source.name

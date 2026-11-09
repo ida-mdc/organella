@@ -108,6 +108,15 @@ async function openInstance(item, title) {
   var stage = _modalStage;
   stage.clear();
   stage.setPlanar(PLANAR);
+  // The card is drawn from the coarsest level; the full-size look wants the finest, and shows the coarse one until it is read.
+  if (item.levels && item.meshes) {
+    multiresFinest({ meshes: item.meshes }, item.levels).then(function(geometry) {
+      if (!geometry || !overlay.isConnected) return;
+      stage.clear();
+      addInstance(stage, Object.assign({}, item, { geometry: geometry }), item.hex);
+      stage.draw();
+    }, function(error){ console.warn('the full-detail mesh would not load; showing the coarse one:', error); });
+  }
   addInstance(stage, item, item.hex);
   stage.resize(canvas.clientWidth, canvas.clientHeight);
   stage.fit();
@@ -256,11 +265,17 @@ function renderGallery(container, entity, rowType, opts) {
     loading.textContent = 'Reading geometry…';
     grid.appendChild(loading);
     try {
-      var source = sourceOf(objects);
+      // Objects whose geometry has levels of detail give the look at one instance its finest level.
+      var hasLevels = await Promise.all(objects.map(async function(o) {
+        if (o.hasLevels === undefined) o.hasLevels = await geometryHasColumn(o.path, 'multires');
+        return o.hasLevels;
+      }));
+      var withLevels = hasLevels.some(Boolean);
+      var source = sourceOf(objects, withLevels && !hasLevels.every(Boolean));
       var totals = await queryRows(
         galleryCountSql(source, entity, state.metric, rowType));
       var rows = await queryRows(
-        gallerySql(source, entity, state.metric, state.order, wanted(), rowType));
+        gallerySql(source, entity, state.metric, state.order, wanted(), rowType, withLevels));
 
       grid.replaceChildren();
       if (!rows.length) {
@@ -314,7 +329,8 @@ function renderGallery(container, entity, rowType, opts) {
         caption.title = owner + ': ' + labelFor(state.metric) + ' ' + value;
         card.append(thumb, caption);
         var skeleton = decodePayload(row.skeleton, 2);
-        var item = { geometry: drawable.geometry, flat: drawable.flat, skeleton: skeleton };
+        var item = { geometry: drawable.geometry, flat: drawable.flat, skeleton: skeleton,
+                     levels: levelsOf(row.multires), meshes: object && object.meshes };
         card.addEventListener('click', (function(item, title, value) {
           return function() {
             openInstance(Object.assign({ hex: meshHex }, item),

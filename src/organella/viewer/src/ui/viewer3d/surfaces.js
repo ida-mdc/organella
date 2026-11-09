@@ -533,8 +533,12 @@ function mergeInstances(THREE, items) {
   var normals = new Float32Array(vertexCount * 3);
   var indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   var vertexOffset = 0, indexOffset = 0;
+  // Where each item's indices sit in the merged array, so one can be taken out of it again: a refined instance is drawn
+  // from its own fragments, and its coarse copy here is emptied while they are.
+  var ranges = [];
   items.forEach(function(item) {
     var src = item.geometry.positions, idx = item.geometry.indices;
+    ranges.push({ start: indexOffset, count: idx.length });
     var rgb = item.rgb, offset = item.offset || [0, 0, 0];
     // Lines have no surface to shade; a mesh's normals ride on the geometry it was decoded to.
     if (!item.flat && idx.length % 3 === 0) {
@@ -558,5 +562,6 @@ function mergeInstances(THREE, items) {
   geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.userData.ranges = ranges;
   return geometry;
 }

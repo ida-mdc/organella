@@ -147,6 +147,7 @@ function makeStage(THREE, canvas, opts) {
     camera.lookAt(target);
     placeKey();                              // the light rides with the camera
     renderer.render(scene, camera);
+    if (stage.onCamera) stage.onCamera();    // whatever draws by what the camera sees (levels of detail) looks again
   };
 
   var stage = {
@@ -194,6 +195,7 @@ function makeStage(THREE, canvas, opts) {
     isPlanar: function() { return planar; },
     /** Turn what is drawn (a Matrix4), or put it back (null). Drawn by the next draw. */
     setPose: function(matrix) { pose = matrix; },
+    hasPose: function() { return !!pose; },
     /**
      * Make what is drawn more or less see-through, remembering what each thing was to begin
      * with: the cell fades out as the points that stand for it fade in.

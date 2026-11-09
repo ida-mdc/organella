@@ -392,7 +392,8 @@ async function sceneReadSummary(ctx) {
  *  render took over while it was reading. */
 async function sceneReadMissing(ctx, summary, missing, metricCols) {
   var source = sourceOf([ctx.current]);
-  var rows = await queryRows(sceneGeometrySql(source, missing, metricCols));
+  if (ctx.current.hasLevels === undefined) ctx.current.hasLevels = await geometryHasColumn(ctx.current.path, 'multires');
+  var rows = await queryRows(sceneGeometrySql(source, missing, metricCols, ctx.current.hasLevels));
   if (!ctx.isLatest()) return false;
   // Every instance of every structure that is switched on, so nothing is silently
   // missing; what gives instead is how finely each one is tessellated.
@@ -415,6 +416,7 @@ async function sceneReadMissing(ctx, summary, missing, metricCols) {
                    numOrNull(row.polar_nz) || 0] },
       geometry: drawable.geometry,
       flat: drawable.flat,
+      levels: levelsOf(row.multires),
       kind: String(row.surface_kind || 'mesh')
     });
   });
@@ -476,7 +478,7 @@ async function sceneReadGeometry(ctx, summary) {
              // One value per column the chart reads, for a chart that reads several (a group's
              // closest approach to each of two structures).
              vals: explained ? explained.map(function(m){ return key in m ? m[key] : null; }) : null,
-             geometry: read.geometry, flat: read.flat, kind: read.kind };
+             geometry: read.geometry, flat: read.flat, kind: read.kind, levels: read.levels };
   };
   wanted.forEach(function(name) {
     var read = _geomCache.byEntity.get(name);
@@ -802,7 +804,7 @@ function sceneStyle(ctx, colouring) {
   };
   var asItem = function(item) {
     return { geometry: item.geometry, kind: item.kind, flat: item.flat, rgb: colourOf(item),
-             offset: explodeOffset(item.polar, sceneState.explode) };
+             offset: explodeOffset(item.polar, sceneState.explode), levels: item.levels, key: item.entity + '|' + item.label };
   };
   // Put out of play by a slider: grey. Only measured against: its own colour, faint.
   var asGhost = function(item) {
@@ -841,6 +843,8 @@ function sceneAddInstances(ctx, stage, style) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     stage.scene.add(mesh);
+    // The big meshes in it have levels of detail: refine them where the camera is close enough to tell.
+    multiresAttach(ctx, stage, solid, mesh);
   }
   var faintSurfaces = mergeInstances(THREE, faint);
   if (faintSurfaces) {
@@ -895,6 +899,9 @@ function sceneAddMasks(ctx, stage, style) {
     }));
     if (!seeThrough) { surface.castShadow = true; surface.receiveShadow = true; }
     stage.scene.add(surface);
+    // A big mask has levels of detail too: refined where the camera is close, like the instances.
+    if (!mask.flat && mask.levels) multiresAttach(ctx, stage, [{ levels: mask.levels, key: mask.entity + '|mask', offset: [0, 0, 0],
+      rgb: style.colourOf(mask) }], surface);
   });
 }
 
@@ -902,6 +909,7 @@ function sceneAddMasks(ctx, stage, style) {
 function scenePaint(ctx) {
   var stage = _objectStage;
   if (!stage || !ctx.loaded || !ctx.isLatest()) return;
+  multiresReset(stage);
   stage.clear();
   sceneApplyThreshold(ctx);
   var style = sceneStyle(ctx, sceneColouring(ctx));

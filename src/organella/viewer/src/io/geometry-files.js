@@ -14,6 +14,9 @@ function geometryFilesIn(fileList, named) {
   });
 }
 
+/** The registered name DuckDB reports for a file: the last path segment. */
+function registeredNameOf(path) { return String(path).split('/').pop(); }
+
 /**
  * Register a directory of geometry files, and ask each which object it holds.
  *
@@ -38,8 +41,22 @@ async function useGeometryFiles(fileList, named) {
   var owners = await queryRows(geometryOwnersSql(registered));
   var groupOf = {};
   OBJECTS.forEach(function(r){ groupOf[r.object_id] = r.group_id; });
+  // What sits beside each geometry file - its meshes.bin, if it has levels of detail - is read by byte range
+  // out of the File itself, so the other files of the same folder are kept with the entry.
+  var beside = {};
+  files.forEach(function(f, i) {
+    var path = f.webkitRelativePath || '';
+    var folder = path.slice(0, path.lastIndexOf('/') + 1);
+    var siblings = {};
+    [...fileList].forEach(function(other) {
+      var p = other.webkitRelativePath || '';
+      if (folder && p.indexOf(folder) === 0 && p.indexOf('/', folder.length) < 0) siblings[p.slice(folder.length)] = other;
+    });
+    beside[registeredNameOf(registered[i])] = siblings;
+  });
   GEOMETRY = owners.map(function(r) {
-    return { id: String(r.id), group: groupOf[String(r.id)], path: String(r.filename) };
+    return { id: String(r.id), group: groupOf[String(r.id)], path: String(r.filename),
+             meshes: { files: beside[registeredNameOf(String(r.filename))] || {} } };
   }).sort(function(a, b){ return a.id.localeCompare(b.id); });
   return GEOMETRY;
 }
@@ -60,14 +77,14 @@ async function useGeometryBase(base) {
   GEOMETRY = [];
   for (const object of objectsClaimingGeometry()) {
     var name = 'geom_url_' + object.object_id.replace(/[^A-Za-z0-9_.-]/g, '_') + '.parquet';
-    // directIO asks DuckDB to read only what a query touches. duckdb-wasm 1.32.0 ignores
-    // it for HTTP and still GETs the whole file - measured: opening eight alpha cells pulls
-    // 62 MB of geometry before anything is drawn, with the flag either way. Left on so a
-    // version that honours it needs no change here.
+    // directIO asks DuckDB to read only what a query touches, by byte range. DuckDB-wasm decides whether a host answers ranges
+    // from a probe (see `getDuckDB`: its default skips the probe and downloads the whole file), so a host that fails it is
+    // still read whole.
     await db.registerFileURL(name,
       trimmed + encodeURIComponent(object.object_id) + '/geometry.parquet',
       _duckdbModule.DuckDBDataProtocol.HTTP, true);
-    GEOMETRY.push({ id: object.object_id, group: object.group_id, path: name });
+    GEOMETRY.push({ id: object.object_id, group: object.group_id, path: name,
+                    meshes: { url: trimmed + encodeURIComponent(object.object_id) + '/' } });
   }
   return GEOMETRY;
 }
@@ -82,8 +99,9 @@ function defaultGeometryBase(reportUrl) {
 function hasGeometry() { return GEOMETRY.length > 0; }
 
 /** The geometry of these objects as one queryable source. */
-function sourceOf(objects) {
-  return 'read_parquet([' + objects.map(function(o){ return esc(o.path); }).join(', ') + '])';
+function sourceOf(objects, byName) {
+  // `byName` lets files with and without a column be read together: the ones without it give NULL.
+  return 'read_parquet([' + objects.map(function(o){ return esc(o.path); }).join(', ') + ']' + (byName ? ', union_by_name = true' : '') + ')';
 }
 
 /**
@@ -158,10 +176,12 @@ function sceneGapSql(source) {
  * The geometry to draw: the largest instances of the chosen structures, bounded, with the
  * columns the colouring and the explode offset need beside the payload.
  */
-function sceneGeometrySql(source, names, metricCols) {
+function sceneGeometrySql(source, names, metricCols, withLevels) {
   return 'SELECT "entity_name" AS entity, "row_type" AS row_type, "label_id" AS label, '
     + metricCols.map(function(m){ return '"' + m + '"'; }).join(', ')
+    // `multires` only where the file has the column: geometry from before levels of detail has none, and asking for it fails.
     + ', "surface" AS surface, "surface_kind" AS surface_kind, "outline" AS outline'
+    + (withLevels ? ', "multires" AS multires' : '')
     + ' FROM ' + source
     + ' WHERE ' + HAS_GEOMETRY_SQL
     + ' AND "entity_name" IN (' + names.map(esc).join(', ') + ')'
@@ -199,13 +219,19 @@ function galleryCountSql(source, entity, metric, rowType) {
  * "random" picks the sample first and sorts it afterwards, so the grid reads in metric
  * order either way — the tails are a different question from a fair sample.
  */
-function gallerySql(source, entity, metric, order, limit, rowType) {
+function gallerySql(source, entity, metric, order, limit, rowType, withLevels) {
   var pick = order === 'random'
     ? 'ORDER BY random() LIMIT ' + limit
     : 'ORDER BY "' + metric + '"' + (order === 'lowest' ? ' ASC' : ' DESC') + ' LIMIT ' + limit;
   return 'SELECT * FROM (SELECT "object_id" AS object_id, "label_id" AS label, "'
     + metric + '" AS value, "surface" AS surface, "surface_kind" AS surface_kind,'
-    + ' "outline" AS outline, "skeleton" AS skeleton'
+    + ' "outline" AS outline, "skeleton" AS skeleton' + (withLevels ? ', "multires" AS multires' : '')
     + ' FROM ' + source + galleryWhereSql(entity, metric, rowType) + ' ' + pick
     + ') ORDER BY value DESC';
+}
+
+/** Whether a registered geometry file has a column, read from its footer: how a file with levels of detail is told from one without. */
+async function geometryHasColumn(path, column) {
+  var rows = await queryRows('SELECT 1 AS found FROM parquet_schema(' + esc(path) + ') WHERE name = ' + esc(column) + ' LIMIT 1');
+  return rows.length > 0;
 }

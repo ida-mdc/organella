@@ -4,6 +4,7 @@ model/columns
 model/extent
 model/scope
 model/contacts
+model/lod-select
 model/stats/chance
 model/stats/histograms
 model/stats/polarity
@@ -11,6 +12,7 @@ model/stats/significance
 model/stats/trend
 io/duckdb
 io/geometry-files
+io/fragments
 io/sql
 ui/text
 ui/colour
@@ -20,6 +22,7 @@ ui/viewer3d/instances
 ui/viewer3d/scene-controls
 ui/viewer3d/stage
 ui/viewer3d/surfaces
+ui/viewer3d/multires
 ui/viewer3d/polarity-overlay
 ui/viewer3d/dock
 ui/viewer3d/specs
