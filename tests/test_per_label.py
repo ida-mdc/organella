@@ -58,3 +58,15 @@ def test_many_chunks_are_merged_in_a_tree():
 def test_no_instance_gives_empty_results():
     found = counts_and_centroids(da.zeros((8, 8, 8), np.uint8, chunks=4)).compute()
     assert found.height == 0 and {"id", "count", "c0", "c1", "c2", "v00", "v22", "lo0", "hi2"} <= set(found.columns)
+
+
+def test_the_minimum_over_each_instance_matches_scipy_and_skips_the_background():
+    from scipy import ndimage
+    rng = np.random.default_rng(5)
+    labels = np.where(rng.random((20, 22, 18)) < 0.15, rng.integers(1, 9, size=(20, 22, 18)), 0).astype(np.uint32)
+    field = rng.random(labels.shape).astype(np.float32)
+    found = minimum_in_chunk(labels, field).sort("id")
+    present = np.unique(labels[labels > 0])
+    assert found["id"].to_list() == present.tolist()
+    assert np.array_equal(found["min"].to_numpy(), ndimage.minimum(field, labels, present).astype(np.float32))
+    assert minimum_in_chunk(np.zeros_like(labels), field).height == 0
