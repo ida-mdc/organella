@@ -160,3 +160,39 @@ def test_a_read_the_network_drops_is_asked_for_again_and_a_dead_store_still_fail
     with pytest.raises(GenericError):
         _Retried(dead, attempts=3, pause=0)[0:2, 0:2]
     assert dead.calls == 3
+
+
+def test_cells_run_as_separate_jobs_one_manifest_each_join_into_the_report_of_the_single_run(tmp_path):
+    """What the job array does: ``process`` on one cell's source.json into a shared geometry folder, then ``merge``."""
+    import tifffile
+    import polars as pl
+    from click.testing import CliRunner
+    from organella.cli import main
+
+    root = zarr.open_group(tmp_path / "cell.zarr", mode="w")
+    labels = np.zeros((12, 16, 16), np.uint16)
+    labels[2:6, 3:8, 3:8] = 4
+    labels[7:11, 9:14, 9:14] = 5
+    array = root.create_array("labels/mito/s1", data=labels, chunks=(6, 8, 8))
+    array.attrs["transform"] = {"axes": ["z", "y", "x"], "scale": [20.0, 10.0, 10.0], "units": ["nm", "nm", "nm"]}
+    for name in ("cell_a", "cell_b"):
+        folder = tmp_path / "cells" / name
+        folder.mkdir(parents=True)
+        tifffile.imwrite(folder / "cell_mask.tif", np.ones((12, 16, 16), np.uint8))
+        (folder / "source.json").write_text(json.dumps({
+            "store": str(tmp_path / "cell.zarr"), "scale": "s1", "crop": ":,:,:",
+            "entities": {"mito": {"array": "labels/mito", "kind": "label"}},
+            "masks": {"cell": "cell_mask.tif"}, "object_mask": "cell"}))
+    meshes = tmp_path / "meshes"
+    for name in ("cell_a", "cell_b"):
+        result = CliRunner().invoke(main, ["process", str(tmp_path / "cells" / name / "source.json"), "-o", str(tmp_path / "reports" / f"{name}.parquet"),
+                                           "--mesh-dir", str(meshes), "--with-mesh", "--object-noun", "cell"])
+        assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in meshes.iterdir()) == ["cell_a", "cell_b"]
+    merged = tmp_path / "merged.parquet"
+    result = CliRunner().invoke(main, ["merge", str(tmp_path / "reports" / "cell_a.parquet"), str(tmp_path / "reports" / "cell_b.parquet"), "-o", str(merged)])
+    assert result.exit_code == 0, result.output
+    from organella.report.file import read_report
+    rows, _ = read_report(merged)
+    assert sorted(rows["object_id"].unique().to_list()) == ["cell_a", "cell_b"]
+    assert all((meshes / name / "geometry.parquet").is_file() for name in ("cell_a", "cell_b"))
