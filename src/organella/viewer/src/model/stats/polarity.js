@@ -105,6 +105,54 @@ function polarShapeShare(objectId, axis) {
 }
 
 /**
+ * The outline of an object seen from its centre, folded onto the half plane through an axis: for each angle to the axis (in
+ * `bins` steps over 0..180°) the furthest any of the object's voxels reaches, from the report's reach per direction. A volume
+ * is folded about the axis as well, so this is the outline of the cut through it. A list of [angle in degrees, µm], in order,
+ * leaving out an angle no voxel lies at; null for an object with no reach (a report from before it was measured).
+ */
+function polarOutline(objectId, axis, bins) {
+  var reach = _SHAPE_REACH[objectId];
+  if (reach === undefined) {
+    var row = OBJECTS.find(function(o){ return o.object_id === String(objectId); });
+    try { reach = row && row.polar_shape_reach ? JSON.parse(row.polar_shape_reach) : null; } catch (error) { reach = null; }
+    _SHAPE_REACH[objectId] = reach;
+  }
+  if (!reach || !axis) return null;
+  var best = new Array(bins).fill(0);
+  var put = function(deg, value) {
+    var k = Math.min(bins - 1, Math.floor(deg / 180 * bins));
+    if (value > best[k]) best[k] = value;
+  };
+  if (!Array.isArray(reach[0])) {
+    var at = Math.atan2(axis[0], axis[1]);
+    reach.forEach(function(value, i) {
+      if (!value) return;
+      var diff = Math.abs(((-Math.PI + (i + 0.5) * 2 * Math.PI / reach.length - at + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+      put(diff * 180 / Math.PI, value);
+    });
+  } else {
+    var nz = reach.length, naz = reach[0].length, SUB = 3;
+    reach.forEach(function(rowOf, zi) {
+      rowOf.forEach(function(value, ai) {
+        if (!value) return;
+        for (var a = 0; a < SUB; a++) {
+          for (var b = 0; b < SUB; b++) {
+            var z = -1 + (zi + (a + 0.5) / SUB) * 2 / nz;
+            var az = -Math.PI + (ai + (b + 0.5) / SUB) * 2 * Math.PI / naz;
+            var ring = Math.sqrt(Math.max(0, 1 - z * z));
+            var along = z * axis[0] + ring * Math.sin(az) * axis[1] + ring * Math.cos(az) * axis[2];
+            put(Math.acos(Math.max(-1, Math.min(1, along))) * 180 / Math.PI, value);
+          }
+        }
+      });
+    });
+  }
+  var out = [];
+  best.forEach(function(value, k){ if (value > 0) out.push([(k + 0.5) * 180 / bins, value]); });
+  return out.length ? out : null;
+}
+
+/**
  * A plane's angle to the axis with its side, in degrees on the circle a rose is drawn on: 0 along the axis, counted the way the
  * viewer shows the plane (above the axis on screen is positive, since an array's y runs downward).
  */
@@ -311,6 +359,54 @@ function polarHalfCentre(angles, radii, weights) {
   });
   if (!total) return null;
   return { radius: Math.hypot(x, y) / total, angle: Math.atan2(y, x) };   // y is never negative, so the angle is 0..180
+}
+
+/**
+ * Where a structure lies in the half plane through the reference axis, pooled over cells: a smoothed density on a grid, along
+ * the axis (x, towards the reference positive) and across it (y, never negative).
+ *
+ * Every instance is a point at its distance from the centre and its angle to the axis. A cell counts once however many
+ * instances it has - its own points sum to 1 by size - and the density is the average over the cells. Each point is a Gaussian
+ * of width `sigma`, mirrored at y = 0 because the two sides of the axis are folded onto one. In a volume the half plane is
+ * the rotation about the axis cut open, so a cell of it covers more space the further it is from the axis: the density is
+ * divided by that ring's circumference, which makes an even spread of instances through space an even colour.
+ *
+ * `cells` is a list of { angles (degrees), dists, weights }, one per cell; `extent` the largest distance drawn; the grid is
+ * `nx` columns across -extent..extent and `ny` rows up 0..extent. Null without a point.
+ */
+function polarPooledDensity(cells, extent, nx, ny, sigma, planar) {
+  var z = [], xs = [], ys = [], used = 0;
+  for (var j = 0; j < ny; j++) ys.push((j + 0.5) * extent / ny);
+  for (var i = 0; i < nx; i++) xs.push(-extent + (i + 0.5) * 2 * extent / nx);
+  for (var j2 = 0; j2 < ny; j2++) z.push(new Array(nx).fill(0));
+  var reach = 4 * sigma, inv = 1 / (2 * sigma * sigma);
+  cells.forEach(function(cell) {
+    var total = 0;
+    cell.weights.forEach(function(w){ total += w; });
+    if (!(total > 0)) return;
+    used++;
+    cell.angles.forEach(function(angle, k) {
+      var px = cell.dists[k] * Math.cos(angle * Math.PI / 180);
+      var py = cell.dists[k] * Math.sin(angle * Math.PI / 180);
+      var w = cell.weights[k] / total;
+      for (var j = 0; j < ny; j++) {
+        var dy = Math.min(Math.abs(ys[j] - py), Math.abs(ys[j] + py));
+        if (dy > reach) continue;
+        var down = Math.exp(-(ys[j] - py) * (ys[j] - py) * inv) + Math.exp(-(ys[j] + py) * (ys[j] + py) * inv);
+        for (var i = 0; i < nx; i++) {
+          var dx = xs[i] - px;
+          if (Math.abs(dx) > reach) continue;
+          z[j][i] += w * down * Math.exp(-dx * dx * inv);
+        }
+      }
+    });
+  });
+  if (!used) return null;
+  for (var j3 = 0; j3 < ny; j3++) {
+    var ring = planar ? 1 : Math.max(ys[j3], sigma);
+    for (var i3 = 0; i3 < nx; i3++) z[j3][i3] /= used * ring;
+  }
+  return { x: xs, y: ys, z: z, cells: used };
 }
 
 /** The circle plot's diamond angle, falling back on the 3D mean where the angles cancel. */

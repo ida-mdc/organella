@@ -133,3 +133,4 @@ var REPORT_DESCRIPTION = '';
 // panels, and each answer walks that structure's instances.
 var _POLAR_OFFSETS = {};
 var _SHAPE_COUNTS = {};   // each object's count of its voxels per direction, parsed once
+var _SHAPE_REACH = {};    // and how far out they reach in each, parsed once

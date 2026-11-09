@@ -9,7 +9,7 @@
  */
 function renderPolarity() {
   var section = document.getElementById('s-polarity');
-  ['pol-angle-charts', 'pol-angle-fold', 'pol-index-charts', 'pol-where-charts', 'pol-map-charts', 'pol-map-fold']
+  ['pol-angle-charts', 'pol-angle-fold', 'pol-index-charts', 'pol-where-charts', 'pol-pool-charts', 'pol-map-charts', 'pol-map-fold']
     .forEach(function(id){ document.getElementById(id).innerHTML = ''; });
 
   var references = polarReferences();
@@ -521,6 +521,93 @@ function renderPolarity() {
     }, { responsive: true, displayModeBar: false });
     explainButton(el, polaritySpec(name, ref, 'where'));
   });
+
+  // ── where each structure lies, pooled over the cells of a group ─────────────
+  setHtml('pol-pool-label', 'Which space does each structure occupy?');
+  setHtml('pol-pool-desc', 'The half plane through the axis towards ' + dataName(ref) + ': across the page the distance'
+    + ' along the axis (' + dataName(ref) + ' on the right), up the page the distance from the axis. Both are in µm from the'
+    + ' centre of the ' + noun() + ', marked by the black dot. Darker means more of the structure lies there; each '
+    + noun() + ' counts once, and the ' + noun(true) + ' of a group are averaged. Groups lie on top of each other, each in its own colour, with a line round where it is densest. A thin line in the same colour is the outline of each ' + noun() + ' itself, the space the structure could have filled. The side of the axis is arbitrary, so both'
+    + ' sides are folded together' + (PLANAR ? '.' : ', and the shading is per volume, so an even spread is an even colour.')
+    + ' A star marks the average position of ' + dataName(ref) + '.');
+  setHtml('pol-pool-legend', legend);
+  var poolHost = document.getElementById('pol-pool-charts');
+  var poolReach = 0;
+  structures.forEach(function(name) {
+    relative[name].forEach(function(r){ if (r.dist_um > poolReach) poolReach = r.dist_um; });
+  });
+  var poolGroups = [];
+  mapObjects.forEach(function(id) {
+    var g = groupOfObject[String(id)] || '';
+    var entry = poolGroups.find(function(e){ return e.group === g; });
+    if (!entry) poolGroups.push(entry = { group: g, ids: [] });
+    entry.ids.push(id);
+  });
+  if (poolReach > 0) {
+    structures.filter(function(name){ return kinds[name] === 'label'; }).forEach(function(name) {
+      var fields = poolGroups.map(function(entry) {
+        var cells = entry.ids.map(function(id) {
+          var rows = relative[name].filter(function(r){ return r.object_id === id; });
+          return rows.length ? { angles: rows.map(function(r){ return r.angle_deg; }),
+                                 dists: rows.map(function(r){ return r.dist_um; }),
+                                 weights: polarWeights(rows) } : null;
+        }).filter(Boolean);
+        return { entry: entry, field: polarPooledDensity(cells, poolReach * 1.05, 52, 26, poolReach * 0.07, PLANAR) };
+      }).filter(function(f){ return f.field; });
+      // One scale for the structure, so that two groups are shaded alike where they hold alike.
+      var top = 0;
+      fields.forEach(function(f) {
+        f.field.z.forEach(function(row){ row.forEach(function(v){ if (v > top) top = v; }); });
+      });
+      if (!fields.length) return;
+      var el = document.createElement('div');
+      el.className = 'chart-cell';
+      el.style.width = '420px';
+      var plotEl = document.createElement('div');
+      el.appendChild(plotEl);
+      poolHost.appendChild(el);
+      var traces = [];
+      fields.forEach(function(f) {
+        var colour = f.entry.group ? groupColor(f.entry.group) : entColor(name);
+        traces.push({ type: 'heatmap', x: f.field.x, y: f.field.y, z: f.field.z, zmin: 0, zmax: top,
+          showscale: false, hoverinfo: 'skip', zsmooth: 'best',
+          colorscale: [[0, withAlpha(colour, 0)], [1, withAlpha(colour, 0.8)]] });
+        // An outline at a fixed share of the darkest, so where two groups overlap each is still readable.
+        traces.push({ type: 'contour', x: f.field.x, y: f.field.y, z: f.field.z, showscale: false, hoverinfo: 'skip',
+          contours: { type: 'levels', start: top * 0.4, end: top * 0.4, size: top, coloring: 'none', showlabels: false },
+          line: { color: colour, width: 1.5 } });
+      });
+      // Each cell's own outline, faint, in its group's colour: the space the structure could have filled.
+      fields.forEach(function(f) {
+        var colour = f.entry.group ? groupColor(f.entry.group) : '#888';
+        f.entry.ids.forEach(function(id) {
+          var axis = polarOffset(id, ref);
+          var line = axis && polarOutline(id, axis.unit, 60);
+          if (!line) return;
+          traces.push({ type: 'scatter', mode: 'lines', hoverinfo: 'skip',
+            x: line.map(function(q){ return q[1] * Math.cos(q[0] * Math.PI / 180); }),
+            y: line.map(function(q){ return q[1] * Math.sin(q[0] * Math.PI / 180); }),
+            line: { color: withAlpha(colour, 0.45), width: 1, shape: 'spline', smoothing: 0.6 } });
+        });
+      });
+      var stars = [];
+      poolGroups.forEach(function(entry) {
+        entry.ids.forEach(function(id){ var a = polarOffset(id, ref); if (a) stars.push(a.dist); });
+      });
+      traces.push({ type: 'scatter', mode: 'markers', x: [0], y: [0], hoverinfo: 'skip', marker: { color: '#222', size: 7 } });
+      if (stars.length) {
+        traces.push({ type: 'scatter', mode: 'markers', hoverinfo: 'skip',
+          x: [stars.reduce(function(n, d){ return n + d; }, 0) / stars.length], y: [0],
+          marker: { symbol: 'star', size: 13, color: entColor(ref), line: { color: '#fff', width: 1 } } });
+      }
+      drawPlot(plotEl, traces, {
+        margin: { l: 44, r: 8, t: 34, b: 38 }, height: 260, showlegend: false,
+        title: { text: panelTitle(name, 'space occupied'), font: { size: 12 } },
+        xaxis: { title: 'µm along the axis', range: [-poolReach * 1.05, poolReach * 1.05], zeroline: false },
+        yaxis: { title: 'µm from the axis', range: [0, poolReach * 1.05], scaleanchor: 'x', zeroline: false }
+      }, { responsive: true, displayModeBar: false });
+    });
+  }
 
   // ── one circular map per object ────────────────────────────────────────────
   setHtml('pol-map-label', 'Where does each structure sit in the ' + noun() + '?');
