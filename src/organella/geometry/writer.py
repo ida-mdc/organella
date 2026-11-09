@@ -87,9 +87,13 @@ class GeometryWriter:
             log.info("%s: reusing the geometry already at %s", sample.id, destination)
             return destination.resolve()
         rows, jobs = self._rows(sample, shared.findings, settings)
-        done = compute_in_batches([job for _, job in jobs], settings.surface_batch)
+        # The biggest boxes first: a few of them are most of the time, and one that starts last is the whole run's tail.
+        order = sorted(range(len(jobs)), key=lambda i: -jobs[i][2])
+        done = [None] * len(jobs)
+        for i, result in zip(order, compute_in_batches([jobs[i][1] for i in order], settings.surface_batch)):
+            done[i] = result
         field = "outline" if len(sample.voxel_size.um) == 2 else "surface"
-        for (row, _), (kind, payload) in zip(jobs, done):
+        for (row, _, _), (kind, payload) in zip(jobs, done):
             row[field], row["surface_kind"] = payload, kind
         for row in rows:
             row["object_id"], row["group_id"] = sample.id, sample.group or ""

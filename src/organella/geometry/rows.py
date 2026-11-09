@@ -74,8 +74,9 @@ def _bounds(stats: pl.DataFrame, row: int, ndim: int) -> tuple[np.ndarray, np.nd
 
 
 def instance_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, report: pl.DataFrame, traced: list | None,
-                  settings: Settings) -> tuple[list[dict], list[tuple[dict, Delayed]]]:
-    """The rows of a labelled structure's instances, and the meshes still to be computed for them."""
+                  settings: Settings) -> tuple[list[dict], list[tuple[dict, Delayed, float]]]:
+    """The rows of a labelled structure's instances, and the meshes still to be computed for them, each with the voxels of
+    its box (what it will cost)."""
     voxel = np.array(sample.voxel_size.um)
     ndim, planar = len(voxel), len(voxel) == 2
     forced = settings.forced_surface(structure.name)
@@ -111,7 +112,7 @@ def instance_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, rep
             sigma = instance_sigma(settings.mesh_smooth_sigma, roundness, fill)
             step = _step_for(voxels, settings, ndim)
             jobs.append((row, dask.delayed(_surface_job)(box(structure.data, low, high, step=step), label, low, tuple(voxel),
-                                                         settings, sigma, step, surface if checked else b"")))
+                                                         settings, sigma, step, surface if checked else b""), voxels))
     return rows, jobs
 
 
@@ -129,7 +130,7 @@ def mask_rows(structure: Structure, sample: Sample, stats: pl.DataFrame, entity:
     step = _step_for(float(np.prod(high - low + 1)), settings, ndim)
     job = dask.delayed(_surface_job)(box(structure.foreground, low, high, step=step), None, low, tuple(sample.voxel_size.um),
                                   settings, instance_sigma(settings.mesh_smooth_sigma, roundness, fill), step)
-    return [row], [(row, job)]
+    return [row], [(row, job, float(np.prod(high - low + 1)))]
 
 
 def contact_rows(contacts: pl.DataFrame | None) -> list[dict]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Sequence
 
 import polars as pl
@@ -56,15 +57,20 @@ def process(
 def _measure(sample: Sample, measurements: Sequence[Measurement], settings: Settings,
              geometry: GeometrySink | None = None) -> list[pl.DataFrame]:
     sample, shared = prepared(sample, settings), Shared()
-    frames = [
-        (row_type, _stamped(rows, row_type, sample))
-        for measurement in measurements
-        for row_type, rows in measurement.measure(sample, settings, shared).items()
-        if rows.width
-    ]
+    frames, written = [], None
+    # The geometry draws from what the statistics found and nothing else reads it, so it is written while the later
+    # measurements (the distances, which keep the cores busy) run: its few big meshes use one core each.
+    with ThreadPoolExecutor(1) as writing:
+        for measurement in measurements:
+            frames += [(row_type, _stamped(rows, row_type, sample))
+                       for row_type, rows in measurement.measure(sample, settings, shared).items() if rows.width]
+            if geometry is not None and written is None and shared.findings is not None:
+                written = writing.submit(geometry.write, sample, shared, settings)
+        if geometry is not None and written is None:
+            written = writing.submit(geometry.write, sample, shared, settings)
+        where = pl.lit(str(written.result())) if written is not None else None   # the object row says where its geometry went
     if geometry is None:
         return [frame for _, frame in frames]
-    where = pl.lit(str(geometry.write(sample, shared, settings)))   # the object row says where its geometry went
     return [frame.with_columns(mesh_geometry_file=where) if row_type is RowType.OBJECT else frame for row_type, frame in frames]
 
 
