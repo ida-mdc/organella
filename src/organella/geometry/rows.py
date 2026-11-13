@@ -10,7 +10,7 @@ from dask.delayed import Delayed
 from organella.app.settings import Settings
 from organella.core import Sample, Structure
 from organella.geometry.payloads import ellipsoid_payload, skeleton_payload, tube_payload
-from organella.geometry.surfaces import (ELLIPSOID_MIN_FIT, choose_surface, ellipsoid_fit, generate_mesh, generate_outline,
+from organella.geometry.surfaces import (ELLIPSOID_MIN_FIT, choose_surface, ellipsoid_fit, generate_mesh_levels, generate_outline,
                                          instance_sigma)
 from organella.measure.windows import box
 
@@ -18,6 +18,11 @@ from organella.measure.windows import box
 CARRIED = ["aspect_ratio_major_minor", "branches", "length_um", "tortuosity", "distance_to_closest_same_type_um",
            "polar_dist_um", "polar_az_deg", "polar_el_deg", "polar_angle_deg", "polar_nz", "polar_ny", "polar_nx",
            "polar_spread_deg"]
+# How many coarser meshes of a distance field a big mask or instance gets: grids of 2, 4 ... 64 times the first step.
+MAX_COARSER = 6
+# A whole structure is what the viewer draws first, from its coarsest level, so that level has to still look like the structure:
+# its ladder stops at this many vertices. An instance is one of hundreds and its coarsest level is stored in every row: smaller.
+MASK_COARSEST_VERTICES = 12_000
 SHAPE = {3: ["volume_um3", "surface_area_um2", "sphericity"], 2: ["area_um2", "perimeter_um", "circularity"]}
 
 
@@ -41,27 +46,31 @@ def ellipsoid_of(covariance_voxels: np.ndarray, centroid_voxels: np.ndarray, vox
 
 
 def _surface_job(window: np.ndarray, label: int | None, origin: np.ndarray, voxel_um: tuple[float, ...], settings: Settings,
-                 sigma, step: int, ellipsoid: bytes = b"") -> tuple[str, bytes]:
+                 sigma, step: int, ellipsoid: bytes = b"") -> tuple[str, bytes, list]:
     """One instance's (or one mask's) surface as (kind, payload). An ellipsoid that is given is kept if it covers the
-    instance's voxels well enough, and otherwise the instance is meshed; one too small to mesh keeps the ellipsoid."""
+    instance's voxels well enough, and otherwise the instance is meshed; one too small to mesh keeps the ellipsoid. The
+    third is the coarser meshes of a volume's distance field, the coarse levels of detail (none for an outline)."""
     if ellipsoid:
         fit = ellipsoid_fit(window == label, origin / step, tuple(v * step for v in voxel_um), ellipsoid)
         if fit >= ELLIPSOID_MIN_FIT:
-            return "ellipsoid", ellipsoid
-    mesh = _mesh_job(window, label, origin, voxel_um, settings, sigma, step)
-    return ("ellipsoid", ellipsoid) if ellipsoid and not mesh else ("mesh", mesh)
+            return "ellipsoid", ellipsoid, []
+    mesh, coarser = _mesh_job(window, label, origin, voxel_um, settings, sigma, step)
+    return ("ellipsoid", ellipsoid, []) if ellipsoid and not mesh else ("mesh", mesh, coarser)
 
 
 def _mesh_job(window: np.ndarray, label: int | None, origin: np.ndarray, voxel_um: tuple[float, ...], settings: Settings,
-              sigma, step: int) -> bytes:
-    """One instance's (or one mask's) surface payload: a mesh in a volume, an outline in a plane."""
+              sigma, step: int) -> tuple[bytes, list]:
+    """One instance's (or one mask's) surface payload, and its coarser meshes: a mesh in a volume, an outline in a plane."""
     binary = window > 0 if label is None else window == label
     spacing = tuple(v * step for v in voxel_um)
     if len(voxel_um) == 2:
-        return generate_outline(binary, origin / step, spacing)
-    return generate_mesh(binary, origin / step, spacing, step_size=settings.mesh_step_size, smooth_sigma=sigma,
+        return generate_outline(binary, origin / step, spacing), []
+    return generate_mesh_levels(binary, origin / step, spacing, step_size=settings.mesh_step_size, smooth_sigma=sigma,
                          target_reduction=settings.mesh_target_reduction, level=settings.mesh_level,
-                         max_vertices=settings.mesh_max_vertices)
+                         max_vertices=settings.mesh_max_vertices,
+                                coarser=MAX_COARSER if settings.multires_min_vertices > 0 else 0,
+                                min_vertices=settings.multires_min_vertices,
+                                **({"coarsest_vertices": MASK_COARSEST_VERTICES} if label is None else {}))
 
 
 def _step_for(voxels: float, settings: Settings, ndim: int) -> int:

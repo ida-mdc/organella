@@ -54,7 +54,11 @@ function compositionPanel(container, opt) {
       parts.push({ name: name, value: +value });
       sum += +value;
     });
+    // Structures may overlap (an ER mask and the sheets inside it), so their totals add up to more than they cover:
+    // what at least one covers is measured on its own, and is all the sum can stand for where it was not.
+    var covered = segmentedExtent(object);
     if (parts.length) rows.push({ oid: oid, parts: parts, sum: sum,
+                                  covered: covered != null ? Math.min(covered, sum) : sum,
                                   region: analysedExtent(object) });
   });
   if (!rows.length) {
@@ -66,10 +70,13 @@ function compositionPanel(container, opt) {
   // One denominator for the whole chart, so the bars are comparable: the region when every
   // object has one and nothing overflows it, the segmented total otherwise.
   var haveRegion = rows.every(function(r){ return r.region != null; });
-  var overflows = haveRegion && rows.some(function(r){ return r.sum > r.region.value * 1.0005; });
+  var overflows = haveRegion && rows.some(function(r){ return r.covered > r.region.value * 1.0005; });
   var useRegion = haveRegion && !overflows;
   var bounded = useRegion && rows[0].region.bounded;
-  rows.forEach(function(r) { r.whole = useRegion ? r.region.value : r.sum; });
+  // Where structures overlap, each is drawn as its share of what they cover together, so the bar never outgrows
+  // its whole; the hover still says how much of the whole each one is on its own.
+  var overlapped = rows.some(function(r){ return r.sum > r.covered * 1.0005; });
+  rows.forEach(function(r) { r.whole = useRegion ? r.region.value : r.covered; });
 
   var wholeLabel = useRegion ? (bounded ? 'the ' + noun() : 'the analysed region')
                              : 'the segmented ' + terms.word;
@@ -90,14 +97,15 @@ function compositionPanel(container, opt) {
   // A bar is shares of one whole, one per structure, whatever it stands for: one object, or
   // the mean of a group of them.
   var barOf = function(label, row) {
-    var shares = {}, absolute = {};
+    var shares = {}, absolute = {}, own = {};
     row.parts.forEach(function(part) {
-      shares[part.name] = row.whole ? 100 * part.value / row.whole : 0;
+      shares[part.name] = row.whole && row.sum ? 100 * (part.value / row.sum) * (row.covered / row.whole) : 0;
       absolute[part.name] = part.value;
+      own[part.name] = row.whole ? 100 * part.value / row.whole : 0;
     });
-    return { label: label, shares: shares, absolute: absolute,
-             rest: row.whole ? Math.max(0, 100 * (row.whole - row.sum) / row.whole) : 0,
-             restAbsolute: Math.max(0, row.whole - row.sum) };
+    return { label: label, shares: shares, absolute: absolute, own: own,
+             rest: row.whole ? Math.max(0, 100 * (row.whole - row.covered) / row.whole) : 0,
+             restAbsolute: Math.max(0, row.whole - row.covered) };
   };
   var objectBars = rows.map(function(r){ return barOf(r.oid || '(unnamed)', r); });
 
@@ -105,16 +113,17 @@ function compositionPanel(container, opt) {
   // average in, and a zero would say it has none of something it was never segmented for.
   // What is left over is then whatever the means do not cover.
   var meanBar = function(label, members) {
-    var shares = {}, absolute = {}, partial = false;
+    var shares = {}, absolute = {}, own = {}, partial = false;
     names.forEach(function(name) {
       var have = members.filter(function(m){ return name in m.shares; });
       if (!have.length) return;
       if (have.length < members.length) partial = true;
       shares[name] = have.reduce(function(n, m){ return n + m.shares[name]; }, 0) / have.length;
       absolute[name] = have.reduce(function(n, m){ return n + m.absolute[name]; }, 0) / have.length;
+      own[name] = have.reduce(function(n, m){ return n + m.own[name]; }, 0) / have.length;
     });
     var covered = Object.keys(shares).reduce(function(n, k){ return n + shares[k]; }, 0);
-    return { label: label, shares: shares, absolute: absolute, partial: partial,
+    return { label: label, shares: shares, absolute: absolute, own: own, partial: partial,
              rest: Math.max(0, 100 - covered), restAbsolute: 0 };
   };
   var groupOf = {};
@@ -140,10 +149,10 @@ function compositionPanel(container, opt) {
       return {
         type: 'bar', orientation: 'h', name: String(name), y: yLabels,
         x: shown.map(function(b){ return b.shares[name] || 0; }),
-        customdata: shown.map(function(b){ return b.absolute[name] || 0; }),
+        customdata: shown.map(function(b){ return [b.absolute[name] || 0, b.own[name] || 0]; }),
         marker: { color: entColor(name), line: { color: '#ffffff', width: 1 } },
         showlegend: false,
-        hovertemplate: '%{customdata:.3g} ' + terms.unit + '  ·  %{x:.2g}% of '
+        hovertemplate: '%{customdata[0]:.3g} ' + terms.unit + '  ·  %{customdata[1]:.2g}% of '
           + wholeLabel + '<extra>' + escHtml(name) + '</extra>',
       };
     });
@@ -185,15 +194,18 @@ function compositionPanel(container, opt) {
   var note;
   if (!useRegion) {
     note = overflows
-      ? 'The structures overlap - together they cover more than the region holds - so this '
-        + 'is each one\'s share of the total ' + terms.word + ' segmented, not of the '
-        + noun() + '. Nothing here is missing; the parts are simply not a partition.'
-      : 'No ' + noun() + ' extent was recorded, so this is each structure\'s share of the '
-        + 'total ' + terms.word + ' segmented.';
+      ? 'The structures cover more than the region holds, so this is each one\'s share of what '
+        + 'they cover together, not of the ' + noun() + '.'
+      : 'No ' + noun() + ' extent was recorded, so this is each structure\'s share of what '
+        + 'they cover together.';
   } else if (!bounded) {
     note = 'Nothing bounds ' + (rows.length > 1 ? 'these ' + noun(true) : 'this ' + noun())
       + ', so the whole is the region analysed - the image itself. Name one with '
       + '--object-mask to read these as shares of the ' + noun() + '.';
+  }
+  if (overlapped) {
+    note = (note ? note + ' ' : '') + 'Structures overlap (one is inside another), so where they share voxels each '
+      + 'is drawn as its part of what they cover together; hover for its own size.';
   }
   if (note) {
     container.insertAdjacentHTML('beforeend',

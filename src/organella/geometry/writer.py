@@ -93,8 +93,10 @@ class GeometryWriter:
         for i, result in zip(order, compute_in_batches([jobs[i][1] for i in order], settings.surface_batch)):
             done[i] = result
         field = "outline" if len(sample.voxel_size.um) == 2 else "surface"
-        for (row, _, _), (kind, payload) in zip(jobs, done):
+        for (row, _, _), (kind, payload, coarser) in zip(jobs, done):
             row[field], row["surface_kind"] = payload, kind
+            if coarser:
+                row[multires.COARSER] = coarser
         for row in rows:
             row["object_id"], row["group_id"] = sample.id, sample.group or ""
         leveled = multires.give_levels(rows, destination.parent, settings.multires_min_vertices, settings.multires_fragment_vertices) \

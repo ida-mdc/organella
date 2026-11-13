@@ -93,6 +93,8 @@ Generated from `src/organella/report/column_descriptions.py`; the report page sh
 | `polar_shape_counts` | How many of the object's own voxels (pixels in a plane) lie in each direction from its centre, on a grid of equal shares of all directions: 360 angles for a plane, 32 z bins by 32 azimuths for a volume. What a structure scattered anywhere in the object would be spread over, so the polarity charts' chance outline follows the object's shape. |
 | `polar_shape_reach` | How far out the object's own voxels reach in each direction from its centre, in µm, on the same grid as polar_shape_counts (0 where a direction holds no voxel): the object's outline, which the polarity charts draw. |
 | `row_type` | What this row is: 'object' (obs_level 0), 'entity' (obs_level 1, one per structure), or one of 'instance', 'distance' and 'contact' below them. |
+| `segmented_area_um2` | Area in µm² covered by at least one structure: where structures overlap (an ER mask and the sheets inside it) it counts the overlap once, which the sum of the structures' totals does not. |
+| `segmented_volume_um3` | Volume in µm³ covered by at least one structure: where structures overlap (an ER mask and the sheets inside it) it counts the overlap once, which the sum of the structures' totals does not. |
 | `size_bytes` | Size on disk of everything read for this object, in bytes. |
 | `spatial_dims` | 3 for a volume, 2 for a plane. Which size and shape metrics the object's rows carry follows from it. |
 | `sphericity` | Surface area of the equal-volume sphere divided by the measured surface area. 1 is a perfect sphere and nothing is rounder than one; a few percent above 1 is the boundary estimator coming in short, which it does on instances a handful of voxels across. |

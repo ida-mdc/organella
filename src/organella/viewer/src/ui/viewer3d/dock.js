@@ -879,7 +879,10 @@ function sceneAddMasks(ctx, stage, style) {
   // are - solid, shaded, and lit. Never merged, so each keeps its own material.
   // In a plane a boundary line does the enclosing job without any transparency.
   var bounding = (OBJECTS[0] || {}).object_mask_name;
+  // The structure with the fewest vertices is drawn nearest: a part (sheets, tubules) shows over the whole it sits in (the ER).
+  var bySize = ctx.loaded.masks.slice().sort(function(a, b){ return b.geometry.positions.length - a.geometry.positions.length; });
   ctx.loaded.masks.forEach(function(mask) {
+    var rank = bySize.indexOf(mask);
     var geometry = mergeInstances(THREE, [{ geometry: mask.geometry,
       rgb: explain ? toLinearRgb(((explain.targets || []).indexOf(mask.entity) >= 0) ? REFERENCE_COLOUR : litEntColour(mask.entity)) : style.colourOf(mask) }]);
     if (!geometry) return;
@@ -895,7 +898,12 @@ function sceneAddMasks(ctx, stage, style) {
       vertexColors: true, side: THREE.DoubleSide,
       shininess: 14, specular: 0x0d0d10,
       transparent: seeThrough, opacity: encloses ? (targeted ? 0.3 : 0.12) : targeted ? 0.5 : asContext ? 0.16 : 1,
-      depthWrite: !seeThrough
+      depthWrite: !seeThrough,
+      // Structures that share a membrane (ER and its sheets and tubules) put surfaces in the same place, and the depth buffer
+      // then picks a winner pixel by pixel. The camera's depth range gives about a nanometre per unit here, and the meshes of one
+      // membrane differ by some tens of nanometres, so a step of a few dozen units makes the smallest structure win where they
+      // meet. More than that buries whatever lies behind a surface by that much.
+      polygonOffset: true, polygonOffsetFactor: -rank, polygonOffsetUnits: -40 * rank
     }));
     if (!seeThrough) { surface.castShadow = true; surface.receiveShadow = true; }
     stage.scene.add(surface);
@@ -1461,6 +1469,22 @@ function sceneBuildControls(ctx, summary) {
       scenePaint(ctx);
       if (_objectStage) _objectStage.fit();
     }));
+  }
+
+  var depth = multiresDepth(ctx.loaded);
+  if (depth > 1) {
+    var levels = ['auto'], names = new Map([['auto', 'automatic (by distance)']]);
+    for (var level = 0; level < depth; level++) {
+      levels.push(String(level));
+      names.set(String(level), level + (level === 0 ? ' (finest)' : level === depth - 1 ? ' (coarsest)' : ''));
+    }
+    if (levels.indexOf(String(sceneState.levelPin)) < 0) sceneState.levelPin = 'auto';
+    var control = selector('Level of detail', levels, sceneState.levelPin, function(value) {
+      sceneState.levelPin = value;
+      multiresRefresh();
+    }, names);
+    control.title = 'Draw every big mesh at one level of detail, to look at each level in turn';
+    ctx.controls.appendChild(control);
   }
 
   var chips = document.createElement('div');

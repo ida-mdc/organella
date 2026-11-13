@@ -95,6 +95,8 @@ var _objectStage = null;
 // view to the first object with structure colouring.
 var sceneState = { objectId: null, colourBy: 'entity', metric: null, entities: null,
                    explode: 0, gap: null, maxGap: null,
+                   // 'auto' lets the camera pick each big mesh's level of detail; a number draws every one at that level (0 is the finest).
+                   levelPin: 'auto',
                    // The chart the viewer is explaining, if any (see pinToViewer), and the
                    // two things a reader can slide to see how the 3D feeds that chart.
                    explain: null, wedgePaused: null, pinnedIndex: 0, threshold: null, wedge: null, t: 0,

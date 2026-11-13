@@ -118,6 +118,16 @@ def _decimated_here(xyz: np.ndarray, faces: np.ndarray, reduction: float, **opti
     return xyz.astype(np.float32), faces
 
 
+# A raw marching-cubes mesh with more vertices than this is sampled on a wider grid and not decimated from the full one.
+RAW_VERTICES = 4_000_000
+
+
+def _grown(stride: int, first: int, finest: float) -> float:
+    """How far outside the true surface (µm) a field sampled every ``stride`` voxels is taken, instead of every ``first``: half
+    the difference in step, so a sheet thinner than the step still has a surface."""
+    return 0.5 * (stride - first) * finest
+
+
 def generate_mesh(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Sequence[float], step_size: int = 1,
                   smooth_sigma: float | Sequence[float] = 0.7, target_reduction: float = 0.8,
                   level: float | None = None, max_vertices: int = 0) -> bytes:
@@ -126,8 +136,23 @@ def generate_mesh(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Seque
     The surface is the zero level of inside minus outside distance, optionally smoothed, which sits at the true voxel
     boundary: thin structures survive, and blurring the binary would inflate the volume.
     """
+    return generate_mesh_levels(binary, origin_zyx, voxel_um, step_size, smooth_sigma, target_reduction, level, max_vertices)[0]
+
+
+def generate_mesh_levels(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Sequence[float], step_size: int = 1,
+                         smooth_sigma: float | Sequence[float] = 0.7, target_reduction: float = 0.8,
+                         level: float | None = None, max_vertices: int = 0, coarser: int = 0,
+                         coarsest_vertices: int = 2_000, min_vertices: int = 6_000) -> tuple[bytes, list[tuple[np.ndarray, np.ndarray]]]:
+    """``generate_mesh``, and up to ``coarser`` further meshes of the same distance field, each sampled on a grid twice as
+    wide as the one before, as (vertices, faces).
+
+    Those are the coarse levels of detail. Decimating the finest mesh cannot make a network of thin sheets and tubes much
+    smaller (collapsing an edge of a sheet two voxels thick breaks it), but a distance field sampled every 2nd, 4th, 8th
+    voxel can: the surface is taken a little outside the true one, by half the sampling step, so a sheet thinner than the
+    step still has a surface and stays one piece. Stops once a level is down to ``coarsest_vertices``.
+    """
     if binary.sum() < 8:
-        return b""
+        return b"", []
     try:
         spacing = tuple(float(v) for v in voxel_um)
         finest, coarsest = min(spacing), max(spacing)
@@ -144,24 +169,66 @@ def generate_mesh(binary: np.ndarray, origin_zyx: Sequence[int], voxel_um: Seque
         # Neither knob may exceed what the instance can carry: a kernel wider than half its inscribed radius flattens
         # the field, and a coarser step walks over it.
         radius_um = float(inside.max())
+        del inside, padded
         sigma_um = tuple(min(su, radius_um / 2.0) for su in sigma_um)
         step = max(1, min(step_size, int(radius_um / coarsest) - 1))
         if any(su > 0 for su in sigma_um):
             field = gaussian_filter(field, sigma=tuple(su / s for su, s in zip(sigma_um, spacing)))
-        vertices, faces, _, _ = marching_cubes(field, level=0.0 if level is None else level, step_size=step)
-        vertices = vertices - np.asarray(pads)
-        oz, oy, ox = origin_zyx
-        sz, sy, sx = spacing
-        xyz = np.column_stack([(vertices[:, 2] + ox) * sx, (vertices[:, 1] + oy) * sy,
-                               (vertices[:, 0] + oz) * sz]).astype(np.float32)
-        if target_reduction > 0 and len(faces) > 100:
+        base = 0.0 if level is None else level
+        origin = np.asarray(origin_zyx)
+
+        def mesh_at(stride: int, grow_um: float) -> tuple[np.ndarray, np.ndarray]:
+            iso = base - grow_um
+            if grow_um > 0:
+                # A surface taken outside the true one can reach past the background the field was padded with, and
+                # marching cubes leaves it open at the array's edge. A rim of "outside" one step wide closes it.
+                rim = stride
+                grid = np.pad(field, rim, mode="constant", constant_values=min(float(field.min()), iso) - 1.0)
+            else:
+                rim, grid = 0, field
+            vertices, faces, _, _ = marching_cubes(grid, level=iso, step_size=stride)
+            vertices = vertices - np.asarray(pads) - rim
+            oz, oy, ox = origin
+            sz, sy, sx = spacing
+            xyz = np.column_stack([(vertices[:, 2] + ox) * sx, (vertices[:, 1] + oy) * sy,
+                                   (vertices[:, 0] + oz) * sz]).astype(np.float32)
+            return xyz, faces
+
+        first = step
+        xyz, faces = mesh_at(step, 0.0)
+        # Decimating is the cost of a big mask (minutes for ten million vertices, one thread under a lock), and sampling the
+        # field on a grid twice as wide gives a quarter of the vertices in a couple of seconds: nearly what decimation would
+        # leave. So a surface past RAW_VERTICES is taken at the next step up instead, a little outside, as the coarse levels are,
+        # and is not decimated as well: that would take it far below what was asked for.
+        while len(xyz) > RAW_VERTICES and min(field.shape) > 16 * step:
+            step *= 2
+            xyz, faces = mesh_at(step, _grown(step, first, finest))
+        decimating = target_reduction > 0 and step == first
+        if decimating and len(faces) > 100:
             xyz, faces = _decimated(xyz, faces, target_reduction, agg=DECIMATION_AGGRESSION)
         if max_vertices and len(xyz) > max_vertices and len(faces) > 100:  # a fixed fraction bounds nothing, so cap the count
             xyz, faces = _decimated(xyz, faces, 1.0 - max_vertices / len(xyz))
-        return quantised_payload(xyz, faces.astype(np.uint32))
+        payload = quantised_payload(xyz, faces.astype(np.uint32))
     except Exception as error:  # a speck too small to enclose a surface is ordinary
         log.debug("meshing failed (%s); emitting no geometry", error)
-        return b""
+        return b"", []
+    levels, previous, stride = [], len(xyz), step
+    if previous < min_vertices:
+        coarser = 0
+    while len(levels) < coarser and previous > coarsest_vertices and min(field.shape) > 4 * stride * 2:
+        stride *= 2
+        try:
+            # Not decimated: collapsing edges of a mesh of thin sheets leaves folded-over triangles and needles that a mesh
+            # sampled from the field does not have, and the grid already gives a quarter of the vertices per step.
+            cx, cf = mesh_at(stride, _grown(stride, first, finest))
+        except Exception as error:   # a level the field cannot give (nothing left at this step) ends the ladder
+            log.debug("no coarser mesh at step %d (%s)", stride, error)
+            break
+        if len(cx) < 4 or len(cx) >= previous * 0.7:
+            continue
+        levels.append((cx, cf.astype(np.uint32)))
+        previous = len(cx)
+    return payload, levels
 
 
 def generate_outline(binary: np.ndarray, origin_yx: Sequence[int], voxel_um: Sequence[float]) -> bytes:

@@ -268,3 +268,27 @@ def test_without_instances_only_the_per_structure_rows_remain_and_contacts_stay_
     assert set(report["row_type"]) == {"object", "entity"}
     entities = report.filter(pl.col("row_type") == "entity")
     assert entities.filter(pl.col("entity_name") == "blobs")["instance_count"][0] == 2 and "surface_area_um2" in report.columns
+
+
+def test_the_object_row_says_what_the_structures_cover_together_so_an_overlap_counts_once():
+    er = np.zeros((8, 8, 8), np.uint8)
+    er[1:7, 1:7, 1:7] = 1                       # 216 voxels
+    sheets = np.zeros((8, 8, 8), np.uint8)
+    sheets[2:5, 2:5, 2:5] = 1                   # 27 voxels, all inside the first
+    other = np.zeros((8, 8, 8), np.uint8)
+    other[0, 0, 0:4] = 1                        # 4 voxels, apart
+    sample = sample_of({"er": er, "sheets": sheets, "other": other}, {k: Kind.MASK for k in ("er", "sheets", "other")}, (0.1,) * 3)
+    report = measure_all(sample, Settings(reach_um=0.3, chunk_edge=8))
+    row = report.filter(pl.col("row_type") == "object").row(0, named=True)
+    entities = report.filter(pl.col("row_type") == "entity")
+    assert entities["total_volume_um3"].sum() == pytest.approx((216 + 27 + 4) * 1e-3)    # each structure's own total counts the overlap
+    assert row["segmented_volume_um3"] == pytest.approx((216 + 4) * 1e-3)                # the union counts it once
+
+
+def test_the_object_mask_is_not_one_of_the_structures_the_union_is_taken_of():
+    cell = np.ones((8, 8, 8), np.uint8)
+    part = np.zeros((8, 8, 8), np.uint8)
+    part[2:4, 2:4, 2:4] = 1
+    sample = sample_of({"cell": cell, "part": part}, {"cell": Kind.MASK, "part": Kind.MASK}, (0.1,) * 3, mask="cell")
+    row = measure_all(sample, Settings(reach_um=0.3, chunk_edge=8)).filter(pl.col("row_type") == "object").row(0, named=True)
+    assert row["segmented_volume_um3"] == pytest.approx(8 * 1e-3)

@@ -32,7 +32,7 @@ class Statistics:
 
     def measure(self, sample: Sample, settings: Settings, shared: Shared) -> dict[RowType, pl.DataFrame]:
         structures = list(sample.structures.values())
-        centre_stats, per_structure, boundary = _first_pass(sample)
+        centre_stats, per_structure, boundary, segmented = _first_pass(sample)
         edge = np.array(sample.voxel_size.um)
         centre = None if centre_stats.height == 0 else np.array(centre_stats.select(f"c{i}" for i in range(len(edge))).row(0)) * edge
         centroids = {s.name: _entity_centroid(per_structure[s.name]) for s in structures}
@@ -51,23 +51,28 @@ class Statistics:
                      for s in sample.labelled() if per_structure[s.name].height and s.name in shapes}
         shared.findings = Findings(per_structure, entities, instances, skeletons, contacts)
         return {
-            RowType.OBJECT: pl.DataFrame([_object_row(sample, centre_stats, centre, contacts, directions)]),
+            RowType.OBJECT: pl.DataFrame([_object_row(sample, centre_stats, centre, contacts, directions, segmented)]),
             RowType.ENTITY: entities,
             RowType.INSTANCE: pl.concat(instances.values(), how="diagonal_relaxed") if instances else pl.DataFrame(),
             RowType.CONTACT: contacts if contacts is not None else pl.DataFrame(),
         }
 
 
-def _first_pass(sample: Sample) -> tuple[pl.DataFrame, dict[str, pl.DataFrame], np.ndarray | None]:
-    """The object's own counts and centroid, the same for every structure, and the object mask's outside boundary."""
+def _first_pass(sample: Sample) -> tuple[pl.DataFrame, dict[str, pl.DataFrame], np.ndarray | None, int]:
+    """The object's own counts and centroid, the same for every structure, the object mask's outside boundary, and how many
+    voxels at least one structure covers (the structures' counts add up to more where they overlap)."""
     structures = list(sample.structures.values())
     mask = sample.structures[sample.object_mask] if sample.object_mask else None
     # All delayed: computed together with arrays, dask hands the delayed results back out of order.
     lazies = [counts_and_centroids(_origin_region(sample).astype(np.uint8)), *map(_lazy_statistics, structures)]
+    covered = [s.foreground for s in structures if s.name != sample.object_mask]
+    lazies.append(dask.delayed(int)(reduce(da.logical_or, covered).sum()) if covered else dask.delayed(0))
     if mask is not None:
         lazies.append(boundary_voxels(mask.foreground))
     found = dask.compute(*lazies)
-    return found[0], dict(zip((s.name for s in structures), found[1:1 + len(structures)])), found[-1] if mask is not None else None
+    last = len(structures) + 1
+    return (found[0], dict(zip((s.name for s in structures), found[1:last])), found[-1] if mask is not None else None,
+            int(found[last]))
 
 
 def _entity_rows(sample, per_structure, centroids, depths, shapes, centre, edge) -> pl.DataFrame:
@@ -118,7 +123,8 @@ def _covariance(stats: pl.DataFrame, edge: np.ndarray) -> np.ndarray:
     return covariance
 
 
-def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl.DataFrame | None, directions: np.ndarray | None) -> dict:
+def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl.DataFrame | None, directions: np.ndarray | None,
+                segmented: int) -> dict:
     axes, edge = sample.voxel_size.axes, sample.voxel_size.um
     row = {
         "imported_path_short": sample.group,
@@ -126,6 +132,7 @@ def _object_row(sample: Sample, centre_stats: pl.DataFrame, centre, contacts: pl
         **{f"size_{a}": n for a, n in zip(axes, sample.shape)},
         "object_mask_name": sample.object_mask,
         "spatial_dims": len(edge),
+        columns.segmented_size(len(edge)): float(segmented) * sample.voxel_size.volume,
     }
     if sample.object_mask:
         row[columns.object_size(len(edge))] = float(centre_stats["count"].sum()) * sample.voxel_size.volume

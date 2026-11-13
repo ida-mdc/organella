@@ -323,6 +323,14 @@ COLUMNS: dict[str, str] = {
         "What this row is: 'object' (obs_level 0), 'entity' (obs_level 1, one per structure), or one of 'instance', "
         "'distance' and 'contact' below them."
     ),
+    'segmented_area_um2': (
+        'Area in µm² covered by at least one structure: where structures overlap (an ER mask and the sheets inside it) '
+        'it counts the overlap once, which the sum of the structures\' totals does not.'
+    ),
+    'segmented_volume_um3': (
+        'Volume in µm³ covered by at least one structure: where structures overlap (an ER mask and the sheets inside '
+        'it) it counts the overlap once, which the sum of the structures\' totals does not.'
+    ),
     'size_bytes': (
         'Size on disk of everything read for this object, in bytes.'
     ),

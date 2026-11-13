@@ -159,13 +159,20 @@ def multires_finest(manifest):
     return sum(f["nv"] for f in manifest["levels"][0]["fragments"])
 
 
-def test_a_mesh_the_simplifier_cannot_reduce_still_gets_coarser_levels(monkeypatch, mesh):
+def test_a_simplifier_that_stalls_ends_the_ladder_and_does_not_pad_it_with_wrecked_levels(monkeypatch, mesh):
     xyz, faces = mesh
     monkeypatch.setattr(multires, "_decimated", lambda x, f, r, **o: (x, f))     # what it does on a network of thin pieces
     levels, (coarse_xyz, coarse_faces) = multires.build_levels(xyz, faces, fragment_vertices=400, coarsest_vertices=300)
-    counts = [sum(f.vertices for f in level.fragments) for level in levels]
-    assert len(levels) >= 3 and counts == sorted(counts, reverse=True) and len(coarse_xyz) < len(xyz) / 4
-    assert coarse_faces.max() < len(coarse_xyz)
+    assert len(levels) == 1 and len(coarse_xyz) == len(xyz)       # nothing coarser it could honestly offer
+
+
+def test_no_level_has_folded_over_triangles():
+    xyz, faces = blob_mesh()
+    assert multires._folded(xyz, faces) < 0.001
+    levels, (coarse_xyz, coarse_faces) = multires.build_levels(xyz, faces, fragment_vertices=1500, coarsest_vertices=300)
+    assert len(levels) >= 2 and multires._folded(coarse_xyz, coarse_faces) <= multires.MAX_FOLDED
+    scrambled = np.random.default_rng(0).permutation(len(xyz))      # a mesh whose triangles point every way is folded all over
+    assert multires._folded(xyz, scrambled[faces]) > 0.3
 
 
 def sheet_mesh():
@@ -200,3 +207,60 @@ def test_no_level_of_a_thin_sheet_surface_is_a_wreck_of_the_one_before_it():
     assert len(levels) >= 2                                              # it still gets coarser, where it can
     assert surface_area(coarse_xyz, coarse_faces) > 0.7 * surface_area(xyz, faces)   # a sheet merged with its other side loses its area
     assert pieces(coarse_xyz, coarse_faces) <= 1.1 * pieces(xyz, faces) + 5          # and a level never has more pieces than the finest
+
+
+def sheet_mask():
+    """The mask ``sheet_mesh`` is the surface of: a wavy sheet about three voxels thick with holes in it."""
+    from scipy import ndimage
+    grid = np.mgrid[0:100, 0:100, 0:36].astype(np.float32)
+    middle = 16 + 6 * np.sin(grid[0] / 7) * np.cos(grid[1] / 9)
+    holes = ndimage.gaussian_filter(np.random.default_rng(2).normal(size=(100, 100, 36)).astype(np.float32), 4) > -0.012
+    return ((np.abs(grid[2] - middle) < 1.4) & holes).transpose(2, 1, 0)
+
+
+def test_a_thin_sheet_mask_gets_coarse_levels_sampled_from_its_field_that_still_cover_it():
+    from organella.geometry.surfaces import generate_mesh_levels
+    payload, coarser = generate_mesh_levels(sheet_mask(), (0, 0, 0), (0.02,) * 3, coarser=4, coarsest_vertices=500, min_vertices=1000)
+    xyz, faces = decode_quantised(payload)
+    assert len(coarser) >= 2
+    sizes = [len(xyz)] + [len(c[0]) for c in coarser]
+    assert all(b < a for a, b in zip(sizes, sizes[1:])) and sizes[-1] < sizes[0] / 8   # each far smaller: decimation could not
+    first = surface_area(xyz, faces.astype(np.int64))
+    for cx, cf in coarser:                      # none of them lost the sheet or fell apart into more pieces
+        assert surface_area(cx, cf.astype(np.int64)) > 0.5 * first
+        assert pieces(cx, cf.astype(np.int64)) <= 1.1 * pieces(xyz, faces.astype(np.int64)) + 5
+    levels, _ = multires.build_levels(xyz, faces, fragment_vertices=1500, coarsest_vertices=500, coarser=coarser)
+    assert len(levels) >= 1 + len(coarser)      # the volume's meshes are the levels after the first
+
+
+def open_edges(faces):
+    """How many edges belong to one triangle only: zero for a closed surface."""
+    faces = faces.astype(np.int64)
+    edges = np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
+    return int((np.unique(edges, axis=0, return_counts=True)[1] == 1).sum())
+
+
+def test_every_coarse_level_of_a_mask_that_fills_its_box_is_a_closed_surface():
+    from organella.geometry.surfaces import generate_mesh_levels
+    mask = sheet_mask()
+    mask[:, :, 0] = True            # touching the box on every side, as a structure cut off by the volume does
+    mask[0], mask[-1], mask[:, 0], mask[:, -1] = True, True, True, True
+    payload, coarser = generate_mesh_levels(mask, (0, 0, 0), (0.02,) * 3, coarser=4, coarsest_vertices=500, min_vertices=1000)
+    assert len(coarser) >= 2 and open_edges(decode_quantised(payload)[1]) == 0
+    assert [open_edges(cf) for _, cf in coarser] == [0] * len(coarser)
+
+
+def test_a_small_mask_gets_no_coarser_meshes():
+    from organella.geometry.surfaces import generate_mesh_levels
+    ball = np.zeros((20, 20, 20), bool)
+    ball[5:15, 5:15, 5:15] = True
+    assert generate_mesh_levels(ball, (0, 0, 0), (0.1,) * 3, coarser=4)[1] == []
+
+
+def test_the_stored_surface_is_the_finest_level_within_the_vertex_limit(mesh):
+    levels, coarsest = multires.build_levels(*mesh, fragment_vertices=1500, coarsest_vertices=300)
+    sizes = [sum(f.vertices for f in level.fragments) for level in levels]
+    assert len(levels) >= 3
+    _, kept = multires.build_levels(*mesh, fragment_vertices=1500, coarsest_vertices=300, stored_vertices=len(mesh[0]) // 3)
+    assert len(coarsest[0]) < len(kept[0]) <= len(mesh[0]) // 3      # not the coarsest, and the finest that fits
+    assert multires.build_levels(*mesh, fragment_vertices=1500, coarsest_vertices=300, stored_vertices=1)[1][0].shape == coarsest[0].shape

@@ -80,6 +80,22 @@ function multiresAttach(ctx, stage, items, mesh) {
   multiresSchedule();
 }
 
+/** How many levels the deepest mesh of a loaded scene has: what the level-of-detail dropdown lists. */
+function multiresDepth(loaded) {
+  var depth = 0;
+  ((loaded && loaded.instances) || []).concat((loaded && loaded.masks) || []).forEach(function(item) {
+    if (item.levels && item.levels.levels) depth = Math.max(depth, item.levels.levels.length);
+  });
+  return depth;
+}
+
+/** Look again at once, after something other than the camera changed what should be drawn. */
+function multiresRefresh() {
+  if (!_multires) return;
+  _multires.dirty = true;
+  multiresSchedule();
+}
+
 function multiresSchedule() {
   var m = _multires;
   if (!m || m.timer) return;
@@ -121,18 +137,24 @@ function multiresUpdate(m) {
   m.dirty = false;
 
   // Which instances are big enough on screen to be worth refining, nearest first.
+  var pinned = sceneState.levelPin !== 'auto';
   var candidates = [];
   m.records.forEach(function(record) {
     var local = multiresViewIn(view, record.offset);
     var gap = Math.sqrt(record.centre.reduce(function(n, c, a){ return n + Math.pow(c - local.eye[a], 2); }, 0));
     var px = record.radius * local.focalPx / Math.max(gap, 1e-9);
-    if (px < MULTIRES_MIN_PX || !boxInFrustum(local.planes, record.min, record.max)) { multiresRestore(m, record); return; }
+    if ((px < MULTIRES_MIN_PX && !pinned) || !boxInFrustum(local.planes, record.min, record.max)) { multiresRestore(m, record); return; }
     candidates.push({ record: record, local: local, px: px });
   });
   candidates.sort(function(a, b){ return b.px - a.px; });
 
-  var budget = MULTIRES_VERTEX_BUDGET, asks = [];
+  // Every mesh wants the same level at the same distance (the finest error any of them has, doubling per level), and shares
+  // the vertex budget in proportion to its size on screen: one mesh that spent it all would leave its neighbours coarse.
+  var baseError = Math.min.apply(null, m.records.map(function(r){ return r.tree.levels[0].error; }));
+  var onScreen = candidates.reduce(function(n, c){ return n + c.px; }, 0) || 1;
+  var asks = [];
   var isLoaded = function(record) { return function(node){ return _fragmentCache.has(fragmentKey(m, record, node)); }; };
+  var ready = [];
   candidates.forEach(function(c) {
     var loaded = isLoaded(c.record);
     // Until every root has arrived the coarse copy in the merged buffer stays: a root is the whole mesh at its coarsest.
@@ -142,14 +164,37 @@ function multiresUpdate(m) {
       multiresRestore(m, c.record);
       return;
     }
-    var cut = selectCut(c.record.tree, c.local, { tolerancePx: MULTIRES_TOLERANCE_PX, maxVertices: Math.max(budget, 0), isLoaded: loaded });
-    budget -= cut.vertices;
-    multiresShow(m, c.record, cut.draw);
-    cut.request.forEach(function(node) {
-      asks.push({ record: c.record, node: node,
-                  priority: c.px * node.error * view.focalPx / Math.max(distanceToBox(c.local.eye, node.min, node.max), 1e-9) });
-    });
+    c.loaded = loaded;
+    c.options = { tolerancePx: MULTIRES_TOLERANCE_PX, maxVertices: MULTIRES_VERTEX_BUDGET * c.px / onScreen, baseError: baseError };
+    ready.push(c);
   });
+
+  // A block of space gets a finer level only once every mesh in it has what it wants there (blockCaps), so no label runs ahead
+  // of its neighbour. Pinned to a level, the choice is the reader's and nothing waits.
+  var depth = Math.max.apply(null, [1].concat(ready.map(function(c){ return c.record.tree.levels.length; })));
+  var caps = null, wanted = [];
+  if (!pinned && ready.length > 1) {
+    var lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    ready.forEach(function(c) { for (var a = 0; a < 3; a++) {
+      lo[a] = Math.min(lo[a], c.record.min[a] + c.record.offset[a]); hi[a] = Math.max(hi[a], c.record.max[a] + c.record.offset[a]);
+    } });
+    var size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 4 || 1;
+    var gate = blockCaps(ready.map(function(c) {
+      return { tree: c.record.tree, view: c.local, offset: c.record.offset, loaded: c.loaded, options: c.options };
+    }), depth, size);
+    caps = gate.capOf;
+    // The fragments a block waits for are not in the cut drawn now (that stops at the level the block may use), so they are
+    // asked for here: without them nothing would ever make the block finer.
+    wanted = gate.missing.map(function(w){ return { c: ready[w.record], node: w.node }; });
+  }
+  ready.forEach(function(c) {
+    var options = Object.assign({}, c.options, { isLoaded: c.loaded, exactLevel: pinned ? Number(sceneState.levelPin) : null });
+    if (caps) options.levelCap = function(node){ return caps(node, c.record.offset); };
+    var cut = selectCut(c.record.tree, c.local, options);
+    multiresShow(m, c.record, cut.draw);
+    cut.request.forEach(function(node){ asks.push(multiresAsk(c, node, baseError, view)); });
+  });
+  wanted.forEach(function(w){ asks.push(multiresAsk(w.c, w.node, baseError, view)); });
 
   asks.sort(function(a, b){ return b.priority - a.priority; });
   var issued = new Set();
@@ -162,6 +207,12 @@ function multiresUpdate(m) {
   FRAGMENT_QUEUE.keepOnly(issued);
   multiresEvict(m);
   stage.draw();
+}
+
+/** A fragment to fetch, and how badly it is wanted: the screen size of its level's error. */
+function multiresAsk(c, node, baseError, view) {
+  return { record: c.record, node: node,
+           priority: c.px * baseError * Math.pow(2, node.level) * view.focalPx / Math.max(distanceToBox(c.local.eye, node.min, node.max), 1e-9) };
 }
 
 function multiresFetch(m, record, node, key) {

@@ -14,6 +14,11 @@ def object_size(ndim: int) -> str:
     return "object_area_um2" if ndim == 2 else "object_volume_um3"
 
 
+def segmented_size(ndim: int) -> str:
+    """The extent covered by at least one structure: the union, where the structures' totals count an overlap once each."""
+    return "segmented_area_um2" if ndim == 2 else "segmented_volume_um3"
+
+
 def boundary(ndim: int) -> str:
     return "perimeter_um" if ndim == 2 else "surface_area_um2"
 

@@ -60,8 +60,9 @@ function boxInFrustum(planes, min, max) {
 }
 
 /** How many pixels the error of a node's level spans from here: what decides whether it is fine enough. */
-function screenError(node, eye, focalPx) {
-  return node.error * focalPx / Math.max(distanceToBox(eye, node.min, node.max), 1e-9);
+function screenError(node, eye, focalPx, baseError) {
+  var error = baseError ? baseError * Math.pow(2, node.level) : node.error;
+  return error * focalPx / Math.max(distanceToBox(eye, node.min, node.max), 1e-9);
 }
 
 // A binary max-heap on `.priority`, for taking the node that looks worst next.
@@ -101,7 +102,12 @@ function popHeap(heap) {
  * the nearest loaded ancestor, so a fragment still on its way never leaves a hole.
  *
  *   view     { eye: [x, y, z], planes: [[nx, ny, nz, d] x 6] or null, focalPx }
- *   options  { tolerancePx = 1.5, maxVertices = Infinity, isLoaded(node) }
+ *   options  { tolerancePx = 1.5, maxVertices = Infinity, isLoaded(node), minLevel = 0, exactLevel = null }
+ *            minLevel is the finest level allowed: a fragment of that level is never split into finer ones (a cap).
+ *            baseError, when given, is the error of level 0 for every mesh, doubling per level: the same level is then wanted
+ *            at the same distance whichever mesh it is, where each mesh's own measured errors would give neighbours different ones.
+ *            levelCap(node), when given, is the finest level a node's region may be drawn at right now (see blockCaps).
+ *            exactLevel pins the cut to that level wherever the camera sees it, whatever the distance or the budget.
  *   returns  { draw: [node], request: [node] (worst first), wanted: [node], vertices }
  */
 function selectCut(tree, view, options) {
@@ -109,13 +115,17 @@ function selectCut(tree, view, options) {
   var tolerance = options.tolerancePx == null ? 1.5 : options.tolerancePx;
   var budget = options.maxVertices == null ? Infinity : options.maxVertices;
   var isLoaded = options.isLoaded || function(){ return true; };
+  var exact = options.exactLevel == null ? null : options.exactLevel;
+  var base = options.baseError || 0;
+  var capOf = options.levelCap || null;
+  var minLevel = exact == null ? (options.minLevel || 0) : exact;
   var seen = function(node){ return !view.planes || boxInFrustum(view.planes, node.min, node.max); };
 
   var heap = [], wanted = [], vertices = 0;
   tree.roots.forEach(function(root) {
     if (!seen(root)) return;
     vertices += root.vertices;
-    pushHeap(heap, { node: root, priority: screenError(root, view.eye, view.focalPx) });
+    pushHeap(heap, { node: root, priority: screenError(root, view.eye, view.focalPx, base) });
   });
   while (heap.length) {
     var top = popHeap(heap), node = top.node;
@@ -123,12 +133,13 @@ function selectCut(tree, view, options) {
     var gain = kids.reduce(function(n, k){ return n + k.vertices; }, 0) - node.vertices;
     // Fine enough, nothing finer, or too dear: this is where the cut stops. A node whose children are all out of view
     // stops too: what it holds that the camera sees is only a corner of its cell.
-    if (top.priority <= tolerance || !node.children.length || !kids.length || vertices + gain > budget) {
+    var stop = exact == null ? (top.priority <= tolerance || vertices + gain > budget) : node.level <= exact;
+    if (stop || node.level <= minLevel || (capOf && node.level <= capOf(node)) || !node.children.length || !kids.length) {
       wanted.push(node);
       continue;
     }
     vertices += gain;
-    kids.forEach(function(k){ pushHeap(heap, { node: k, priority: screenError(k, view.eye, view.focalPx) }); });
+    kids.forEach(function(k){ pushHeap(heap, { node: k, priority: screenError(k, view.eye, view.focalPx, base) }); });
   }
 
   // Draw the wanted fragment where it is loaded, else the nearest loaded ancestor.
@@ -145,7 +156,54 @@ function selectCut(tree, view, options) {
     for (var up = node.parent; up; up = up.parent) if (chosen.has(up.id)) return;
     draw.push(node);
   });
-  request.sort(function(a, b){ return screenError(b, view.eye, view.focalPx) - screenError(a, view.eye, view.focalPx); });
+  request.sort(function(a, b){ return screenError(b, view.eye, view.focalPx, base) - screenError(a, view.eye, view.focalPx, base); });
   var drawnVertices = draw.reduce(function(n, node){ return n + node.vertices; }, 0);
   return { draw: draw, request: request, wanted: wanted, vertices: drawnVertices };
+}
+
+
+/** The keys of the cells of a cubic grid (cell `size`) that a node's box, moved by `offset`, touches. */
+function blockKeys(node, offset, size) {
+  var lo = [0, 1, 2].map(function(a){ return Math.floor((node.min[a] + offset[a]) / size); });
+  var hi = [0, 1, 2].map(function(a){ return Math.max(lo[a], Math.ceil((node.max[a] + offset[a]) / size) - 1); });
+  var keys = [];
+  for (var x = lo[0]; x <= hi[0]; x++) for (var y = lo[1]; y <= hi[1]; y++) for (var z = lo[2]; z <= hi[2]; z++) keys.push(x + ',' + y + ',' + z);
+  return keys;
+}
+
+/**
+ * How fine each block of space may be drawn right now, so that every mesh in a block moves to a finer level together.
+ *
+ * A mesh drawn finer than its neighbour in the same block looks like one label swelling over the other, so a block steps down
+ * to level L only once every fragment all the meshes want there, at level L or coarser, has arrived.
+ *
+ *   records  [{ tree, view, offset, loaded(node), options }]  options are those of selectCut
+ *   returns  { capOf(node, offset): the finest level that node's region may be drawn at (the coarsest level where unknown),
+ *             missing: [{ record, node }] the fragments that stand in the way, coarsest first: they are what has to be fetched }
+ */
+function blockCaps(records, depth, size) {
+  var ready = new Map(), closed = new Set(), missingNodes = [], asked = new Set();
+  for (var level = depth - 1; level >= 0; level--) {
+    var missing = new Set(), touched = new Set();
+    records.forEach(function(r, index) {
+      var options = Object.assign({}, r.options, { minLevel: level, isLoaded: function(){ return true; }, levelCap: null });
+      selectCut(r.tree, r.view, options).wanted.forEach(function(node) {
+        var absent = !r.loaded(node);
+        if (absent && !asked.has(index + '|' + node.id)) { asked.add(index + '|' + node.id); missingNodes.push({ record: index, node: node }); }
+        blockKeys(node, r.offset, size).forEach(function(key){ touched.add(key); if (absent) missing.add(key); });
+      });
+    });
+    touched.forEach(function(key) {
+      if (closed.has(key)) return;
+      if (missing.has(key)) closed.add(key); else ready.set(key, level);
+    });
+  }
+  var capOf = function(node, offset) {
+    // A big node's box reaches into blocks with nothing wanted in them, and a coarse level covers blocks a finer one splits up:
+    // the node may be split as soon as one block under it is ready, and its children are then judged by the blocks they hold.
+    var cap = depth - 1;
+    blockKeys(node, offset, size).forEach(function(key){ if (ready.has(key)) cap = Math.min(cap, ready.get(key)); });
+    return cap;
+  };
+  return { capOf: capOf, missing: missingNodes };
 }

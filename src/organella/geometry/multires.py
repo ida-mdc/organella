@@ -27,6 +27,8 @@ from organella.geometry.payloads import decode_quantised, payload_counts, quanti
 from organella.geometry.surfaces import DECIMATION_AGGRESSION, _decimated
 
 FILENAME = "meshes.bin"
+# Where a row carries the coarser meshes the writer made from the distance field, until its levels are built.
+COARSER = "_coarser"
 MANIFEST_VERSION = 1
 
 # A mesh with fewer vertices than this is not worth fragmenting: one payload in the geometry file is as cheap.
@@ -34,6 +36,9 @@ MIN_VERTICES = 6_000
 # What a fragment aims at, and where the levels stop. Fragments with 8-16k vertices are a few tens of kB deflated.
 FRAGMENT_VERTICES = 12_000
 COARSEST_VERTICES = 2_000
+# A whole-structure mask is one mesh for the whole cell, so its stored surface (what is drawn before any fragment arrives) is the
+# finest level with this many vertices: a few thousand is a handful of triangles across the cell. An instance keeps the coarsest.
+MASK_STORED_VERTICES = 200_000
 # Each level keeps about this share of the vertices of the one before.
 LEVEL_KEEP = 0.25
 MAX_LEVELS = 8
@@ -44,6 +49,16 @@ ERROR_PERCENTILE = 95
 # more pieces. Simplifying a thin double-sided sheet (an ER network) past the point where its two sides meet loses both.
 MIN_AREA_KEPT = 0.85
 MAX_PIECES_GROWTH = 1.1
+# A level is worth having only if it is clearly smaller than the one before: a simplifier that stalls leaves 24k, 18k, 16k
+# vertices of nearly the same mesh, which are three levels to fetch and none to choose between.
+MAX_LEVEL_SIZE = 0.6
+# A level sampled from the volume must keep this share of the finest level's surface area (it is taken a little outside the
+# true surface, so it can have more).
+MIN_COARSE_AREA = 0.3
+# And a level is not kept if more than this share of its edges are folded over (see _folded): the finest levels have next to none.
+MAX_FOLDED = 0.01
+# Under this many faces the share of folded edges is a handful of edges and says nothing, so the gate leaves such a level alone.
+MIN_FACES_FOR_FOLD_GATE = 1000
 
 
 @dataclass
@@ -82,13 +97,42 @@ def _pieces(xyz: np.ndarray, faces: np.ndarray) -> int:
     return int(np.unique(labels[np.unique(faces)]).size)
 
 
+def _folded(xyz: np.ndarray, faces: np.ndarray) -> float:
+    """The share of edges (those with two faces) across which the surface turns back on itself, by more than 140 degrees: a
+    smooth surface has none, and a mesh wrecked by collapsing or merging vertices has a great many."""
+    faces = np.asarray(faces, dtype=np.int64)
+    faces = faces[(faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 0] != faces[:, 2])]
+    if len(faces) < 2:
+        return 0.0
+    corners = xyz[faces].astype(np.float64)
+    normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-18)
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    owner = np.tile(np.arange(len(faces)), 3)
+    key = np.minimum(edges[:, 0], edges[:, 1]).astype(np.int64) * len(xyz) + np.maximum(edges[:, 0], edges[:, 1])
+    order = np.argsort(key, kind="stable")
+    key, owner = key[order], owner[order]
+    pairs = np.flatnonzero(key[1:] == key[:-1])
+    if not len(pairs):
+        return 0.0
+    turn = np.einsum("ij,ij->i", normals[owner[pairs]], normals[owner[pairs + 1]])
+    return float((turn < np.cos(np.radians(140.0))).mean())
+
+
 def _still_the_same_surface(xyz: np.ndarray, faces: np.ndarray, smaller_xyz: np.ndarray, smaller_faces: np.ndarray) -> bool:
     """Whether the coarser mesh keeps the surface: most of its area, and no more pieces than before."""
     if len(smaller_faces) == 0:
         return False
     if _area(smaller_xyz, smaller_faces) < MIN_AREA_KEPT * _area(xyz, faces):
         return False
+    if len(smaller_faces) >= MIN_FACES_FOR_FOLD_GATE and _folded(smaller_xyz, smaller_faces) > MAX_FOLDED:
+        return False
     return _pieces(smaller_xyz, smaller_faces) <= MAX_PIECES_GROWTH * _pieces(xyz, faces) + 5
+
+
+def _level_size_limit(vertices: int) -> float:
+    """How much of the vertices the next level may still have. A small mesh may stop short of a quarter without it meaning anything."""
+    return MAX_LEVEL_SIZE if vertices >= 2 * MIN_FACES_FOR_FOLD_GATE else 0.9
 
 
 def _deflate(raw: bytes) -> bytes:
@@ -124,49 +168,53 @@ def _fragments(xyz: np.ndarray, faces: np.ndarray, origin: np.ndarray, side: flo
 
 
 def build_levels(xyz: np.ndarray, faces: np.ndarray, fragment_vertices: int = FRAGMENT_VERTICES,
-                 coarsest_vertices: int = COARSEST_VERTICES) -> tuple[list[Level], tuple[np.ndarray, np.ndarray]]:
-    """The levels, finest first, and the mesh of the last, which the geometry file keeps as the instance's surface.
+                 coarsest_vertices: int = COARSEST_VERTICES,
+                 coarser: list[tuple[np.ndarray, np.ndarray]] | None = None,
+                 stored_vertices: int = 0) -> tuple[list[Level], tuple[np.ndarray, np.ndarray]]:
+    """The levels, finest first, and the mesh the geometry file keeps as the instance's surface: the finest level with at most
+    ``stored_vertices`` vertices, or the coarsest if none is that small (and with 0, always the coarsest).
 
     The grids are nested: one origin, and a cell twice the side of the level below it, so a coarse fragment is the union
     of at most eight finer ones and the viewer can swap one for the others anywhere on the surface without a gap or an
     overlap. A level has a quarter of the vertices of the one before and a cell of four times the area, so fragments stay
     about the same size all the way up.
+
+    ``coarser`` are meshes of the same surface made from the volume (the distance field sampled on wider grids), finest
+    first. They are the levels after the first, as far as they go: a sheet or a tube survives being sampled coarsely
+    where it does not survive collapsing its edges. Once they run out, or when there are none, the last level is
+    decimated further.
     """
     xyz, faces = np.asarray(xyz, dtype=np.float32), np.asarray(faces, dtype=np.int64)
     origin, side = _grid(xyz, faces, fragment_vertices)
     levels = [_fragments(xyz, faces, origin, side)]
-    while len(xyz) > coarsest_vertices and len(levels) < MAX_LEVELS and len(faces) > 100:
+    finest_area = _area(xyz, faces)
+    stored = (xyz, faces) if len(xyz) <= stored_vertices else None
+    for next_xyz, next_faces in coarser or []:
+        if len(levels) >= MAX_LEVELS:
+            break
+        if len(next_xyz) >= len(xyz) * 0.7:
+            continue
+        # Sampled too coarsely for the structure (an ER network at a step wider than the gaps between its sheets), a field gives
+        # a blob with a fraction of the surface: that and every grid wider than it are not levels of this surface.
+        # (Not while the last level is still too big to start from: a whole cell's ER has to get small somehow, and a coarse
+        # blob of it is better than a root of millions of vertices.)
+        if _area(next_xyz, np.asarray(next_faces, dtype=np.int64)) < MIN_COARSE_AREA * finest_area and len(xyz) <= MASK_STORED_VERTICES:
+            break
+        if len(next_faces) >= MIN_FACES_FOR_FOLD_GATE and _folded(np.asarray(next_xyz, dtype=np.float32), next_faces) > MAX_FOLDED:
+            continue
+        xyz, faces = np.asarray(next_xyz, dtype=np.float32), np.asarray(next_faces, dtype=np.int64)
+        levels.append(_fragments(xyz, faces, origin, side * 2 ** len(levels)))
+        stored = stored or ((xyz, faces) if len(xyz) <= stored_vertices else None)
+    # With meshes from the volume the ladder is theirs: they run to the widest grid that still holds the surface, and
+    # simplifying the last of them would only add the folds that sampling does not have.
+    while not coarser and len(xyz) > coarsest_vertices and len(levels) < MAX_LEVELS and len(faces) > 100:
         smaller_xyz, smaller_faces = _decimated(xyz, faces, 1.0 - LEVEL_KEEP, agg=DECIMATION_AGGRESSION)
-        if len(smaller_xyz) >= len(xyz) * 0.9 or not _still_the_same_surface(xyz, faces, smaller_xyz, smaller_faces):
-            # Collapsing edges stalls on a surface of many thin or non-manifold pieces (an ER network): merging the vertices
-            # that share a grid cell always gets smaller, but on a thin sheet it merges the two sides and wrecks it, so it
-            # is tried only where the surface survives it.
-            smaller_xyz, smaller_faces = _clustered(xyz, faces, int(len(xyz) * LEVEL_KEEP))
-        if len(smaller_xyz) >= len(xyz) * 0.9 or not _still_the_same_surface(xyz, faces, smaller_xyz, smaller_faces):
-            break      # nothing coarser keeps the surface: this is the coarsest level it can have
+        if len(smaller_xyz) >= len(xyz) * _level_size_limit(len(xyz)) or not _still_the_same_surface(xyz, faces, smaller_xyz, smaller_faces):
+            break      # simplifying stalls, or wrecks the surface (folds, lost area, pieces): this is the coarsest level it can have
         xyz, faces = smaller_xyz, smaller_faces.astype(np.int64)
         levels.append(_fragments(xyz, faces, origin, side * 2 ** len(levels)))
-    return levels, (xyz, faces)
-
-
-def _clustered(xyz: np.ndarray, faces: np.ndarray, vertices: int) -> tuple[np.ndarray, np.ndarray]:
-    """The mesh with every vertex in one cell of a regular grid merged into their mean, about ``vertices`` of them.
-
-    A cell side from the surface area (a surface crosses about 1.5 A / side^2 cells), then triangles that collapsed to a
-    line or a point, and repeats of one triangle, are dropped.
-    """
-    corners = xyz[faces]
-    area = 0.5 * np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1).sum()
-    side = max(float(np.sqrt(1.5 * area / max(vertices, 1))), 1e-6)
-    cell = np.floor((xyz - xyz.min(axis=0)) / side).astype(np.int64)
-    _, owner = np.unique(cell, axis=0, return_inverse=True)
-    owner = owner.ravel()
-    count = np.bincount(owner)
-    merged = np.stack([np.bincount(owner, weights=xyz[:, a]) / count for a in range(3)], axis=1).astype(np.float32)
-    remapped = owner[faces]
-    keep = (remapped[:, 0] != remapped[:, 1]) & (remapped[:, 1] != remapped[:, 2]) & (remapped[:, 0] != remapped[:, 2])
-    remapped = np.unique(np.sort(remapped[keep], axis=1), axis=0) if keep.any() else remapped[keep]
-    return merged, remapped.astype(np.int64)
+        stored = stored or ((xyz, faces) if len(xyz) <= stored_vertices else None)
+    return levels, stored or (xyz, faces)
 
 
 def coarsest_payload(xyz: np.ndarray, faces: np.ndarray) -> bytes:
@@ -221,7 +269,7 @@ def _is_big(row: dict, min_vertices: int) -> bool:
 
 
 def give_levels(rows: list[dict], folder: Path, min_vertices: int = MIN_VERTICES, fragment_vertices: int = FRAGMENT_VERTICES,
-                coarsest_vertices: int = COARSEST_VERTICES) -> int:
+                coarsest_vertices: int = COARSEST_VERTICES, mask_vertices: int = MASK_STORED_VERTICES) -> int:
     """Gives every big mesh row levels of detail: its fragments go to ``folder/meshes.bin``, its manifest to ``multires`` and
     its coarsest level to ``surface``. Returns how many rows got them; with none, no ``meshes.bin`` is left behind.
 
@@ -237,14 +285,17 @@ def give_levels(rows: list[dict], folder: Path, min_vertices: int = MIN_VERTICES
             with ThreadPoolExecutor(width) as threads:
                 for start in range(0, len(wanted), 2 * width):
                     window = wanted[start:start + 2 * width]
-                    built = threads.map(lambda row: build_levels(*decode_quantised(row["surface"]), fragment_vertices, coarsest_vertices),
-                                        window)
+                    built = threads.map(lambda row: build_levels(*decode_quantised(row["surface"]), fragment_vertices, coarsest_vertices,
+                                                                 row.pop(COARSER, None),
+                                                                 mask_vertices if row.get("entity_kind") == "mask" else 0), window)
                     for row, (levels, (coarse_xyz, coarse_faces)) in zip(window, built):    # in row order, so offsets are stable
                         if len(levels) < 2:    # decimation gave nothing coarser: there is nothing to choose between
                             continue
                         row["multires"] = meshes.add(levels)
                         row["surface"] = coarsest_payload(coarse_xyz, coarse_faces)
                         done += 1
+    for row in rows:
+        row.pop(COARSER, None)     # the meshes of rows that were not big enough, or when levels are off, are not kept
     if not done:
         target.unlink(missing_ok=True)
     return done

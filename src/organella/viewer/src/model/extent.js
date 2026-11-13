@@ -28,7 +28,12 @@ function analysedExtent(object) {
   if (own != null) return { value: +own, bounded: true };
   var shape = object.object_shape;
   if (shape && shape.length == null && shape.toArray) shape = shape.toArray();  // Arrow list
-  if (!shape || !shape.length) return null;
+  // A report written now says the region's size on each axis in size_Z, size_Y, size_X, and no longer as one list.
+  if (!shape || !shape.length) {
+    var axes = object.size_Z != null ? ['Z', 'Y', 'X'] : ['Y', 'X'];
+    shape = axes.map(function(a){ return object['size_' + a]; });
+    if (shape.some(function(v){ return v == null; })) return null;
+  }
   var sizes = shape.length === 3
     ? [object.pixel_size_Z, object.pixel_size_Y, object.pixel_size_X]
     : [object.pixel_size_Y, object.pixel_size_X];
@@ -38,6 +43,13 @@ function analysedExtent(object) {
     value *= (+shape[i]) * (+sizes[i]);
   }
   return { value: value, bounded: false };
+}
+
+/** The extent that at least one structure covers, each overlap counted once; null for a report that did not measure it. */
+function segmentedExtent(object) {
+  if (!object) return null;
+  var v = object.segmented_volume_um3 != null ? object.segmented_volume_um3 : object.segmented_area_um2;
+  return v != null && isFinite(v) ? +v : null;
 }
 
 /**
