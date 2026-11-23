@@ -3,21 +3,22 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy", "zarr<3"]
 # ///
-"""Put a label or mask array of coarser or offset grid onto the grid of another array in the same OME-Zarr store.
+"""Put a label or mask array of coarser or offset grid onto the grid of another array in the same zarr dataset.
 
 organella needs every entity of an object on one grid: the same shape and the same voxel size. When
 one array was predicted at a coarser scale (nuclei at 32 nm beside organelles at 16 nm), this writes
-a copy on the reference grid by nearest neighbour, so label ids stay intact, as a new group beside it.
+a copy on the reference grid by nearest neighbour, so label ids stay intact, as a new zarr group beside it.
 
-    uv run scripts/upsample_labels.py STORE.zarr nuclei --reference-group mito
+    uv run scripts/upsample_labels.py DATASET.zarr nuclei --reference-zarr-group-name mito
 
-For every level of the reference group, the finest level of the labels group that is not finer than it is
-read nearest-neighbour at the position of each reference voxel's centre, using the translations in both
-groups' multiscales metadata. That repeats voxels where the labels are coarser, copies where the sizes are
-equal, and shifts by the offset between the two groups; label ids stay intact, and positions outside the
-labels are 0. The result is STORE/<output-group> (default <labels-group>_upsample_to_<reference-group>), with
-the reference's multiscales metadata, so the manifest can name it like any other array. Existing groups are
-refused unless --overwrite. The log goes to stderr; --debug adds the per-level index ranges and per-slab progress.
+For every level of the reference zarr group, the finest level of the labels zarr group that is not finer
+than it is read nearest-neighbour at the position of each reference voxel's centre, using the translations
+in both zarr groups' multiscales metadata. That repeats voxels where the labels are coarser, copies where
+the sizes are equal, and shifts by the offset between the two zarr groups; label ids stay intact, and
+positions outside the labels are 0. The result is DATASET/<output-zarr-group> (default
+<labels-zarr-group>_upsample_to_<reference-zarr-group-name>), with the reference's multiscales metadata,
+so the manifest can name it like any other array. Existing zarr groups are refused unless --overwrite.
+The log goes to stderr; --debug adds the per-level index ranges and per-slab progress.
 """
 import argparse
 import copy
@@ -43,9 +44,11 @@ class LevelGrid(NamedTuple):
 def get_and_check_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("zarr_path", type=Path, metavar="zarr-path", help="Zarr directory")
-    parser.add_argument("labels_group_name", metavar="labels-group", help="group to bring onto the reference grid")
-    parser.add_argument("--reference-group-name", required=True, help="group whose grid to match, e.g. mito")
-    parser.add_argument("--output-group", help="name of the new group (default: <labels>_upsample_to_<reference>)")
+    parser.add_argument("labels_group_name", metavar="labels-group", help="zarr group to bring onto the reference grid")
+    parser.add_argument("--reference-group-name", required=True, help="zarr group whose grid to match")
+    parser.add_argument(
+        "--output-zarr-group", help="name of the new zarr group (default: <labels>_upsample_to_<reference>)"
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--debug", action="store_true", help="log per-level index ranges and per-slab progress")
     args = parser.parse_args()
@@ -55,10 +58,10 @@ def get_and_check_args() -> argparse.Namespace:
     return args
 
 
-def read_level_grids(group: zarr.Group) -> dict[str, LevelGrid]:
-    """The grid of every pyramid level of ``group``, by level name, from its multiscales metadata."""
+def read_level_grids(zarr_group: zarr.Group) -> dict[str, LevelGrid]:
+    """The grid of every pyramid level of ``zarr_group``, by level name, from its multiscales metadata."""
     grids = {}
-    for level in group.attrs["multiscales"][0]["datasets"]:
+    for level in zarr_group.attrs["multiscales"][0]["datasets"]:
         transformations = {step["type"]: step for step in level["coordinateTransformations"]}
         voxel_size_nm = np.array(transformations["scale"]["scale"], dtype=float)
         translation_nm = transformations.get("translation", {}).get("translation", [0.0] * len(voxel_size_nm))
@@ -88,8 +91,9 @@ def find_label_voxel_per_reference_voxel(
     """
     voxel_indices = []
     for axis, reference_length in enumerate(reference_shape):
+        reference_voxel_numbers = np.arange(reference_length)
         reference_centers_nm = (
-            reference_grid.first_voxel_center_nm[axis] + reference_grid.voxel_size_nm[axis] * np.arange(reference_length)
+            reference_grid.first_voxel_center_nm[axis] + reference_grid.voxel_size_nm[axis] * reference_voxel_numbers
         )
         distance_from_first_label_voxel = reference_centers_nm - labels_grid.first_voxel_center_nm[axis]
         nearest_label_voxel = np.floor(distance_from_first_label_voxel / labels_grid.voxel_size_nm[axis] + 0.5)
@@ -124,18 +128,20 @@ def read_reference_rows_from_labels(
     return rows
 
 
-def copy_multiscales_metadata(reference_group: zarr.Group, output_group: zarr.Group, output_name: str) -> None:
+def copy_multiscales_metadata(
+    reference_zarr_group: zarr.Group, output_zarr_group: zarr.Group, output_name: str
+) -> None:
     """Give the output the reference's pyramid description, under its own name."""
-    attributes_to_write = copy.deepcopy(reference_group.attrs.asdict())
+    attributes_to_write = copy.deepcopy(reference_zarr_group.attrs.asdict())
     attributes_to_write["multiscales"][0]["name"] = output_name
-    output_group.attrs.update(attributes_to_write)
+    output_zarr_group.attrs.update(attributes_to_write)
 
 
-def debug_log_grids(group_name: str, grids: dict[str, LevelGrid]) -> None:
+def debug_log_grids(zarr_group_name: str, grids: dict[str, LevelGrid]) -> None:
     for level_name, grid in grids.items():
         logger.debug(
             "%s/%s: voxel size %s nm, first voxel center %s nm",
-            group_name,
+            zarr_group_name,
             level_name,
             grid.voxel_size_nm.tolist(),
             grid.first_voxel_center_nm.tolist(),
@@ -156,14 +162,14 @@ def upsample_level(
     labels_grid: LevelGrid,
     reference_level: zarr.Array,
     reference_grid: LevelGrid,
-    output_group: zarr.Group,
+    output_zarr_group: zarr.Group,
     level_name: str,
     overwrite: bool,
 ) -> None:
-    """Write ``level_name`` of the output group: the labels on the grid of ``reference_level``."""
+    """Write ``level_name`` of the output zarr group: the labels on the grid of ``reference_level``."""
     voxel_indices = find_label_voxel_per_reference_voxel(labels_grid, reference_grid, reference_level.shape)
     log_label_voxels_used(level_name, voxel_indices, labels_level.shape)
-    output_level = output_group.create_dataset(
+    output_level = output_zarr_group.create_dataset(
         level_name,
         shape=reference_level.shape,
         chunks=reference_level.chunks,
@@ -182,25 +188,34 @@ def upsample_level(
 
 def main() -> None:
     args = get_and_check_args()
-    store = zarr.open_group(str(args.zarr_path), mode="a")
-    labels_group = store[args.labels_group_name]
-    reference_group = store[args.reference_group_name]
-    output_name = args.output_group or f"{args.labels_group_name}_upsample_to_{args.reference_group_name}"
-    assert args.overwrite or output_name not in store, ("already exists, use --overwrite or --output-group", output_name)
-    logger.info("upsampling %s onto the grid of %s -> %s", args.labels_group_name, args.reference_group_name, output_name)
+    zarr_dataset = zarr.open_group(str(args.zarr_path), mode="a")
+    labels_zarr_group = zarr_dataset[args.labels_group_name]
+    reference_zarr_group = zarr_dataset[args.reference_group_name]
+    default_output_name = f"{args.labels_group_name}_upsample_to_{args.reference_group_name}"
+    output_name = args.output_zarr_group or default_output_name
+    assert args.overwrite or output_name not in zarr_dataset, (
+        "already exists, use --overwrite or --output-zarr-group",
+        output_name,
+    )
+    logger.info(
+        "upsampling %s onto the grid of %s -> %s",
+        args.labels_group_name,
+        args.reference_group_name,
+        output_name,
+    )
 
-    labels_grids = read_level_grids(labels_group)
-    reference_grids = read_level_grids(reference_group)
+    labels_grids = read_level_grids(labels_zarr_group)
+    reference_grids = read_level_grids(reference_zarr_group)
     debug_log_grids(args.labels_group_name, labels_grids)
     debug_log_grids(args.reference_group_name, reference_grids)
 
-    output_group = store.require_group(output_name, overwrite=args.overwrite)
-    copy_multiscales_metadata(reference_group, output_group, output_name)
+    output_zarr_group = zarr_dataset.require_group(output_name, overwrite=args.overwrite)
+    copy_multiscales_metadata(reference_zarr_group, output_zarr_group, output_name)
 
     for level_name, reference_grid in reference_grids.items():
         labels_level_name = choose_labels_level(labels_grids, reference_grid)
-        labels_level = labels_group[labels_level_name]
-        reference_level = reference_group[level_name]
+        labels_level = labels_zarr_group[labels_level_name]
+        reference_level = reference_zarr_group[level_name]
         logger.info(
             "%s: %s/%s %s -> %s/%s %s",
             level_name, args.labels_group_name, labels_level_name, labels_level.shape,
@@ -211,7 +226,7 @@ def main() -> None:
             labels_grids[labels_level_name],
             reference_level,
             reference_grid,
-            output_group,
+            output_zarr_group,
             level_name,
             args.overwrite,
         )
