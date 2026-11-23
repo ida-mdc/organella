@@ -289,8 +289,9 @@ def _itk_voxel_size_um(source_path: Path, ndim: int) -> Tuple[float, ...]:
 def _ref_voxel_size_um(ref: ArrayRef, ndim: int) -> Tuple[float, ...]:
     """Sample size in µm from the store's own metadata, which records nanometres.
 
-    Two conventions, both OpenOrganelle's: the ``multiscales`` transform on the parent
-    group, which is per scale level and so the one that matters for a downsampled array,
+    Two conventions: the ``multiscales`` transform on the parent group (OpenOrganelle's
+    ``transform``, OME-Zarr's ``coordinateTransformations``), which is per scale level and so
+    the one that matters for a downsampled array,
     and ``pixelResolution`` on the array. A store with neither is an error naming
     --voxel-size-um.
     """
@@ -304,6 +305,9 @@ def _ref_voxel_size_um(ref: ArrayRef, ndim: int) -> Tuple[float, ...]:
         for entry in (attrs.get("multiscales") or [{}])[0].get("datasets", []):
             if entry.get("path") == level:
                 scale = (entry.get("transform") or {}).get("scale")
+                for step in entry.get("coordinateTransformations") or []:     # OME-Zarr
+                    if step.get("type") == "scale":
+                        scale = step.get("scale")
                 break
     if scale is None:
         res = dict(_array(ref).attrs).get("pixelResolution") or {}

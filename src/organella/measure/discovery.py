@@ -157,8 +157,8 @@ def read_manifest(path: Path) -> Discovery:
           "store": "s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.n5",
           "scale": "s0",                       # appended to every array path below
           "crop": "3456:3968,256:768,5504:6016",
-          "source": "em/fibsem-uint16",
-          "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" },
+          "source": "em/fibsem-uint16",        # optional; else the first entity sets shape and voxel size
+          "entities": { "mito": "labels/mito_seg", "er": "labels/er_seg" },   # all with the same grid
           "voxel_size_um": [0.00524, 0.004, 0.004],     # optional; else from the store
           "masks": { "cell": "cell_mask.tif" },         # optional; files beside the manifest
           "object_mask": "cell"                         # optional; what --object-mask defaults to
@@ -187,8 +187,6 @@ def read_manifest(path: Path) -> Discovery:
     entities_named = manifest.get("entities") or {}
     if not store:
         return Discovery(None, {}, None, [], [], [f"{path.name} names no 'store'"])
-    if not manifest.get("source"):
-        return Discovery(None, {}, None, [], [], [f"{path.name} names no 'source' array"])
     if not entities_named:
         return Discovery(None, {}, None, [], [], [f"{path.name} names no 'entities'"])
 
@@ -228,8 +226,13 @@ def read_manifest(path: Path) -> Discovery:
 
     voxel = manifest.get("voxel_size_um")
     voxel_size = tuple(float(v) for v in voxel) if voxel else None
+    if manifest.get("source"):
+        source = ref(manifest["source"], path.parent.name)
+    else:
+        # No raw image: the grid and the voxel size come from the first entity.
+        source = next(e.ref for e in entities.values() if e.ref is not None)
     return Discovery(
-        source=ref(manifest["source"], path.parent.name),
+        source=source,
         entities=entities,
         object_mask_name=normalize_name(str(manifest.get("object_mask") or "")) or None,
         unparsed=[],

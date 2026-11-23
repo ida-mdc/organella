@@ -36,7 +36,7 @@ from organella.measure.discovery import (
     label_declared_instances,
     promote_multicomponent_masks,
 )
-from organella.measure.readers import read_header, voxel_size_source as _voxel_size_source
+from organella.measure.readers import ArrayRef, read_voxel_size_um, read_header, voxel_size_source as _voxel_size_source
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,8 @@ def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
             if finite.size and not np.all(np.equal(np.mod(finite, 1), 0)):
                 raise ValueError(
                     f"{object_id}: entity '{name}' has non-integer values, so it is not a "
-                    "label or mask volume"
+                    "label or mask volume; convert it to integer labels or a mask first "
+                    "(for a zarr dataset, scripts/prediction_to_mask.py cuts a map at a threshold)"
                 )
         lo, hi = float(vol.min()), float(vol.max())
         if lo < 0:
@@ -76,6 +77,32 @@ def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
         if highest <= np.iinfo(dtype).max:
             return np.dtype(dtype)
     return np.dtype(np.uint64)
+
+
+def find_voxel_size_um_in_zarr_dataset(array_ref: ArrayRef, ndim: int) -> Tuple[float, ...] | None:
+    """The voxel size the zarr dataset records for this array, or None when it records none."""
+    try:
+        return read_voxel_size_um(array_ref, ndim)
+    except ValueError:
+        return None
+
+
+def assert_same_grid_sizes(dataset: Dataset, ndim: int) -> None:
+    """Refuse an zarr dataset, whose label/instance mask arrays have different voxel sizes."""
+    array_refs = {"reference": dataset.source}
+    array_refs.update({entity.name: entity.ref for entity in dataset.entities.values() if entity.ref is not None})
+
+    voxel_sizes_um = {}
+    for name, array_ref in array_refs.items():
+        voxel_size_um = find_voxel_size_um_in_zarr_dataset(array_ref, ndim)
+        if voxel_size_um is not None:
+            voxel_sizes_um[name] = voxel_size_um
+
+    if len(set(voxel_sizes_um.values())) > 1:
+        raise ValueError(
+            f"the arrays are not on one grid, voxel sizes in µm: {voxel_sizes_um}; "
+            "bring them onto one grid! (for zarr upsampling with scripts/upsample_labels.py)"
+        )
 
 
 def _stack_narrowest(volumes: Dict[str, np.ndarray], keys: List[str], object_id: str) -> np.ndarray:
@@ -337,12 +364,15 @@ def load_object(object_dir: Path, config: RunConfig | None = None) -> ObjectStac
     # lies and the columns that need a boundary go unfilled.
     object_mask_key = key_for_name(dataset.entities, dataset.object_mask_name)
     volumes = {key: load_volume(entity.source) for key, entity in dataset.entities.items()}
+    assert_same_grid_sizes(dataset, ndim)
 
     for key, vol in volumes.items():
         if vol.shape != source_shape:
             raise ValueError(
                 f"{object_dir.name}: entity '{dataset.entities[key].name}' has shape {vol.shape}, "
-                f"source image has {source_shape}"
+                f"source image has {source_shape}; all arrays of one object must have the same shape "
+                "(for a zarr dataset, scripts/upsample_labels.py puts an array of another scale onto "
+                "the reference grid)"
             )
 
     resolve_auto_kinds(volumes, dataset.entities, object_mask_key)
