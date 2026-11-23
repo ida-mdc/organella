@@ -2631,7 +2631,7 @@ function onLoaded() {
   fillNouns();
   syncTopbarHeight();
   var geomBtn = document.getElementById('geom-btn');
-  if (objectsClaimingGeometry().length) geomBtn.classList.remove('d-none');
+  geomBtn.classList.remove('d-none');
   initFilters();
   renderAll();
   // A base URL means the geometry can be read without anyone choosing a folder, which is
