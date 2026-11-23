@@ -66,7 +66,8 @@ def _label_dtype(volumes: Dict[str, np.ndarray], object_id: str) -> np.dtype:
             if finite.size and not np.all(np.equal(np.mod(finite, 1), 0)):
                 raise ValueError(
                     f"{object_id}: entity '{name}' has non-integer values, so it is not a "
-                    "label or mask volume"
+                    "label or mask volume; convert it to integer labels or a mask first "
+                    "(for a zarr dataset, examples/prediction_to_mask.py cuts a map at a threshold)"
                 )
         lo, hi = float(vol.min()), float(vol.max())
         if lo < 0:
